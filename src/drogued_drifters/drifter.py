@@ -161,26 +161,22 @@ class DroguedDrifter:
 
         U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b, ds_subset)
 
-        dyn_params = (*par_vals, U_b, V_b, U_d, V_d)
+        dyn_params = (U_b, V_b, U_d, V_d)
 
         eps = 0.1 / 180 * np.pi
         theta = q[2]
         if abs(theta - np.pi) < eps:
             qd[3] *= 0.9
-            M_num = np.array(
-                self.M_lbd(t, *q, *qd, *dyn_params), dtype=float
-            )  # als dict
-            F_num = np.array(self.F_lbd(t, *q, *qd, *dyn_params), dtype=float).reshape(
+            M_num = np.array(self.M_num(t, *q, *qd, *dyn_params), dtype=float)
+            F_num = np.array(self.F_num(t, *q, *qd, *dyn_params), dtype=float).reshape(
                 -1
             )
             qdd = np.empty(shape=(4,))
             qdd[:3] = np.linalg.solve(M_num[:3, :3], F_num[:3])
             qdd[3] = 0
         else:
-            M_num = np.array(
-                self.M_lbd(t, *q, *qd, *dyn_params), dtype=float
-            )  # als dict
-            F_num = np.array(self.F_lbd(t, *q, *qd, *dyn_params), dtype=float).reshape(
+            M_num = np.array(self.M_num(t, *q, *qd, *dyn_params), dtype=float)
+            F_num = np.array(self.F_num(t, *q, *qd, *dyn_params), dtype=float).reshape(
                 -1
             )
             qdd = np.linalg.solve(M_num, F_num)
