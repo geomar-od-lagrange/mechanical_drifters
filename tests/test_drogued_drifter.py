@@ -32,3 +32,18 @@ def test_MF_evaluates():
 
     assert len(np.array(M).squeeze().shape) == 2, "M not 2dim"
     assert len(np.array(F).squeeze().shape) == 1, "F not 1dim"
+
+
+def test_no_netto_drift_for_no_curents():
+    t_span = (0.0, 30.0)
+    y_0 = (0, 0, 0, 0)
+
+    def _getuv_zero(t, z_d, y_b, x_b, ds_subset):
+        return 0.0, 0.0, 0.0, 0.0
+
+    dd = DroguedDrifter(get_uv=_getuv_zero)
+
+    U_netto, V_netto, _, _ = dd.get_netto_uv(t_span=t_span, y0=y_0)
+
+    np.testing.assert_almost_equal(U_netto, 0.0)
+    np.testing.assert_almost_equal(V_netto, 0.0)
