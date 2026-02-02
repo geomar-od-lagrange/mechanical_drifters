@@ -4,12 +4,12 @@ import sympy as sp
 from drogued_drifters.lagrange_model import M, F, args
 import functools
 
+
 @functools.lru_cache()
 def M_F_cashed():
     M_lbd = sp.lambdify(args, M, modules="numpy")
     F_lbd = sp.lambdify(args, F, modules="numpy")
     return M_lbd, F_lbd
-
 
 
 class DroguedDrifter:
@@ -37,27 +37,35 @@ class DroguedDrifter:
         else:
             self.get_uv = self.default_uv
 
-        self.M_lbd, self.F_lbd = self.solve_sp_MF()
+        # self.M_lbd, self.F_lbd = self.solve_sp_MF()
+
+    @property
+    def M_lbd(self):
+        return self.solve_sp_MF()[0]
+
+    @property
+    def F_lbd(self):
+        return self.solve_sp_MF()[1]
 
     def solve_sp_MF(self):
         return M_F_cashed()
 
     par_syms = args[9:15]
-    
+
     def par_dict(self):
         return {
-        "m_b": self.m_b,
-        "m_d": self.m_d,
-        "l":   self.l,
-        "g":   self.g,
-        "k_b": self.k_b,
-        "k_d": self.k_d,
+            "m_b": self.m_b,
+            "m_d": self.m_d,
+            "l": self.l,
+            "g": self.g,
+            "k_b": self.k_b,
+            "k_d": self.k_d,
         }
 
     def par_vals(self):
         par_dict = self.par_dict()
         return tuple(par_dict[str(s)] for s in self.par_syms)
-    
+
     def default_uv(self, t, z_d, y_b, x_b, ds_subset):
         U_b, V_b = 1.0, 1.0
         # factor = np.exp(-abs(z_d) / 6.0)
