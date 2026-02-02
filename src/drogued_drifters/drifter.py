@@ -41,11 +41,89 @@ class DroguedDrifter:
 
     @property
     def M_lbd(self):
-        return self.solve_sp_MF()[0]
+        _M_lbd, _ = self.solve_sp_MF()
+        return _M_lbd
 
     @property
     def F_lbd(self):
-        return self.solve_sp_MF()[1]
+        _, _F_lbd = self.solve_sp_MF()
+        return _F_lbd
+
+    def M_num(
+        self,
+        t: float = 0,
+        x_b: float = 0,
+        x_d: float = 0,
+        theta: float = 3 * np.pi / 4,
+        phi: float = 0,
+        x_b_d: float = 0,
+        x_d_d: float = 0,
+        theta_d: float = 0,
+        phi_d: float = 0,
+        U_b: float = 0,
+        V_b: float = 0,
+        U_d: float = 0,
+        V_d: float = 0,
+    ):
+        return self.M_lbd(
+            t,
+            x_b,
+            x_d,
+            theta,
+            phi,
+            x_b_d,
+            x_d_d,
+            theta_d,
+            phi_d,
+            self.m_b,
+            self.m_d,
+            self.l,
+            self.g,
+            self.k_b,
+            self.k_d,
+            U_b,
+            V_b,
+            U_d,
+            V_d,
+        )
+
+    def F_num(
+        self,
+        t: float = 0,
+        x_b: float = 0,
+        x_d: float = 0,
+        theta: float = 3 * np.pi / 4,
+        phi: float = 0,
+        x_b_d: float = 0,
+        x_d_d: float = 0,
+        theta_d: float = 0,
+        phi_d: float = 0,
+        U_b: float = 0,
+        V_b: float = 0,
+        U_d: float = 0,
+        V_d: float = 0,
+    ):
+        return self.F_lbd(
+            t,
+            x_b,
+            x_d,
+            theta,
+            phi,
+            x_b_d,
+            x_d_d,
+            theta_d,
+            phi_d,
+            self.m_b,
+            self.m_d,
+            self.l,
+            self.g,
+            self.k_b,
+            self.k_d,
+            U_b,
+            V_b,
+            U_d,
+            V_d,
+        )
 
     def solve_sp_MF(self):
         return M_F_cashed()

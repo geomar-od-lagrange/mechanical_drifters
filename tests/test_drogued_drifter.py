@@ -25,10 +25,10 @@ def test_MF_evaluates():
 
     U_b, V_b, U_d, V_d = dd.get_uv(t, z_d, y_b, x_b, None)
 
-    dyn_params = (*dd.par_vals(), U_b, V_b, U_d, V_d)
+    dyn_params = (U_b, V_b, U_d, V_d)
 
-    M = dd.M_lbd(t, *q, *qd, *dyn_params)
-    F = dd.F_lbd(t, *q, *qd, *dyn_params)
+    M = dd.M_num(t, *q, *qd, *dyn_params)
+    F = dd.F_num(t, *q, *qd, *dyn_params)
 
     assert len(np.array(M).squeeze().shape) == 2, "M not 2dim"
     assert len(np.array(F).squeeze().shape) == 1, "F not 1dim"
