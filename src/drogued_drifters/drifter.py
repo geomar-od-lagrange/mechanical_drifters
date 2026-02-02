@@ -2,10 +2,17 @@ import numpy as np
 from scipy.integrate import solve_ivp
 import sympy as sp
 from drogued_drifters.lagrange_model import M, F, args
+import functools
+
+@functools.lru_cache()
+def M_F_cashed():
+    M_lbd = sp.lambdify(args, M, modules="numpy")
+    F_lbd = sp.lambdify(args, F, modules="numpy")
+    return M_lbd, F_lbd
+
 
 
 class DroguedDrifter:
-    MF_CACHE = None  # use functools
 
     def __init__(
         self,
@@ -33,16 +40,7 @@ class DroguedDrifter:
         self.M_lbd, self.F_lbd = self.solve_sp_MF()
 
     def solve_sp_MF(self):
-
-        if DroguedDrifter.MF_CACHE is not None:
-            return DroguedDrifter.MF_CACHE
-
-        M_lbd = sp.lambdify(args, M, modules="numpy")
-        F_lbd = sp.lambdify(args, F, modules="numpy")
-
-        DroguedDrifter.MF_CACHE = (M_lbd, F_lbd)
-
-        return M_lbd, F_lbd
+        return M_F_cashed()
 
     par_syms = args[9:15]
     
@@ -58,7 +56,7 @@ class DroguedDrifter:
 
     def par_vals(self):
         par_dict = self.par_dict()
-        return tuple(par_dict[s] for s in par_syms)
+        return tuple(par_dict[str(s)] for s in self.par_syms)
     
     def default_uv(self, t, z_d, y_b, x_b, ds_subset):
         U_b, V_b = 1.0, 1.0
