@@ -19,7 +19,7 @@ class DroguedDrifter:
         m_b: float = 0.5,
         m_d: float = 0.5,
         l: float = 3.0,
-        k_b: float = 0.5,
+        k_b: float = 1.5,
         k_d: float = 2.0,
         g: float = 9.81,
         get_uv=None,
@@ -157,7 +157,7 @@ class DroguedDrifter:
 
         x_b, y_b, th, ph = q
 
-        z_d = float(max(0.0, self.l * np.cos(th)))
+        z_d = float(max(0.0, -self.l * np.cos(th)))
 
         U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b, ds_subset)
 
