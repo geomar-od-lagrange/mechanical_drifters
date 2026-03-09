@@ -159,7 +159,10 @@ class DroguedDrifter:
 
         z_d = float(max(0.0, -self.l * np.cos(th)))
 
-        U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b, ds_subset)
+        if ds_subset is not None:
+            U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b, ds_subset)
+        else: 
+            U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b)
 
         dyn_params = (U_b, V_b, U_d, V_d)
 
