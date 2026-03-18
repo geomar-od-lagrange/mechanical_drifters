@@ -1,206 +1,163 @@
 import numpy as np
 from scipy.integrate import solve_ivp
-import sympy as sp
-from drogued_drifters.lagrange_model import M, F, args
-import functools
 
-
-@functools.lru_cache()
-def M_F_cashed():
-    M_lbd = sp.lambdify(args, M, modules="numpy")
-    F_lbd = sp.lambdify(args, F, modules="numpy")
-    return M_lbd, F_lbd
+from drogued_drifters.lagrange_model import M_func, F_func
 
 
 class DroguedDrifter:
+    """Simulator for a drogued drifter in ocean currents.
+
+    A drogued drifter consists of a surface buoy connected by a wire of length
+    ``l`` to a subsurface drogue. Both experience quadratic drag from the
+    surrounding water. The equations of motion are derived from a Lagrangian
+    formulation (see ``lagrange_model``).
+
+    The state vector has 8 components: ``[x, y, theta, phi, xd, yd, thetad, phid]``
+    where ``(x, y)`` is the buoy position, ``(theta, phi)`` are the tether angles,
+    and ``d`` denotes time derivatives.
+
+    Args:
+        m_b: Buoy mass [kg].
+        m_d: Drogue mass [kg].
+        l: Wire length [m].
+        k_b: Buoy drag coefficient.
+        k_d: Drogue drag coefficient.
+        g: Gravitational acceleration [m/s^2].
+        get_uv: Callback that returns ocean currents at a given position.
+            Must have signature ``get_uv(*, t, z_d, y_b, x_b)`` and return
+            ``(U_b, V_b, U_d, V_d)``. If None, uses ``default_uv``.
+            Use ``functools.partial`` to bind external data (e.g. an xarray
+            dataset) before passing it here.
+    """
 
     def __init__(
-        self,
-        m_b: float = 0.5,
-        m_d: float = 0.5,
-        l: float = 3.0,
-        k_b: float = 1.5,
-        k_d: float = 2.0,
-        g: float = 9.81,
-        get_uv=None,
+        self, *, m_b=0.5, m_d=0.5, l=3.0, k_b=1.5, k_d=2.0, g=9.81, get_uv=None
     ):
-        # DroguedDrifter attributes hold physics parameters (masses, drag coeffs, ...)
-        self.k_b = float(k_b)
-        self.k_d = float(k_d)
-        self.m_b = float(m_b)
-        self.m_d = float(m_d)
-        self.l = float(l)
-        self.g = float(g)
+        self.m_b = m_b
+        self.m_d = m_d
+        self.l = l
+        self.k_b = k_b
+        self.k_d = k_d
+        self.g = g
 
         if get_uv is not None:
             self.get_uv = get_uv
         else:
             self.get_uv = self.default_uv
 
-        # self.M_lbd, self.F_lbd = self.solve_sp_MF()
+    def default_uv(self, *, t, z_d, y_b, x_b):
+        """Default velocity callback for testing. Returns uniform currents.
 
-    @property
-    def M_lbd(self):
-        _M_lbd, _ = self.solve_sp_MF()
-        return _M_lbd
+        Args:
+            t: Time [s].
+            z_d: Drogue depth [m], positive downward.
+            y_b: Buoy y position [m].
+            x_b: Buoy x position [m].
 
-    @property
-    def F_lbd(self):
-        _, _F_lbd = self.solve_sp_MF()
-        return _F_lbd
-
-    def M_num(
-        self,
-        t: float = 0,
-        x_b: float = 0,
-        x_d: float = 0,
-        theta: float = 3 * np.pi / 4,
-        phi: float = 0,
-        x_b_d: float = 0,
-        x_d_d: float = 0,
-        theta_d: float = 0,
-        phi_d: float = 0,
-        U_b: float = 0,
-        V_b: float = 0,
-        U_d: float = 0,
-        V_d: float = 0,
-    ):
-        return self.M_lbd(
-            t,
-            x_b,
-            x_d,
-            theta,
-            phi,
-            x_b_d,
-            x_d_d,
-            theta_d,
-            phi_d,
-            self.m_b,
-            self.m_d,
-            self.l,
-            self.g,
-            self.k_b,
-            self.k_d,
-            U_b,
-            V_b,
-            U_d,
-            V_d,
-        )
-
-    def F_num(
-        self,
-        t: float = 0,
-        x_b: float = 0,
-        x_d: float = 0,
-        theta: float = 3 * np.pi / 4,
-        phi: float = 0,
-        x_b_d: float = 0,
-        x_d_d: float = 0,
-        theta_d: float = 0,
-        phi_d: float = 0,
-        U_b: float = 0,
-        V_b: float = 0,
-        U_d: float = 0,
-        V_d: float = 0,
-    ):
-        return self.F_lbd(
-            t,
-            x_b,
-            x_d,
-            theta,
-            phi,
-            x_b_d,
-            x_d_d,
-            theta_d,
-            phi_d,
-            self.m_b,
-            self.m_d,
-            self.l,
-            self.g,
-            self.k_b,
-            self.k_d,
-            U_b,
-            V_b,
-            U_d,
-            V_d,
-        )
-
-    def solve_sp_MF(self):
-        return M_F_cashed()
-
-    par_syms = args[9:15]
-
-    def par_dict(self):
-        return {
-            "m_b": self.m_b,
-            "m_d": self.m_d,
-            "l": self.l,
-            "g": self.g,
-            "k_b": self.k_b,
-            "k_d": self.k_d,
-        }
-
-    def par_vals(self):
-        par_dict = self.par_dict()
-        return tuple(par_dict[str(s)] for s in self.par_syms)
-
-    def default_uv(self, t, z_d, y_b, x_b, ds_subset):
+        Returns:
+            Tuple of ``(U_b, V_b, U_d, V_d)`` current velocities [m/s].
+        """
         U_b, V_b = 1.0, 1.0
-        # factor = np.exp(-abs(z_d) / 6.0)
-        # U_d, V_d = U_b * factor, V_b * factor
         U_d, V_d = -1.0, -1.0
         return U_b, V_b, U_d, V_d
 
-    def rhs(self, t, y, ds_subset=None):
-        q = y[:4]
-        qd = y[4:]
+    def _eval_M_F(self, t, x, y, theta, phi, xd, yd, thetad, phid, currents):
+        """Evaluate mass matrix and force vector numerically."""
+        U_b, V_b, U_d, V_d = currents
+        kwargs = dict(
+            t=t,
+            x=x,
+            y=y,
+            theta=theta,
+            phi=phi,
+            xd=xd,
+            yd=yd,
+            thetad=thetad,
+            phid=phid,
+            m_b=self.m_b,
+            m_d=self.m_d,
+            l=self.l,
+            g=self.g,
+            k_b=self.k_b,
+            k_d=self.k_d,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
+        )
+        M = np.array(M_func(**kwargs), dtype=float)
+        F = np.array(F_func(**kwargs), dtype=float).reshape(-1)
+        return M, F
 
-        x_b, y_b, th, ph = q
+    def rhs(self, t, y):
+        """Right-hand side of the ODE system for ``solve_ivp``.
 
-        z_d = float(max(0.0, -self.l * np.cos(th)))
+        Args:
+            t: Current time [s].
+            y: State vector of length 8:
+                ``[x, y, theta, phi, xd, yd, thetad, phid]``.
 
-        U_b, V_b, U_d, V_d = self.get_uv(t, z_d, y_b, x_b, ds_subset)
+        Returns:
+            Time derivatives of the state vector (length 8).
+        """
+        x_b, y_b, theta, phi, xd, yd, thetad, phid = y
 
-        dyn_params = (U_b, V_b, U_d, V_d)
+        z_d = float(max(0.0, -self.l * np.cos(theta)))
+
+        currents = self.get_uv(t=t, z_d=z_d, y_b=y_b, x_b=x_b)
 
         eps = 0.1 / 180 * np.pi
-        theta = q[2]
         if abs(theta - np.pi) < eps:
-            qd[3] *= 0.9
-            M_num = np.array(self.M_num(t, *q, *qd, *dyn_params), dtype=float)
-            F_num = np.array(self.F_num(t, *q, *qd, *dyn_params), dtype=float).reshape(
-                -1
+            phid = phid * 0.9
+            M, F = self._eval_M_F(
+                t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
             )
             qdd = np.empty(shape=(4,))
-            qdd[:3] = np.linalg.solve(M_num[:3, :3], F_num[:3])
+            qdd[:3] = np.linalg.solve(M[:3, :3], F[:3])
             qdd[3] = 0
         else:
-            M_num = np.array(self.M_num(t, *q, *qd, *dyn_params), dtype=float)
-            F_num = np.array(self.F_num(t, *q, *qd, *dyn_params), dtype=float).reshape(
-                -1
+            M, F = self._eval_M_F(
+                t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
             )
-            qdd = np.linalg.solve(M_num, F_num)
+            qdd = np.linalg.solve(M, F)
 
-        return np.concatenate([qd, qdd])
+        return np.array([xd, yd, thetad, phid, *qdd])
 
-    def get_full_solution(
-        self, t_span, y0, ds_subset=None, t_eval=None, atol=1e-3, rtol=1e-3
-    ):
-        # TODO: this method gets initial conditions and runtime etc.
-        sol = solve_ivp(
-            self.rhs, t_span, y0, args=(ds_subset,), atol=atol, rtol=rtol, t_eval=t_eval
-        )
+    def get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
+        """Integrate the equations of motion over a time span.
+
+        Args:
+            t_span: ``(t_start, t_end)`` in seconds.
+            y0: Initial state vector of length 8.
+            t_eval: Times at which to store the solution. If None, the solver
+                chooses its own time steps.
+            atol: Absolute tolerance for the ODE solver.
+            rtol: Relative tolerance for the ODE solver.
+
+        Returns:
+            ``scipy.integrate.OdeResult`` with fields ``.t`` and ``.y``.
+        """
+        sol = solve_ivp(self.rhs, t_span, y0, atol=atol, rtol=rtol, t_eval=t_eval)
         return sol
 
-    def get_netto_uv(self, t_span, y0, ds_subset=None, t_eval=None):
-        # TODO: this method gets initial conditions and runtime etc.
-        # TODO: this method gets U,V profile
-        # TODO: Calls .get_full_solution() and extracts netto equilibrium drift
+    def get_final_drift(self, t_span, y0, t_eval=None):
+        """Integrate and return the buoy drift velocity at the end.
 
-        sol = self.get_full_solution(t_span, y0, ds_subset=ds_subset, t_eval=t_eval)
+        Args:
+            t_span: ``(t_start, t_end)`` in seconds.
+            y0: Initial state vector of length 8.
+            t_eval: Times at which to store the solution.
 
-        Eq_U_Drift = sol.y[4, -1]
-        Eq_V_Drift = sol.y[5, -1]
-        y_next = sol.y[:, -1]
+        Returns:
+            Tuple of ``(U_drift, V_drift, y_final, sol)`` where
+            ``U_drift`` and ``V_drift`` are the buoy velocities at ``t_end``
+            [m/s], ``y_final`` is the final state vector, and ``sol`` is the
+            full ``OdeResult``.
+        """
+        sol = self.get_full_solution(t_span, y0, t_eval=t_eval)
 
-        return Eq_U_Drift, Eq_V_Drift, y_next, sol
+        U_drift = sol.y[4, -1]
+        V_drift = sol.y[5, -1]
+        y_final = sol.y[:, -1]
+
+        return U_drift, V_drift, y_final, sol
