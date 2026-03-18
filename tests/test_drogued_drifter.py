@@ -36,7 +36,7 @@ def test_MF_evaluates():
     assert len(F.squeeze().shape) == 1, "F not 1dim"
 
 
-def test_no_netto_drift_for_no_curents():
+def test_no_drift_for_zero_currents():
     t_span = (0.0, 30.0)
     y_0 = (0, 0, 0.999 * np.pi, 0, 0, 0, 0, 0)
 

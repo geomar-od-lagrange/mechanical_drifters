@@ -3,3 +3,4 @@
 .pixi/*
 !.pixi/config.toml
 *.pyc
+*.nc

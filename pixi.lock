@@ -1134,11 +1134,12 @@ packages:
 - pypi: ./
   name: drogued-drifters
   version: 0.1.0
-  sha256: c5fe3bd9be4dc76625b01d82605a4867fac9a2acba8bb2a3e6a369204bd786ac
+  sha256: 5c304a641963cea8086d6d2914ed40e7517ee398e39d5b560df8dc1a8565e15c
   requires_dist:
   - sympy
   - numpy
   - scipy
+  - xarray
   requires_python: '>=3.11'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/exceptiongroup-1.3.1-pyhd8ed1ab_0.conda

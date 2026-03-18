@@ -1,5 +1,5 @@
 [project]
-dependencies = ["sympy", "numpy", "scipy"]                              
+dependencies = ["sympy", "numpy", "scipy", "xarray"]
 name = "drogued_drifters"
 requires-python = ">= 3.11"
 version = "0.1.0"

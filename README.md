@@ -12,5 +12,5 @@ $ pixi shell
 
 Run tests
 ```shell
-$ pixi run pytest -v .
+$ pixi run pytest -v
 ```
