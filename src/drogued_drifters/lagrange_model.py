@@ -147,9 +147,9 @@ def M_func(
         t: Time [s].
         x: Buoy x position [m].
         y: Buoy y position [m].
-        theta: Tether polar angle from +z (upward) [rad]. theta=0 means drogue
+        theta: Pole polar angle from +z (upward) [rad]. theta=0 means drogue
             is directly above the buoy, theta=pi means directly below.
-        phi: Tether azimuthal angle [rad].
+        phi: Pole azimuthal angle [rad].
         xd: Time derivative of x [m/s].
         yd: Time derivative of y [m/s].
         thetad: Time derivative of theta [rad/s].

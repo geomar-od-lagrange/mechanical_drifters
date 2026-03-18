@@ -6,7 +6,7 @@ derives equations of motion from a Lagrangian formulation using SymPy, then
 integrates numerically with SciPy.
 
 The state vector is `[x, y, theta, phi, xd, yd, thetad, phid]` where `(x, y)`
-is the buoy position, `theta` is the tether polar angle (theta=pi means drogue
+is the buoy position, `theta` is the pole polar angle (theta=pi means drogue
 hangs straight down), and `phi` is the azimuthal angle.
 
 ## Quick start

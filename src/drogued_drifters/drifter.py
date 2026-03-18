@@ -84,7 +84,7 @@ class DroguedDrifter:
     formulation (see ``lagrange_model``).
 
     The state vector has 8 components: ``[x, y, theta, phi, xd, yd, thetad, phid]``
-    where ``(x, y)`` is the buoy position, ``(theta, phi)`` are the tether angles,
+    where ``(x, y)`` is the buoy position, ``(theta, phi)`` are the pole angles,
     and ``d`` denotes time derivatives.
 
     Default parameters are for Callies et al. drifter geometry.
@@ -255,8 +255,8 @@ class DroguedDrifter:
             t_span: ``(t_start, t_end)`` in seconds.
             x: Initial buoy x position [m].
             y: Initial buoy y position [m].
-            theta: Initial tether polar angle [rad] (default ~pi, hanging down).
-            phi: Initial tether azimuthal angle [rad].
+            theta: Initial pole polar angle [rad] (default ~pi, hanging down).
+            phi: Initial pole azimuthal angle [rad].
             xd: Initial buoy x velocity [m/s].
             yd: Initial buoy y velocity [m/s].
             thetad: Initial theta angular velocity [rad/s].
