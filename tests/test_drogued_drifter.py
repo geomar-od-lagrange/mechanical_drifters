@@ -51,3 +51,21 @@ def test_no_netto_drift_for_no_curents():
 
     np.testing.assert_almost_equal(U_drift, 0.0, decimal=1)
     np.testing.assert_almost_equal(V_drift, 0.0, decimal=1)
+
+
+def test_no_drift_for_theta_pi_zero_currents():
+    """Drogue hangs straight down (theta=pi), no currents: should stay at rest."""
+    t_span = (0.0, 30.0)
+    y_0 = (0, 0, np.pi, 0, 0, 0, 0, 0)
+
+    def _getuv_zero(*, t, z_d, y_b, x_b):
+        return 0.0, 0.0, 0.0, 0.0
+
+    dd = DroguedDrifter(get_uv=_getuv_zero)
+
+    U_drift, V_drift, y_final, sol = dd.get_final_drift(
+        t_span=t_span, y0=y_0, t_eval=(0, 30.0)
+    )
+
+    np.testing.assert_almost_equal(U_drift, 0.0, decimal=1)
+    np.testing.assert_almost_equal(V_drift, 0.0, decimal=1)
