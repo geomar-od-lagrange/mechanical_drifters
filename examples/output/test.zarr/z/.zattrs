@@ -1,0 +1,9 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "trajectory",
+        "obs"
+    ],
+    "positive": "down",
+    "standard_name": "vertical coordinate",
+    "units": "m"
+}

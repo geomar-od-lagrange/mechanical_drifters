@@ -1,0 +1,9 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "trajectory",
+        "obs"
+    ],
+    "axis": "T",
+    "standard_name": "time",
+    "units": "seconds"
+}

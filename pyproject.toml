@@ -1,12 +1,15 @@
 [project]
-dependencies = ["sympy", "numpy", "scipy", "xarray"]
+dependencies = ["sympy", "numpy", "scipy", "xarray", "parcels @ git+https://github.com/OceanParcels/parcels.git@main"]
 name = "drogued_drifters"
 requires-python = ">= 3.11"
 version = "0.1.0"
 
-[build-system] 
+[build-system]
 build-backend = "hatchling.build"
 requires = ["hatchling"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
@@ -24,3 +27,6 @@ pytest = ">=9.0.2,<10"
 black = ">=26.1.0,<27"
 black-jupyter = ">=26.1.0,<27"
 copernicusmarine = ">=2.3.0,<3"
+netcdf4 = ">=1.7.4,<2"
+pyproj = ">=3.7.2,<4"
+papermill = ">=2.7.0,<3"

@@ -119,6 +119,8 @@ class DroguedDrifter:
         k_d=154.0,
         g=9.81,
         get_uv=None,
+        phi_reg_eps=0.1,
+        phi_reg_nu=20.0,
     ):
         self.m_b = m_b
         self.m_d = m_d
@@ -129,6 +131,8 @@ class DroguedDrifter:
         self.k_b = k_b
         self.k_d = k_d
         self.g = g
+        self.phi_reg_eps = phi_reg_eps  # regularization for sin²(theta) in M[3,3]
+        self.phi_reg_nu = phi_reg_nu  # phi damping coefficient [kg m² / s]
 
         if get_uv is not None:
             self.get_uv = get_uv
@@ -199,24 +203,191 @@ class DroguedDrifter:
 
         currents = self.get_uv(t=t, z_d=z_d, y_b=y_b, x_b=x_b)
 
-        eps = 0.1 / 180 * np.pi
-        if abs(theta - np.pi) < eps:
-            phid = phid * 0.9
-            M, F = self._eval_M_F(
-                t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
-            )
-            qdd = np.empty(shape=(4,))
-            qdd[:3] = np.linalg.solve(M[:3, :3], F[:3])
-            qdd[3] = 0
-        else:
-            M, F = self._eval_M_F(
-                t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
-            )
-            qdd = np.linalg.solve(M, F)
+        M, F = self._eval_M_F(
+            t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
+        )
+
+        # Smooth regularization of the phi singularity at theta=pi.
+        # M[3,3] ~ sin²(theta) → 0 there, making the system singular.
+        # We add eps² to sin²(theta) in M[3,3] and a dissipative torque
+        # -nu * phid that activates smoothly near the singularity.
+        eps2 = self.phi_reg_eps**2
+        st2 = np.sin(theta) ** 2
+        M[3, 3] += self.l**2 * (self.m_d + self.m_tilde_d) * eps2
+        F[3] -= self.phi_reg_nu * phid * eps2 / (st2 + eps2)
+
+        qdd = np.linalg.solve(M, F)
 
         return np.array([xd, yd, thetad, phid, *qdd])
 
     _state_vars = ["x", "y", "theta", "phi", "xd", "yd", "thetad", "phid"]
+
+    def _rhs_batch(self, Y, U_b, V_b, U_d, V_d):
+        """Vectorized RHS for N particles.
+
+        Args:
+            Y: State array of shape ``(N, 8)``.
+            U_b, V_b, U_d, V_d: Current velocities, each of shape ``(N,)``.
+
+        Returns:
+            Time derivatives ``dY/dt`` of shape ``(N, 8)``.
+        """
+        N = Y.shape[0]
+        x_b, y_b, theta, phi, xd, yd, thetad, phid = Y.T
+
+        ct, st = np.cos(theta), np.sin(theta)
+        cp, sp = np.cos(phi), np.sin(phi)
+
+        l = self.l
+        m_d = self.m_d
+        m_td = self.m_tilde_d
+        md_td = m_d + m_td  # combined drogue + added mass
+
+        # -- Mass matrix M: (N, 4, 4), symmetric ----------------------------
+        mt = self.m_b + m_d + self.m_tilde_b + m_td
+        a = md_td * l
+
+        M = np.zeros((N, 4, 4))
+        M[:, 0, 0] = mt
+        M[:, 1, 1] = mt
+        M[:, 0, 2] = a * ct * cp;         M[:, 2, 0] = M[:, 0, 2]
+        M[:, 0, 3] = -a * st * sp;        M[:, 3, 0] = M[:, 0, 3]
+        M[:, 1, 2] = a * ct * sp;         M[:, 2, 1] = M[:, 1, 2]
+        M[:, 1, 3] = a * st * cp;         M[:, 3, 1] = M[:, 1, 3]
+        M[:, 2, 2] = l**2 * (m_d + m_td * ct**2)
+        eps2 = self.phi_reg_eps**2
+        M[:, 3, 3] = l**2 * md_td * (st**2 + eps2)
+
+        # -- Force vector F: (N, 4) -----------------------------------------
+        # Drogue horizontal velocity
+        xd_d = xd + l * (thetad * ct * cp - phid * st * sp)
+        yd_d = yd + l * (thetad * ct * sp + phid * st * cp)
+
+        # Slip velocities
+        du_b, dv_b = xd - U_b, yd - V_b
+        du_d, dv_d = xd_d - U_d, yd_d - V_d
+
+        speed_b = np.sqrt(du_b**2 + dv_b**2)
+        speed_d = np.sqrt(du_d**2 + dv_d**2)
+
+        k_b, k_d = self.k_b, self.k_d
+
+        F = np.zeros((N, 4))
+
+        # F[0], F[1]: buoy + drogue drag + centrifugal
+        F[:, 0] = (
+            -k_b * speed_b * du_b
+            - k_d * speed_d * du_d
+            + md_td * l * (thetad**2 * st * cp + 2 * thetad * phid * ct * sp + phid**2 * st * cp)
+        )
+        F[:, 1] = (
+            -k_b * speed_b * dv_b
+            - k_d * speed_d * dv_d
+            + md_td * l * (thetad**2 * st * sp - 2 * thetad * phid * ct * cp + phid**2 * st * sp)
+        )
+
+        # F[2]: gravity + drogue drag projected onto theta + Coriolis
+        proj_theta = cp * xd + sp * yd + l * thetad * ct - cp * U_d - sp * V_d
+        F[:, 2] = (
+            (m_d - self.m_hat_d) * self.g * l * st
+            - l * ct * k_d * speed_d * proj_theta
+            + l**2 * st * ct * (m_td * thetad**2 + md_td * phid**2)
+        )
+
+        # F[3]: drogue drag projected onto phi + Coriolis + smooth damping
+        proj_phi = -sp * xd + cp * yd + l * phid * st + sp * U_d - cp * V_d
+        F[:, 3] = (
+            -l * st * k_d * speed_d * proj_phi
+            - 2 * md_td * l**2 * thetad * phid * ct * st
+            - self.phi_reg_nu * phid * eps2 / (st**2 + eps2)
+        )
+
+        # -- Solve M * qdd = F ----------------------------------------------
+        qdd = np.linalg.solve(M, F[..., np.newaxis]).squeeze(-1)
+
+        # Assemble dY/dt = [xd, yd, thetad, phid, xdd, ydd, thetadd, phidd]
+        dY = np.empty_like(Y)
+        dY[:, 0] = xd
+        dY[:, 1] = yd
+        dY[:, 2] = thetad
+        dY[:, 3] = phid
+        dY[:, 4:] = qdd
+        return dY
+
+    def get_final_drift_batch(
+        self,
+        *,
+        U_b,
+        V_b,
+        U_d,
+        V_d,
+        t_span=(0, 120),
+        y0=None,
+        theta0=0.999 * np.pi,
+        conv_tol=1e-4,
+        atol=1e-3,
+        rtol=1e-3,
+    ):
+        """Compute steady-state drift for N particles in one ``solve_ivp`` call.
+
+        Stacks all N particles into a single ``(8N,)`` ODE system so that
+        ``solve_ivp`` overhead is paid once, and the vectorized RHS
+        (``_rhs_batch``) evaluates all particles simultaneously.
+
+        Integration terminates early when the maximum acceleration across all
+        particles drops below ``conv_tol`` (global convergence detection).
+
+        Args:
+            U_b, V_b: Eastward/northward current at buoy, shape ``(N,)``.
+            U_d, V_d: Eastward/northward current at drogue, shape ``(N,)``.
+            t_span: Integration window ``(t_start, t_end)`` in seconds.
+            y0: Initial state array of shape ``(N, 8)``.  If ``None``,
+                starts from rest with ``theta=theta0``.
+            theta0: Initial pole angle [rad] (used only when ``y0`` is None).
+            conv_tol: Stop when ``max(|xdd|, |ydd|, |thetadd|, |phidd|) < conv_tol``
+                across all particles.
+            atol: Absolute tolerance for the ODE solver.
+            rtol: Relative tolerance for the ODE solver.
+
+        Returns:
+            Tuple ``(xd_final, yd_final, theta_final, Y_final)`` where
+            the first three are ``(N,)`` arrays and ``Y_final`` is the full
+            ``(N, 8)`` state (pass back as ``y0`` for warm-starting).
+        """
+        N = len(U_b)
+        U_b, V_b = np.asarray(U_b, dtype=float), np.asarray(V_b, dtype=float)
+        U_d, V_d = np.asarray(U_d, dtype=float), np.asarray(V_d, dtype=float)
+
+        if y0 is not None:
+            y0_flat = np.asarray(y0, dtype=float).reshape(N * 8)
+        else:
+            y0_flat = np.zeros(N * 8)
+            y0_flat[2::8] = theta0
+
+        def rhs_flat(t, y_flat):
+            Y = y_flat.reshape(N, 8)
+            dY = self._rhs_batch(Y, U_b, V_b, U_d, V_d)
+            return dY.ravel()
+
+        # Global convergence event: max velocity change rate across all particles.
+        # We track |d(xd)/dt| and |d(yd)/dt| (i.e., accelerations in x and y),
+        # which measures how fast the drift velocity is still changing.
+        def converged(t, y_flat):
+            Y = y_flat.reshape(N, 8)
+            dY = self._rhs_batch(Y, U_b, V_b, U_d, V_d)
+            # xdd = dY[:,4], ydd = dY[:,5]
+            max_drift_accel = np.max(np.abs(dY[:, 4:6]))
+            return max_drift_accel - conv_tol
+
+        converged.terminal = True
+        converged.direction = -1
+
+        sol = solve_ivp(
+            rhs_flat, t_span, y0_flat,
+            atol=atol, rtol=rtol, events=converged,
+        )
+        Y_final = sol.y[:, -1].reshape(N, 8)
+        return Y_final[:, 4], Y_final[:, 5], Y_final[:, 2], Y_final
 
     def _get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
         """Integrate the equations of motion (raw interface).
