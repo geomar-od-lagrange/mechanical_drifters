@@ -133,6 +133,70 @@ Key issues to fix:
 - The parcels integration pattern (custom kernel, fieldset sampling)
   stays the same
 
+## Alternative: precomputed drift velocity field
+
+Instead of solving F=0 per particle at runtime, precompute a 2D drift
+velocity field on the model grid and let parcels interpolate it like any
+other field. Drogued drifter particles then use standard AdvectionRK4 —
+no custom kernel, cost identical to passive tracers.
+
+### How it works
+
+1. **Offline, once per fieldset timestep**: For each (x, y, t) grid
+   point, extract the vertical profile U(z), V(z), solve F=0 (or use
+   α + fixed-point), store (u_drift, v_drift) as a 2D surface field.
+2. **Online**: Parcels interpolates the precomputed drift field to
+   particle positions. Standard AdvectionRK4, no custom kernel.
+
+### Interpolation error from nonlinearity
+
+The drift velocity is a nonlinear function of the velocity profile because
+the effective drogue depth z_eff depends on the shear magnitude. Linear
+interpolation of the precomputed drift field between grid points introduces
+an error where z_eff varies across a grid cell.
+
+Benchmarked for an exponential profile U(z) = U₀ exp(-z/H) with H = 3m:
+
+| U₀ variation across cell | Interpolation error |
+|---|---|
+| 2.0 → 2.5 m/s (25%) | 0.3% |
+| 0.5 → 1.5 m/s (3×) | 1.9% |
+| 0.0 → 2.0 m/s (large) | 7.5% |
+| 0.5 → 5.0 m/s (10×) | 7.9% |
+
+For a well-resolved ocean model (~1/12°, ~8 km), velocity changes of
+10–30% per grid cell are typical, giving **~1–2% interpolation error** —
+comparable to the model's own discretization error. Only at sharp,
+unresolved fronts (jet boundaries) does the error reach 5–8%.
+
+The error is dominated by the z_eff nonlinearity. The α weighting itself
+is linear and interpolates exactly.
+
+### Preprocessing cost
+
+One fsolve call per grid point per timestep:
+- 100 × 100 grid, 100 timesteps = 1M calls × 150 μs = ~150 s
+- Embarrassingly parallel (each grid point is independent)
+- Output: two 2D fields (u_drift, v_drift) per timestep, same size as
+  surface U, V
+
+Can also store z_eff as a diagnostic field.
+
+### Trade-offs vs per-particle fsolve
+
+| | Precomputed field | Per-particle fsolve |
+|---|---|---|
+| Runtime cost | Passive tracer (free) | ~30 ms / 210 particles |
+| Preprocessing | ~150 s (parallelizable) | None |
+| Memory | Extra 2D field per timestep | None |
+| Accuracy | ~1–2% interp error | Exact (to fsolve tol) |
+| Flexibility | One drifter geometry | Any geometry per particle |
+| Workflow | Standard AdvectionRK4 | Custom kernel |
+
+The precomputed approach is best for large ensembles (thousands of
+particles) with fixed drifter geometry. The per-particle fsolve is
+better for small ensembles or when drifter parameters vary.
+
 ## Open questions
 
 - Should `get_steady_state_drift` live on DroguedDrifter or be a
