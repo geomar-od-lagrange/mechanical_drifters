@@ -1,9 +1,0 @@
-{
-    "_ARRAY_DIMENSIONS": [
-        "trajectory",
-        "obs"
-    ],
-    "axis": "X",
-    "standard_name": "longitude",
-    "units": "degrees_east"
-}
