@@ -43,10 +43,18 @@
 - A-grid beaching limits forward simulation utility
 
 ### C4. Validation: re-seeded simulations
-- Deferred
+- Lagged re-initialization: every N hours, re-deploy virtual drifters at
+  the observed positions
+- Run each re-seeded ensemble forward for a fixed window (24h, 48h)
+- Compute separation distance as function of lead time, averaged over
+  all re-seedings
+- Literature: Liu & Weisberg (2011, doi:10.1029/2010JC006837)
 
 ### C5. Parameter sensitivity
-- Deferred
+- Vary drifter parameters (k_b, k_d, added masses) within physically
+  plausible ranges
+- Check whether the Callies et al. defaults are adequate or tuning is
+  needed
 
 ### C6. Along-track velocity validation ✓
 - `examples/baltic_drifters/10_along_track_validation.ipynb`
