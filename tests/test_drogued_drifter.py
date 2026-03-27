@@ -25,16 +25,17 @@ def test_MF_evaluates():
     t = 0.0
     currents = dd.get_uv(t=t, z_d=0.0, y_b=0.0, x_b=0.0)
 
+    # Use stereographic coordinates: u=0.1, v=0.05 (small tilt from vertical)
     M, F = dd._eval_M_F(
         t,
         x=0.0,
         y=0.0,
-        theta=0.3,
-        phi=0.1,
+        u=0.1,
+        v=0.05,
         xd=0.0,
         yd=0.0,
-        thetad=0.0,
-        phid=0.0,
+        ud=0.0,
+        vd=0.0,
         currents=currents,
     )
 
@@ -131,3 +132,16 @@ def test_get_full_solution_returns_xarray():
     theta_deg = ds.theta * 180 / np.pi
     assert isinstance(theta_deg, xr.DataArray)
     assert "time" in theta_deg.coords
+
+
+def test_mass_matrix_nonsingular_at_equilibrium():
+    """Mass matrix at (u, v) = (0, 0) should be nonsingular (no phi singularity)."""
+    M = np.array(M_func(
+        t=0, x=0, y=0, u=0, v=0, xd=0, yd=0, ud=0, vd=0,
+        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+        U_b=0, V_b=0, U_d=0, V_d=0,
+    ), dtype=float)
+    # Should be well-conditioned (no near-zero eigenvalues)
+    eigvals = np.linalg.eigvalsh(M)
+    assert np.all(eigvals > 0), f"Mass matrix not positive definite: eigenvalues = {eigvals}"

@@ -75,6 +75,20 @@ def buoy_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
     return 0.5 * rho * C_D_b * d_b * h_b
 
 
+def _uv_to_theta(u, v):
+    """Convert stereographic (u, v) to polar angle theta.
+
+    Args:
+        u, v: Stereographic coordinates (scalar or array).
+
+    Returns:
+        theta: Polar angle [rad], where theta=pi is drogue hanging down.
+    """
+    r = np.sqrt(u**2 + v**2)
+    delta = 2 * np.arctan2(r, 2)
+    return np.pi - delta
+
+
 class DroguedDrifter:
     """Simulator for a drogued drifter in ocean currents.
 
@@ -83,9 +97,10 @@ class DroguedDrifter:
     surrounding water. The equations of motion are derived from a Lagrangian
     formulation (see ``lagrange_model``).
 
-    The state vector has 8 components: ``[x, y, theta, phi, xd, yd, thetad, phid]``
-    where ``(x, y)`` is the buoy position, ``(theta, phi)`` are the pole angles,
-    and ``d`` denotes time derivatives.
+    The internal state vector has 8 components:
+    ``[x, y, u, v, xd, yd, ud, vd]``
+    where ``(x, y)`` is the buoy position and ``(u, v)`` are stereographic
+    coordinates for the pole direction (equilibrium at origin).
 
     Default parameters are for Callies et al. drifter geometry.
 
@@ -119,8 +134,6 @@ class DroguedDrifter:
         k_d=154.0,
         g=9.81,
         get_uv=None,
-        phi_reg_eps=0.1,
-        phi_reg_nu=20.0,
     ):
         self.m_b = m_b
         self.m_d = m_d
@@ -131,8 +144,6 @@ class DroguedDrifter:
         self.k_b = k_b
         self.k_d = k_d
         self.g = g
-        self.phi_reg_eps = phi_reg_eps  # regularization for sin²(theta) in M[3,3]
-        self.phi_reg_nu = phi_reg_nu  # phi damping coefficient [kg m² / s]
 
         if get_uv is not None:
             self.get_uv = get_uv
@@ -155,19 +166,19 @@ class DroguedDrifter:
         U_d, V_d = -1.0, -1.0
         return U_b, V_b, U_d, V_d
 
-    def _eval_M_F(self, t, x, y, theta, phi, xd, yd, thetad, phid, currents):
+    def _eval_M_F(self, t, x, y, u, v, xd, yd, ud, vd, currents):
         """Evaluate mass matrix and force vector numerically."""
         U_b, V_b, U_d, V_d = currents
         kwargs = dict(
             t=t,
             x=x,
             y=y,
-            theta=theta,
-            phi=phi,
+            u=u,
+            v=v,
             xd=xd,
             yd=yd,
-            thetad=thetad,
-            phid=phid,
+            ud=ud,
+            vd=vd,
             m_b=self.m_b,
             m_d=self.m_d,
             m_hat_d=self.m_hat_d,
@@ -192,38 +203,33 @@ class DroguedDrifter:
         Args:
             t: Current time [s].
             y: State vector of length 8:
-                ``[x, y, theta, phi, xd, yd, thetad, phid]``.
+                ``[x, y, u, v, xd, yd, ud, vd]``.
 
         Returns:
             Time derivatives of the state vector (length 8).
         """
-        x_b, y_b, theta, phi, xd, yd, thetad, phid = y
+        x_b, y_b, u, v, xd, yd, ud, vd = y
 
+        theta = _uv_to_theta(u, v)
         z_d = float(max(0.0, -self.l * np.cos(theta)))
 
         currents = self.get_uv(t=t, z_d=z_d, y_b=y_b, x_b=x_b)
 
         M, F = self._eval_M_F(
-            t, x_b, y_b, theta, phi, xd, yd, thetad, phid, currents
+            t, x_b, y_b, u, v, xd, yd, ud, vd, currents
         )
-
-        # Smooth regularization of the phi singularity at theta=pi.
-        # M[3,3] ~ sin²(theta) → 0 there, making the system singular.
-        # We add eps² to sin²(theta) in M[3,3] and a dissipative torque
-        # -nu * phid that activates smoothly near the singularity.
-        eps2 = self.phi_reg_eps**2
-        st2 = np.sin(theta) ** 2
-        M[3, 3] += self.l**2 * (self.m_d + self.m_tilde_d) * eps2
-        F[3] -= self.phi_reg_nu * phid * eps2 / (st2 + eps2)
 
         qdd = np.linalg.solve(M, F)
 
-        return np.array([xd, yd, thetad, phid, *qdd])
+        return np.array([xd, yd, ud, vd, *qdd])
 
-    _state_vars = ["x", "y", "theta", "phi", "xd", "yd", "thetad", "phid"]
+    _state_vars = ["x", "y", "u", "v", "xd", "yd", "ud", "vd"]
 
     def _rhs_batch(self, Y, U_b, V_b, U_d, V_d):
         """Vectorized RHS for N particles.
+
+        Uses the sympy-derived equations in stereographic (u, v) coordinates.
+        Loops over particles since the lambdified expressions are scalar.
 
         Args:
             Y: State array of shape ``(N, 8)``.
@@ -233,85 +239,21 @@ class DroguedDrifter:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
         """
         N = Y.shape[0]
-        x_b, y_b, theta, phi, xd, yd, thetad, phid = Y.T
-
-        ct, st = np.cos(theta), np.sin(theta)
-        cp, sp = np.cos(phi), np.sin(phi)
-
-        l = self.l
-        m_d = self.m_d
-        m_td = self.m_tilde_d
-        md_td = m_d + m_td  # combined drogue + added mass
-
-        # -- Mass matrix M: (N, 4, 4), symmetric ----------------------------
-        mt = self.m_b + m_d + self.m_tilde_b + m_td
-        a = md_td * l
-
-        M = np.zeros((N, 4, 4))
-        M[:, 0, 0] = mt
-        M[:, 1, 1] = mt
-        M[:, 0, 2] = a * ct * cp;         M[:, 2, 0] = M[:, 0, 2]
-        M[:, 0, 3] = -a * st * sp;        M[:, 3, 0] = M[:, 0, 3]
-        M[:, 1, 2] = a * ct * sp;         M[:, 2, 1] = M[:, 1, 2]
-        M[:, 1, 3] = a * st * cp;         M[:, 3, 1] = M[:, 1, 3]
-        M[:, 2, 2] = l**2 * (m_d + m_td * ct**2)
-        eps2 = self.phi_reg_eps**2
-        M[:, 3, 3] = l**2 * md_td * (st**2 + eps2)
-
-        # -- Force vector F: (N, 4) -----------------------------------------
-        # Drogue horizontal velocity
-        xd_d = xd + l * (thetad * ct * cp - phid * st * sp)
-        yd_d = yd + l * (thetad * ct * sp + phid * st * cp)
-
-        # Slip velocities
-        du_b, dv_b = xd - U_b, yd - V_b
-        du_d, dv_d = xd_d - U_d, yd_d - V_d
-
-        speed_b = np.sqrt(du_b**2 + dv_b**2)
-        speed_d = np.sqrt(du_d**2 + dv_d**2)
-
-        k_b, k_d = self.k_b, self.k_d
-
-        F = np.zeros((N, 4))
-
-        # F[0], F[1]: buoy + drogue drag + centrifugal
-        F[:, 0] = (
-            -k_b * speed_b * du_b
-            - k_d * speed_d * du_d
-            + md_td * l * (thetad**2 * st * cp + 2 * thetad * phid * ct * sp + phid**2 * st * cp)
-        )
-        F[:, 1] = (
-            -k_b * speed_b * dv_b
-            - k_d * speed_d * dv_d
-            + md_td * l * (thetad**2 * st * sp - 2 * thetad * phid * ct * cp + phid**2 * st * sp)
-        )
-
-        # F[2]: gravity + drogue drag projected onto theta + Coriolis
-        proj_theta = cp * xd + sp * yd + l * thetad * ct - cp * U_d - sp * V_d
-        F[:, 2] = (
-            (m_d - self.m_hat_d) * self.g * l * st
-            - l * ct * k_d * speed_d * proj_theta
-            + l**2 * st * ct * (m_td * thetad**2 + md_td * phid**2)
-        )
-
-        # F[3]: drogue drag projected onto phi + Coriolis + smooth damping
-        proj_phi = -sp * xd + cp * yd + l * phid * st + sp * U_d - cp * V_d
-        F[:, 3] = (
-            -l * st * k_d * speed_d * proj_phi
-            - 2 * md_td * l**2 * thetad * phid * ct * st
-            - self.phi_reg_nu * phid * eps2 / (st**2 + eps2)
-        )
-
-        # -- Solve M * qdd = F ----------------------------------------------
-        qdd = np.linalg.solve(M, F[..., np.newaxis]).squeeze(-1)
-
-        # Assemble dY/dt = [xd, yd, thetad, phid, xdd, ydd, thetadd, phidd]
         dY = np.empty_like(Y)
-        dY[:, 0] = xd
-        dY[:, 1] = yd
-        dY[:, 2] = thetad
-        dY[:, 3] = phid
-        dY[:, 4:] = qdd
+
+        for i in range(N):
+            x_b, y_b, u, v, xd, yd, ud, vd = Y[i]
+            currents = (U_b[i], V_b[i], U_d[i], V_d[i])
+            M, F = self._eval_M_F(
+                0.0, x_b, y_b, u, v, xd, yd, ud, vd, currents
+            )
+            qdd = np.linalg.solve(M, F)
+            dY[i, 0] = xd
+            dY[i, 1] = yd
+            dY[i, 2] = ud
+            dY[i, 3] = vd
+            dY[i, 4:] = qdd
+
         return dY
 
     def get_final_drift_batch(
@@ -342,9 +284,9 @@ class DroguedDrifter:
             U_d, V_d: Eastward/northward current at drogue, shape ``(N,)``.
             t_span: Integration window ``(t_start, t_end)`` in seconds.
             y0: Initial state array of shape ``(N, 8)``.  If ``None``,
-                starts from rest with ``theta=theta0``.
+                starts from rest with ``theta=theta0`` (converted to (u, v)).
             theta0: Initial pole angle [rad] (used only when ``y0`` is None).
-            conv_tol: Stop when ``max(|xdd|, |ydd|, |thetadd|, |phidd|) < conv_tol``
+            conv_tol: Stop when ``max(|xdd|, |ydd|) < conv_tol``
                 across all particles.
             atol: Absolute tolerance for the ODE solver.
             rtol: Relative tolerance for the ODE solver.
@@ -362,7 +304,13 @@ class DroguedDrifter:
             y0_flat = np.asarray(y0, dtype=float).reshape(N * 8)
         else:
             y0_flat = np.zeros(N * 8)
-            y0_flat[2::8] = theta0
+            # Convert theta0 to stereographic (u, v).
+            # For default theta0 ~ pi, delta ~ 0, so u ~ v ~ 0.
+            # u = 2*tan((pi-theta)/2)*cos(phi), with phi=0 -> v=0
+            delta0 = np.pi - theta0
+            u0 = 2 * np.tan(delta0 / 2)  # phi=0, so cos(phi)=1, sin(phi)=0
+            y0_flat[2::8] = u0
+            # v0 = 0 (already zero)
 
         def rhs_flat(t, y_flat):
             Y = y_flat.reshape(N, 8)
@@ -370,8 +318,6 @@ class DroguedDrifter:
             return dY.ravel()
 
         # Global convergence event: max velocity change rate across all particles.
-        # We track |d(xd)/dt| and |d(yd)/dt| (i.e., accelerations in x and y),
-        # which measures how fast the drift velocity is still changing.
         def converged(t, y_flat):
             Y = y_flat.reshape(N, 8)
             dY = self._rhs_batch(Y, U_b, V_b, U_d, V_d)
@@ -387,7 +333,13 @@ class DroguedDrifter:
             atol=atol, rtol=rtol, events=converged,
         )
         Y_final = sol.y[:, -1].reshape(N, 8)
-        return Y_final[:, 4], Y_final[:, 5], Y_final[:, 2], Y_final
+
+        # Convert (u, v) back to theta for the public API
+        u_final = Y_final[:, 2]
+        v_final = Y_final[:, 3]
+        theta_final = _uv_to_theta(u_final, v_final)
+
+        return Y_final[:, 4], Y_final[:, 5], theta_final, Y_final
 
     def _get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
         """Integrate the equations of motion (raw interface).
@@ -422,6 +374,10 @@ class DroguedDrifter:
     ):
         """Integrate the equations of motion over a time span.
 
+        Accepts initial conditions in spherical coordinates (theta, phi)
+        for backward compatibility, and converts internally to
+        stereographic (u, v).
+
         Args:
             t_span: ``(t_start, t_end)`` in seconds.
             x: Initial buoy x position [m].
@@ -439,14 +395,97 @@ class DroguedDrifter:
 
         Returns:
             ``xarray.Dataset`` with time as coordinate and state variables
-            ``x, y, theta, phi, xd, yd, thetad, phid`` as data variables.
+            ``x, y, theta, phi, xd, yd, thetad, phid`` as data variables,
+            converted from the internal (u, v) representation.
         """
         import xarray as xr
 
-        y0 = [x, y, theta, phi, xd, yd, thetad, phid]
-        sol = self._get_full_solution(t_span, y0, t_eval=t_eval, atol=atol, rtol=rtol)
+        # Convert (theta, phi, thetad, phid) to (u, v, ud, vd)
+        delta = np.pi - theta
+        half_delta = delta / 2
+        tan_hd = np.tan(half_delta)
+        u0 = 2 * tan_hd * np.cos(phi)
+        v0 = 2 * tan_hd * np.sin(phi)
+
+        # Jacobian for velocity transform:
+        # [thetad, phid] = J22 * [ud, vd]
+        # We need the inverse: [ud, vd] = J22^{-1} * [thetad, phid]
+        # Rather than computing J22^{-1} symbolically, use the forward
+        # expressions:
+        #   d(theta)/dt = d(theta)/du * ud + d(theta)/dv * vd
+        #   d(phi)/dt   = d(phi)/du * ud + d(phi)/dv * vd
+        #
+        # For numerical purposes, compute J22 and invert.
+        r_st = np.sqrt(u0**2 + v0**2)
+        if r_st < 1e-14:
+            # At the origin, the Jacobian is -I/2 (from the limit)
+            # theta = pi - 2*atan(r/2), so d(theta)/d(r) = -1/(1+(r/2)^2)
+            # At r=0: d(theta)/d(r) = -1
+            # u = r*cos(phi), v = r*sin(phi)
+            # d(theta)/du = -u/r * 1/(1+(r/2)^2), limit -> indeterminate
+            # But for thetad=phid=0, ud=vd=0 regardless
+            ud0 = 0.0
+            vd0 = 0.0
+        else:
+            # Build J22 numerically and invert
+            # d(theta)/du, d(theta)/dv, d(phi)/du, d(phi)/dv
+            # theta = pi - 2*atan(r/2), r = sqrt(u^2+v^2)
+            # d(theta)/du = -2/(4+r^2) * u/r * r = -u/(1+(r/2)^2) * 1/r ... let me compute directly
+            # d(r)/du = u/r, d(r)/dv = v/r
+            # d(theta)/dr = -1/(1 + (r/2)^2)
+            # d(theta)/du = d(theta)/dr * u/r
+            # d(theta)/dv = d(theta)/dr * v/r
+            dtheta_dr = -1.0 / (1.0 + (r_st / 2)**2)
+            dtheta_du = dtheta_dr * u0 / r_st
+            dtheta_dv = dtheta_dr * v0 / r_st
+            # phi = atan2(v, u)
+            # d(phi)/du = -v/r^2, d(phi)/dv = u/r^2
+            dphi_du = -v0 / r_st**2
+            dphi_dv = u0 / r_st**2
+            J22 = np.array([[dtheta_du, dtheta_dv],
+                            [dphi_du, dphi_dv]])
+            J22_inv = np.linalg.inv(J22)
+            uv_dot = J22_inv @ np.array([thetad, phid])
+            ud0, vd0 = uv_dot
+
+        y0_internal = [x, y, u0, v0, xd, yd, ud0, vd0]
+        sol = self._get_full_solution(t_span, y0_internal, t_eval=t_eval,
+                                       atol=atol, rtol=rtol)
+
+        # Convert internal (u, v, ud, vd) back to (theta, phi, thetad, phid)
+        u_arr = sol.y[2]
+        v_arr = sol.y[3]
+        ud_arr = sol.y[6]
+        vd_arr = sol.y[7]
+
+        r_arr = np.sqrt(u_arr**2 + v_arr**2)
+        theta_arr = _uv_to_theta(u_arr, v_arr)
+        phi_arr = np.arctan2(v_arr, u_arr)
+
+        # Convert velocities back: [thetad, phid] = J22 * [ud, vd]
+        # Compute J22 element-wise
+        dtheta_dr_arr = -1.0 / (1.0 + (r_arr / 2)**2)
+        # Handle r~0 gracefully
+        safe_r = np.where(r_arr > 1e-14, r_arr, 1.0)
+        dtheta_du_arr = dtheta_dr_arr * np.where(r_arr > 1e-14, u_arr / safe_r, 0.0)
+        dtheta_dv_arr = dtheta_dr_arr * np.where(r_arr > 1e-14, v_arr / safe_r, 0.0)
+        dphi_du_arr = np.where(r_arr > 1e-14, -v_arr / safe_r**2, 0.0)
+        dphi_dv_arr = np.where(r_arr > 1e-14, u_arr / safe_r**2, 0.0)
+
+        thetad_arr = dtheta_du_arr * ud_arr + dtheta_dv_arr * vd_arr
+        phid_arr = dphi_du_arr * ud_arr + dphi_dv_arr * vd_arr
+
         return xr.Dataset(
-            {name: ("time", sol.y[i]) for i, name in enumerate(self._state_vars)},
+            {
+                "x": ("time", sol.y[0]),
+                "y": ("time", sol.y[1]),
+                "theta": ("time", theta_arr),
+                "phi": ("time", phi_arr),
+                "xd": ("time", sol.y[4]),
+                "yd": ("time", sol.y[5]),
+                "thetad": ("time", thetad_arr),
+                "phid": ("time", phid_arr),
+            },
             coords={"time": sol.t},
         )
 

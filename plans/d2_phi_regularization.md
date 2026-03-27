@@ -69,31 +69,50 @@ identity near the operating point.
 
 ## Derivation strategy
 
-Derive in spherical coordinates, transform at the end:
+**Substitute at the Lagrangian level, not at the EOM level.**
 
-1. **Keep the existing Lagrangian derivation** in (theta, phi) — this is
-   physically intuitive and matches the manuscript
-2. **Apply the coordinate transform mechanically** via the Jacobian:
-   - q_old = (x, y, theta, phi), q_new = (x, y, u, v)
-   - The transform only affects the last two coordinates
-   - Jacobian J = dq_old/dq_new (2x2 block for theta,phi -> u,v)
-   - M_new = J^T M_old J
-   - F_new = J^T (F_old - M_old * dJ/dt * q_new_dot)
-3. **Let sympy do the chain rule** — this is mechanical, not creative
+Two approaches were considered:
 
-This approach means:
-- The physics derivation stays readable in spherical coords
-- The coordinate transform is a standard, verifiable step
-- The generated numpy code (D1) operates in (u, v) — no singularity
-- The manuscript presents spherical coords + a short transform section
+1. **Jacobian transform of M, F** (EOM level): Derive M, F in (theta,
+   phi), then apply J^T M J. This **fails** because the Jacobian
+   d(theta,phi)/d(u,v) contains `1/sin(theta)` terms from the phi
+   mapping, reintroducing the `1/(u²+v²)` singularity.
+
+2. **Substitute into T, V, Q** (Lagrangian level): Express the drogue
+   position as smooth rational functions of (u, v), then compute T, V,
+   and the generalized forces from scratch. Re-derive M, F via
+   Euler-Lagrange in (u, v). This **works** because T and V never see
+   the singular (theta, phi) coordinates — only the smooth rational
+   position functions.
+
+The working approach uses these rational identities:
+
+    sin(theta) cos(phi) = 4u / (u² + v² + 4)
+    sin(theta) sin(phi) = 4v / (u² + v² + 4)
+    cos(theta)          = (u² + v² - 4) / (u² + v² + 4)
+
+These are smooth everywhere, including at (u,v)=(0,0) where theta=pi.
+The Lagrangian is expressed directly in terms of these functions, and
+sympy derives the EOM in (u, v) coordinates from scratch.
+
+**Implementation note:** The cos(theta) identity must have the correct
+sign: `(s - 4)/(s + 4)`, not `-(s - 4)/(s + 4)`. At s=0 this gives
+cos(theta)=-1, i.e. theta=pi (drogue down). A sign error here would
+place the equilibrium at theta=0 (drogue up) — physically wrong but
+hard to catch because the mass matrix is still well-conditioned.
+
+For the manuscript, present the Lagrangian in spherical coordinates
+(intuitive for physicists), then add a short section noting the
+coordinate substitution for numerical implementation.
 
 ## Impact on D1 (sympy codegen)
 
 D1 and D2 are tightly coupled. The generation script should:
 
-1. Derive M, F in (theta, phi) using the existing `lagrange_model.py`
-2. Apply the stereographic coordinate transform symbolically
-3. Apply CSE to the transformed expressions
+1. Define T, V, Q directly in stereographic (u, v) using the rational
+   identities (as `lagrange_model.py` now does)
+2. Derive M, F via Euler-Lagrange in (u, v)
+3. Apply CSE to the resulting expressions
 4. Generate numpy code in (u, v) coordinates
 
 The generated `_generated_eom.py` will have functions:
