@@ -6,3 +6,4 @@
 *.nc
 output/
 *.zarr
+.claude

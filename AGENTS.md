@@ -25,6 +25,9 @@
 - Well-scoped, human-facing code cells. Don't mix imports, parameters,
   and calculations in one cell.
 - Use `display()` for sympy output.
+- **Never write summary or conclusion cells with prose that assumes
+  results.** Summary cells must be code-only — compute and print
+  findings dynamically. No fabricated "Key findings" markdown.
 
 ## Plotting
 
