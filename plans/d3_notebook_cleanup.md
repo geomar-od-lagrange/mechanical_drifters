@@ -217,3 +217,35 @@ in the analysis pipeline.
 
 Kernel boilerplate is duplicated across 01, 03, 08, 09a, 11a — this is
 intentional for readability. Do not refactor into a shared module.
+
+---
+
+## Non-notebook cleanup (also part of D3)
+
+These items arose during D1/D2 implementation and should be addressed
+in the same cleanup pass:
+
+1. **Y_final public API conversion**: `get_final_drift_batch` should
+   return Y_final in spherical coords (x, y, theta, phi, xd, yd,
+   thetad, phid), not internal stereographic (u, v, ud, vd). Same for
+   warm-start y0 input. Add `_uv_to_spherical` and `_spherical_to_uv`
+   helpers to `drifter.py`. Stereographic coords must never leak into
+   the public API.
+
+2. **Test section headers**: Remove roadmap labels from test code (e.g.,
+   `# D1: Verification of generated code` → descriptive comment like
+   `# Generated code vs lambdified sympy`). Tests describe what they
+   test, not which task created them.
+
+3. **Remove `scripts/` directory**: Already deleted. Verify it's not
+   referenced anywhere (AGENTS.md, plans, etc.).
+
+4. **Create `00_get_cmems_data.ipynb`**: Download and cache all CMEMS
+   data (physics + waves) for the drifter deployment period. Downstream
+   notebooks load from local files instead of lazy `arco-geo-series`
+   downloads. This eliminates the ~1 min download wait in every
+   notebook run.
+
+5. **Add click to dependencies**: `scripts/generate_eom.py` used click
+   but it may not be in `pyproject.toml` or pixi deps. Check and add
+   if missing.

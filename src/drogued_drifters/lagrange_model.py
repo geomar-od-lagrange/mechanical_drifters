@@ -9,8 +9,8 @@ def _mag(vec):
 
 
 @functools.lru_cache()
-def _derive_and_lambdify():
-    """Derive equations of motion in stereographic (u, v) coordinates.
+def _derive_symbolic():
+    """Derive symbolic M and F in stereographic (u, v) coordinates.
 
     The drogue position relative to the buoy is parameterized directly
     via stereographic projection of the pole direction. This avoids the
@@ -26,7 +26,10 @@ def _derive_and_lambdify():
     These are smooth everywhere, including at the equilibrium (u, v) = (0, 0)
     where theta = pi.
 
-    This runs once on first use (cached), not at import time.
+    Returns:
+        Tuple ``(M_sub, F_sub, args)`` where M_sub is the 4x4 mass matrix
+        and F_sub the 4x1 force vector, both in static (non-dynamic) symbols,
+        and args is the ordered tuple of symbols for lambdification.
     """
     t = dynamicsymbols._t
 
@@ -93,11 +96,10 @@ def _derive_and_lambdify():
 
     M, F = sp.simplify(sp.linear_eq_to_matrix(eoms, list(qdd)))
 
-    # Prepare lambdified functions
+    # Substitute dynamic symbols with static ones for lambdify / codegen
     xd, yd = x.diff(t), y.diff(t)
     ud, vd = u_st.diff(t), v_st.diff(t)
 
-    # Use static symbols for lambdify arguments
     u_s, v_s = sp.symbols("u_s v_s", real=True)
     ud_s, vd_s = sp.symbols("ud_s vd_s", real=True)
     x_s, y_s = sp.symbols("x_s y_s", real=True)
@@ -111,9 +113,6 @@ def _derive_and_lambdify():
     F_sub = F.subs(subs)
 
     args = (
-        t,
-        x_s,
-        y_s,
         u_s,
         v_s,
         xd_s,
@@ -135,6 +134,16 @@ def _derive_and_lambdify():
         V_d,
     )
 
+    return M_sub, F_sub, args
+
+
+@functools.lru_cache()
+def _derive_and_lambdify():
+    """Derive and lambdify M and F (cached).
+
+    This runs the full sympy derivation once on first use.
+    """
+    M_sub, F_sub, args = _derive_symbolic()
     M_lbd = sp.lambdify(args, M_sub, modules="numpy")
     F_lbd = sp.lambdify(args, F_sub, modules="numpy")
     return M_lbd, F_lbd
@@ -142,9 +151,6 @@ def _derive_and_lambdify():
 
 def M_func(
     *,
-    t,
-    x,
-    y,
     u,
     v,
     xd,
@@ -164,18 +170,17 @@ def M_func(
     V_b,
     U_d,
     V_d,
+    # Unused legacy kwargs (t, x, y do not appear in M):
+    t=None,
+    x=None,
+    y=None,
 ):
     """Numerically evaluate the mass matrix M in stereographic coordinates.
 
-    The state is parameterized by (x, y, u, v) where (u, v) are the
-    stereographic projection of the pole direction from the south pole
-    onto the plane tangent at the north pole (theta=pi, drogue down).
-    Equilibrium is at (u, v) = (0, 0).
+    Uses the lambdified sympy derivation. Primarily for verification;
+    production code uses ``_generated_eom.compute_M``.
 
     Args:
-        t: Time [s].
-        x: Buoy x position [m].
-        y: Buoy y position [m].
         u: Stereographic u coordinate (dimensionless).
         v: Stereographic v coordinate (dimensionless).
         xd: Time derivative of x [m/s].
@@ -201,7 +206,7 @@ def M_func(
     """
     _M, _ = _derive_and_lambdify()
     return _M(
-        t, x, y, u, v, xd, yd, ud, vd,
+        u, v, xd, yd, ud, vd,
         m_b, m_d, m_hat_d, m_tilde_d, m_tilde_b,
         l, g, k_b, k_d, U_b, V_b, U_d, V_d,
     )
@@ -209,9 +214,6 @@ def M_func(
 
 def F_func(
     *,
-    t,
-    x,
-    y,
     u,
     v,
     xd,
@@ -231,8 +233,15 @@ def F_func(
     V_b,
     U_d,
     V_d,
+    # Unused legacy kwargs:
+    t=None,
+    x=None,
+    y=None,
 ):
     """Numerically evaluate the force vector F in stereographic coordinates.
+
+    Uses the lambdified sympy derivation. Primarily for verification;
+    production code uses ``_generated_eom.compute_F``.
 
     Args:
         Same as ``M_func``.
@@ -242,7 +251,7 @@ def F_func(
     """
     _, _F = _derive_and_lambdify()
     return _F(
-        t, x, y, u, v, xd, yd, ud, vd,
+        u, v, xd, yd, ud, vd,
         m_b, m_d, m_hat_d, m_tilde_d, m_tilde_b,
         l, g, k_b, k_d, U_b, V_b, U_d, V_d,
     )

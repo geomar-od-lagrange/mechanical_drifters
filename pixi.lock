@@ -334,7 +334,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/3d/8a/77d26afe0988c592dd97cb8d4e80bfb3dfc7dbdacfca7d74a7c5c81dd8c2/numba-0.64.0-cp314-cp314-macosx_12_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/58/85/3290cc84bb35503293ea23d2a0b39a78cf02c560ae1455502b042975c951/panel-1.8.10-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/b6/f8c7e1f5f716e16070cf35f90c24f95f397376bb810e65000b6bc55950cc/param-2.3.2-py3-none-any.whl
-      - pypi: git+https://github.com/OceanParcels/parcels.git?rev=main#148481831a85d6df2432b021dad19178030e7fba
+      - pypi: git+https://github.com/OceanParcels/parcels.git?rev=main#17241585384f9cbb04a796cb3581cb49559df9df
       - pypi: https://files.pythonhosted.org/packages/b4/db/08f4ca10c5018813e7e0b59e4472302328b3d2ab1512f5a2157a814540e0/polars-1.39.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/90/bf/297716b3095fe719be20fcf7af1d2b6ab069c38199bbace2469608a69b3a/polars_runtime_32-1.39.3-cp310-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/2a/2d/d4bf65e47cea8ff2c794a600c4fd1273a7902f268757c531e0ee9f18aa58/pooch-1.9.0-py3-none-any.whl
@@ -1384,12 +1384,13 @@ packages:
 - pypi: ./
   name: drogued-drifters
   version: 0.1.0
-  sha256: ccc291ab216d6b6a89a33b1e28b508e625999c5b632e0b0e58f7e662c48cac7f
+  sha256: 088ec5aa889e37a8d1a00d5558aba93ff5f25084a268edb3185754677f4780fe
   requires_dist:
   - sympy
   - numpy
   - scipy
   - xarray
+  - click
   - parcels @ git+https://github.com/OceanParcels/parcels.git@main
   requires_python: '>=3.11'
   editable: true
@@ -3902,9 +3903,9 @@ packages:
   - nest-asyncio ; extra == 'tests-pypy'
   - numpy ; extra == 'tests-pypy'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/OceanParcels/parcels.git?rev=main#148481831a85d6df2432b021dad19178030e7fba
+- pypi: git+https://github.com/OceanParcels/parcels.git?rev=main#17241585384f9cbb04a796cb3581cb49559df9df
   name: parcels
-  version: 3.1.3.dev2014
+  version: 3.1.3.dev2018
   requires_dist:
   - cftime>=1.6.3
   - numpy>=2.1.0
