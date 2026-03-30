@@ -4,6 +4,170 @@ from scipy.integrate import solve_ivp
 from drogued_drifters._generated_eom import compute_F, compute_M
 
 
+def make_profile_sampler(depth_levels, U_profiles, V_profiles):
+    """Build a fast ``sample_uv(z)`` from pre-sampled velocity profiles.
+
+    Sample the FieldSet at all depth levels once per Parcels timestep,
+    then use linear interpolation in z during the ODE integration.
+    This avoids repeated (expensive) FieldSet queries.
+
+    Args:
+        depth_levels: 1-D array of depth values, shape ``(D,)``, sorted.
+        U_profiles: Eastward velocity at each depth for each particle,
+            shape ``(D, N)``.
+        V_profiles: Northward velocity, same shape.
+
+    Returns:
+        Callable ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or
+        ``(N,)`` array and the return arrays have shape ``(N,)``.
+    """
+    depth_levels = np.asarray(depth_levels, dtype=float)
+    U_profiles = np.asarray(U_profiles, dtype=float)  # (D, N)
+    V_profiles = np.asarray(V_profiles, dtype=float)
+    D, N = U_profiles.shape
+
+    def sample_uv(z):
+        z_arr = np.broadcast_to(np.asarray(z, dtype=float), N)
+        # Vectorized linear interpolation in z
+        idx = np.searchsorted(depth_levels, z_arr).clip(1, D - 1)
+        z0 = depth_levels[idx - 1]
+        z1 = depth_levels[idx]
+        w = (z_arr - z0) / np.maximum(z1 - z0, 1e-30)
+        # Fancy-index: U_profiles[idx-1, particle_index]
+        p = np.arange(N)
+        U = U_profiles[idx - 1, p] * (1 - w) + U_profiles[idx, p] * w
+        V = V_profiles[idx - 1, p] * (1 - w) + V_profiles[idx, p] * w
+        return U, V
+
+    return sample_uv
+
+
+def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
+    """Create a Parcels v4 vector interpolator that returns the drogued drifter
+    steady-state drift velocity.
+
+    Instead of returning the raw field velocity at one depth, this interpolator:
+
+    1. Extracts the full velocity profile at each particle's (t, y, x) position
+       by interpolating at every depth level (bilinear in t, y, x).
+    2. Builds a fast ``sample_uv(z)`` interpolator from the cached profiles.
+    3. Runs ``DroguedDrifter.get_final_drift_batch`` with the profile sampler.
+    4. Returns the steady-state drift velocity as ``(u, v)``.
+
+    Usage::
+
+        from drogued_drifters.drifter import DroguedDrifter, make_dd_velocity_interpolator
+
+        dd = DroguedDrifter()
+        fieldset = FieldSet.from_sgrid_conventions(ds, mesh="spherical")
+        fieldset.UV.vector_interp_method = make_dd_velocity_interpolator(
+            dd, spherical=True,
+        )
+        # Then just use AdvectionRK4 — it will get the drift velocity directly
+
+    Args:
+        dd: A :class:`DroguedDrifter` instance.
+        warm_state: Optional mutable dict for warm-starting across timesteps.
+            If ``None``, a fresh dict is created internally.
+        spherical: If True, convert the m/s drift output back to deg/s for
+            Parcels' spherical mesh convention (``mesh="spherical"``).
+            The raw field data from Parcels is always in m/s regardless of
+            mesh type, so no input conversion is needed.
+
+    Returns:
+        A callable with the Parcels ``vector_interp_method`` signature.
+    """
+    import xarray as xr
+    from parcels.interpolators._xinterpolators import XLinear, _get_corner_data_Agrid
+
+    if warm_state is None:
+        warm_state = {}
+
+    _DEG2M = 1852.0 * 60.0
+
+    def _interpolator(particle_positions, grid_positions, vectorfield):
+        xi, xsi = grid_positions["X"]["index"], grid_positions["X"]["bcoord"]
+        yi, eta = grid_positions["Y"]["index"], grid_positions["Y"]["bcoord"]
+        ti, tau = grid_positions["T"]["index"], grid_positions["T"]["bcoord"]
+        N = len(xsi)
+
+        field_U = vectorfield.U
+        field_V = vectorfield.V
+        depth_levels = np.asarray(field_U.grid.depth, dtype=float)
+        D = len(depth_levels)
+
+        axis_dim = field_U.grid.get_axis_dim_mapping(field_U.data.dims)
+        lenT = 2 if np.any(tau > 0) else 1
+
+        # Extract profiles: for each depth level, get the (t, y, x)-interpolated value
+        U_profiles = np.empty((D, N))
+        V_profiles = np.empty((D, N))
+
+        for iz in range(D):
+            zi_arr = np.full(N, iz, dtype=np.int32)
+            # Get corner data at this z level (lenZ=1 since we fix z)
+            corner_U = _get_corner_data_Agrid(
+                field_U.data, ti, zi_arr, yi, xi, lenT, 1, N, axis_dim,
+            )  # (lenT, 1, 2, 2, N)
+            corner_V = _get_corner_data_Agrid(
+                field_V.data, ti, zi_arr, yi, xi, lenT, 1, N,
+                field_V.grid.get_axis_dim_mapping(field_V.data.dims),
+            )
+
+            # Time interpolation
+            if lenT == 2:
+                tau_b = tau[np.newaxis, :]
+                cU = corner_U[0, 0] * (1 - tau_b) + corner_U[1, 0] * tau_b
+                cV = corner_V[0, 0] * (1 - tau_b) + corner_V[1, 0] * tau_b
+            else:
+                cU = corner_U[0, 0]  # (2, 2, N)
+                cV = corner_V[0, 0]
+
+            # Bilinear interpolation in (y, x)
+            U_profiles[iz] = (
+                (1 - xsi) * (1 - eta) * cU[0, 0]
+                + xsi * (1 - eta) * cU[0, 1]
+                + (1 - xsi) * eta * cU[1, 0]
+                + xsi * eta * cU[1, 1]
+            )
+            V_profiles[iz] = (
+                (1 - xsi) * (1 - eta) * cV[0, 0]
+                + xsi * (1 - eta) * cV[0, 1]
+                + (1 - xsi) * eta * cV[1, 0]
+                + xsi * eta * cV[1, 1]
+            )
+
+        # The raw field data from _get_corner_data_Agrid is in m/s (as stored
+        # in the netCDF). No unit conversion needed here. The output
+        # conversion (m/s → deg/s) happens below.
+        if spherical:
+            lat = particle_positions["lat"]
+            cos_lat = np.cos(np.deg2rad(lat))
+            deg2m_lon = _DEG2M * cos_lat
+
+        # Build profile sampler and run DD model
+        sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
+
+        y0_warm = warm_state.get("Y") if warm_state.get("n") == N else None
+        xd_ms, yd_ms, theta, Y_final = dd.get_final_drift_batch(
+            sample_uv=sample_uv, y0=y0_warm,
+        )
+        warm_state["Y"] = Y_final
+        warm_state["n"] = N
+
+        # Convert m/s back to deg/s if spherical
+        if spherical:
+            u = xd_ms / deg2m_lon
+            v = yd_ms / _DEG2M
+        else:
+            u = xd_ms
+            v = yd_ms
+
+        return (u, v, np.zeros_like(u))
+
+    return _interpolator
+
+
 def drogue_added_mass(*, rho, w_d, h_d, C_perp_d=np.pi / 4):
     """Drogue added mass: m_tilde_d = C_perp_d * rho * w_d^2 * h_d.
 
@@ -291,7 +455,17 @@ class DroguedDrifter:
 
     _state_vars = ["x", "y", "u", "v", "xd", "yd", "ud", "vd"]
 
-    def _rhs_batch(self, Y, U_b, V_b, U_d, V_d):
+    def _z_eff_batch(self, u, v):
+        """Compute effective drogue depth from stereographic (u, v).
+
+        Returns:
+            z_eff: Drogue depth [m], positive downward, shape ``(N,)``.
+        """
+        s = u**2 + v**2
+        cos_theta = (s - 4) / (s + 4)
+        return np.maximum(0.0, -self.l * cos_theta)
+
+    def _rhs_batch(self, Y, sample_uv):
         """Vectorized RHS for N particles.
 
         Uses the generated numpy code from the sympy derivation. All
@@ -300,7 +474,9 @@ class DroguedDrifter:
 
         Args:
             Y: State array of shape ``(N, 8)``.
-            U_b, V_b, U_d, V_d: Current velocities, each of shape ``(N,)``.
+            sample_uv: Callable ``sample_uv(z) -> (U, V)`` that returns
+                eastward and northward velocity arrays of shape ``(N,)``
+                at depth ``z`` (scalar or ``(N,)`` array).
 
         Returns:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
@@ -312,6 +488,11 @@ class DroguedDrifter:
         yd = Y[:, 5]
         ud = Y[:, 6]
         vd = Y[:, 7]
+
+        # Sample velocity at buoy (z=0) and drogue (z=z_eff)
+        U_b, V_b = sample_uv(np.zeros(N))
+        z_eff = self._z_eff_batch(u, v)
+        U_d, V_d = sample_uv(z_eff)
 
         p = self._params()
 
@@ -346,6 +527,13 @@ class DroguedDrifter:
         F = np.stack([np.broadcast_to(F0, N), np.broadcast_to(F1, N),
                       np.broadcast_to(F2, N), np.broadcast_to(F3, N)], axis=-1)
 
+        # Replace NaN/inf (from overflow in generated EOM) with identity/zero
+        # so degenerate particles don't crash the batched solve.
+        bad = ~np.isfinite(M).all(axis=(1, 2)) | ~np.isfinite(F).all(axis=1)
+        if np.any(bad):
+            M[bad] = np.eye(4)
+            F[bad] = 0.0
+
         # Batched solve: numpy >= 2.0 requires b to be (N, 4, 1) for batch mode.
         qdd = np.linalg.solve(M, F[:, :, np.newaxis])[:, :, 0]
 
@@ -361,10 +549,11 @@ class DroguedDrifter:
     def get_final_drift_batch(
         self,
         *,
-        U_b,
-        V_b,
-        U_d,
-        V_d,
+        sample_uv=None,
+        U_b=None,
+        V_b=None,
+        U_d=None,
+        V_d=None,
         t_span=(0, 120),
         y0=None,
         theta0=0.999 * np.pi,
@@ -378,10 +567,26 @@ class DroguedDrifter:
         ``solve_ivp`` overhead is paid once, and the vectorized RHS
         (``_rhs_batch``) evaluates all particles simultaneously.
 
+        The velocity field can be provided in two ways:
+
+        1. **Profile sampler** (``sample_uv``): a callable
+           ``sample_uv(z) -> (U, V)`` that returns ``(N,)`` velocity arrays
+           at arbitrary depth ``z`` (scalar or ``(N,)``).  The ODE solver
+           queries the buoy velocity at z=0 and the drogue velocity at
+           the current effective depth ``z_eff(theta)`` on every RHS
+           evaluation, so the drogue depth tracks the pole tilt.
+
+        2. **Static two-depth** (``U_b, V_b, U_d, V_d``): pre-sampled
+           velocity arrays of shape ``(N,)``.  The buoy and drogue
+           velocities are fixed throughout integration (drogue depth does
+           not evolve with tilt).  This is a convenience shortcut; internally
+           it wraps the arrays in a trivial sampler that ignores ``z``.
+
         Integration terminates early when the maximum acceleration across all
         particles drops below ``conv_tol`` (global convergence detection).
 
         Args:
+            sample_uv: Velocity profile sampler (see above).
             U_b, V_b: Eastward/northward current at buoy, shape ``(N,)``.
             U_d, V_d: Eastward/northward current at drogue, shape ``(N,)``.
             t_span: Integration window ``(t_start, t_end)`` in seconds.
@@ -398,9 +603,32 @@ class DroguedDrifter:
             the first three are ``(N,)`` arrays and ``Y_final`` is the full
             ``(N, 8)`` state (pass back as ``y0`` for warm-starting).
         """
-        N = len(U_b)
-        U_b, V_b = np.asarray(U_b, dtype=float), np.asarray(V_b, dtype=float)
-        U_d, V_d = np.asarray(U_d, dtype=float), np.asarray(V_d, dtype=float)
+        if sample_uv is not None and U_b is not None:
+            raise ValueError("Provide either sample_uv or U_b/V_b/U_d/V_d, not both.")
+
+        if sample_uv is None:
+            # Wrap static arrays in a trivial sampler (backward compat)
+            U_b = np.asarray(U_b, dtype=float)
+            V_b = np.asarray(V_b, dtype=float)
+            U_d = np.asarray(U_d, dtype=float)
+            V_d = np.asarray(V_d, dtype=float)
+            N = len(U_b)
+
+            def sample_uv(z):
+                # z=0 -> buoy, z>0 -> drogue (ignores actual z value)
+                z_arr = np.asarray(z)
+                at_surface = np.all(z_arr == 0) if z_arr.ndim > 0 else z_arr == 0
+                if at_surface:
+                    return U_b, V_b
+                return U_d, V_d
+        else:
+            # Determine N from y0 or by probing the sampler
+            if y0 is not None:
+                N = np.asarray(y0).reshape(-1, 8).shape[0]
+            else:
+                probe = sample_uv(np.array([0.0]))
+                N = len(probe[0])
+
 
         if y0 is not None:
             y0_arr = np.asarray(y0, dtype=float).reshape(N, 8)
@@ -428,13 +656,13 @@ class DroguedDrifter:
 
         def rhs_flat(t, y_flat):
             Y = y_flat.reshape(N, 8)
-            dY = self._rhs_batch(Y, U_b, V_b, U_d, V_d)
+            dY = self._rhs_batch(Y, sample_uv)
             return dY.ravel()
 
         # Global convergence event: max velocity change rate across all particles.
         def converged(t, y_flat):
             Y = y_flat.reshape(N, 8)
-            dY = self._rhs_batch(Y, U_b, V_b, U_d, V_d)
+            dY = self._rhs_batch(Y, sample_uv)
             # xdd = dY[:,4], ydd = dY[:,5]
             max_drift_accel = np.max(np.abs(dY[:, 4:6]))
             return max_drift_accel - conv_tol
