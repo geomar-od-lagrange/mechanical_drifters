@@ -1401,7 +1401,7 @@ packages:
 - pypi: ./
   name: drogued-drifters
   version: 0.1.0
-  sha256: ae08caa2ae3364c3b22a2127f3fd8f1633d702948e7a926cfe50c4d900474eb2
+  sha256: 3e326a80f5034d25c6103c85b242dbbb54d01821b244b1ee0568a0a75f54d9d6
   requires_dist:
   - sympy
   - numpy

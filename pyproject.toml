@@ -20,8 +20,11 @@ platforms = ["osx-arm64"]
 [tool.pixi.pypi-dependencies]
 drogued_drifters = { path = ".", editable = true }
 
+[tool.pytest.ini_options]
+norecursedirs = ["tmp_*"]
+
 [tool.pixi.tasks]
-test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v tests/"
+test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v"
 
 [tool.pixi.dependencies]
 ipython = ">=9.9.0,<10"
