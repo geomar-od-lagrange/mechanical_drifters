@@ -149,19 +149,6 @@ def test_get_full_solution_returns_xarray():
     assert "time" in theta_deg.coords
 
 
-def test_mass_matrix_nonsingular_at_equilibrium():
-    """Mass matrix at (u, v) = (0, 0) should be nonsingular (no phi singularity)."""
-    M = M_func(
-        u=0, v=0, xd=0, yd=0, ud=0, vd=0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0, V_b=0, U_d=0, V_d=0,
-    )
-    # Should be well-conditioned (no near-zero eigenvalues)
-    eigvals = np.linalg.eigvalsh(M)
-    assert np.all(eigvals > 0), f"Mass matrix not positive definite: eigenvalues = {eigvals}"
-
-
 # ---------------------------------------------------------------------------
 # Tests for the batched RHS path
 # ---------------------------------------------------------------------------

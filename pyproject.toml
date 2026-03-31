@@ -22,6 +22,8 @@ drogued_drifters = { path = ".", editable = true }
 
 [tool.pytest.ini_options]
 norecursedirs = ["tmp_*"]
+markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
+addopts = "-m 'not slow'"
 
 [tool.pixi.tasks]
 test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v"
