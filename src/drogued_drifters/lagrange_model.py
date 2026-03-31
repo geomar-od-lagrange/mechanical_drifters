@@ -1,8 +1,35 @@
 import functools
+from typing import NamedTuple
 
 import numpy as np
 import sympy as sp
 from sympy.physics.mechanics import dynamicsymbols
+
+
+class LagrangeParams(NamedTuple):
+    """19-parameter tuple for Lagrange model M and F functions.
+
+    Fields are ordered to match the symbolic derivation (lambdify order).
+    """
+    u: float
+    v: float
+    xd: float
+    yd: float
+    ud: float
+    vd: float
+    m_b: float
+    m_d: float
+    m_hat_d: float
+    m_tilde_d: float
+    m_tilde_b: float
+    l: float
+    g: float
+    k_b: float
+    k_d: float
+    U_b: float
+    V_b: float
+    U_d: float
+    V_d: float
 
 
 def _mag(vec):
@@ -78,6 +105,7 @@ def _derive_symbolic():
     # Potential energy
     V = (m_d - m_hat_d) * g * r_d[2]
 
+    # Lagrangian
     L = T - V
 
     # Generalized coordinates: q = [x, y, u_st, v_st]
@@ -113,27 +141,30 @@ def _derive_symbolic():
     M_sub = M.subs(subs)
     F_sub = F.subs(subs)
 
-    args = (
-        u_s,
-        v_s,
-        xd_s,
-        yd_s,
-        ud_s,
-        vd_s,
-        m_b,
-        m_d,
-        m_hat_d,
-        m_tilde_d,
-        m_tilde_b,
-        l,
-        g,
-        k_b,
-        k_d,
-        U_b,
-        V_b,
-        U_d,
-        V_d,
-    )
+    # Derive args tuple from LagrangeParams field names, mapping to symbolic values.
+    # This ensures the args tuple always matches the NamedTuple definition.
+    symbol_map = {
+        'u': u_s,
+        'v': v_s,
+        'xd': xd_s,
+        'yd': yd_s,
+        'ud': ud_s,
+        'vd': vd_s,
+        'm_b': m_b,
+        'm_d': m_d,
+        'm_hat_d': m_hat_d,
+        'm_tilde_d': m_tilde_d,
+        'm_tilde_b': m_tilde_b,
+        'l': l,
+        'g': g,
+        'k_b': k_b,
+        'k_d': k_d,
+        'U_b': U_b,
+        'V_b': V_b,
+        'U_d': U_d,
+        'V_d': V_d,
+    }
+    args = tuple(symbol_map[field] for field in LagrangeParams._fields)
 
     return M_sub, F_sub, args
 
@@ -202,11 +233,14 @@ def M_func(
         4x4 mass matrix as nested list (use np.array() to convert).
     """
     _M, _ = _derive_and_lambdify()
-    return _M(
-        u, v, xd, yd, ud, vd,
-        m_b, m_d, m_hat_d, m_tilde_d, m_tilde_b,
-        l, g, k_b, k_d, U_b, V_b, U_d, V_d,
+    params = LagrangeParams(
+        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
+        m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
+        m_tilde_d=m_tilde_d, m_tilde_b=m_tilde_b,
+        l=l, g=g, k_b=k_b, k_d=k_d,
+        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
     )
+    return _M(*params)
 
 
 def F_func(
@@ -243,11 +277,14 @@ def F_func(
         Length-4 force vector as nested list (use np.array() to convert).
     """
     _, _F = _derive_and_lambdify()
-    return _F(
-        u, v, xd, yd, ud, vd,
-        m_b, m_d, m_hat_d, m_tilde_d, m_tilde_b,
-        l, g, k_b, k_d, U_b, V_b, U_d, V_d,
+    params = LagrangeParams(
+        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
+        m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
+        m_tilde_d=m_tilde_d, m_tilde_b=m_tilde_b,
+        l=l, g=g, k_b=k_b, k_d=k_d,
+        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
     )
+    return _F(*params)
 
 
 def _uv_to_theta(u, v):
