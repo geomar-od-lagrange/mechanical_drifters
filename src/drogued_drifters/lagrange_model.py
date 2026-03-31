@@ -1,9 +1,11 @@
 import functools
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 import sympy as sp
 from sympy.physics.mechanics import dynamicsymbols
+from sympy.printing.numpy import NumPyPrinter
 
 
 class LagrangeParams(NamedTuple):
@@ -181,6 +183,111 @@ def _derive_and_lambdify():
     return M_lbd, F_lbd
 
 
+_SREPR_PATH = Path(__file__).resolve().parent / "data" / "symbolic_eom.srepr"
+
+
+@functools.lru_cache()
+def _load_or_derive():
+    """Load or derive M_sub, F_sub, args; apply CSE; return raw lambdified callables.
+
+    Attempts to load the `.srepr` file from `data/symbolic_eom.srepr`. If not found,
+    falls back to symbolic derivation. In either case, applies CSE and Approach B exec
+    to produce raw lambdified callables.
+
+    Returns:
+        (_raw_M_func, _raw_F_func, arg_symbols)
+        where _raw_M_func/F_func are lambdified callables that accept positional args
+        and return results (potentially with batch dimension last).
+    """
+    # Try to load .srepr file
+    if _SREPR_PATH.exists():
+        content = _SREPR_PATH.read_text().strip()
+        parts = content.split("---")
+        if len(parts) == 3:
+            M_srepr, F_srepr, arg_names_csv = parts
+            M_sub = sp.sympify(M_srepr)
+            F_sub = sp.sympify(F_srepr)
+            arg_names = arg_names_csv.split(",")
+            arg_symbols = tuple(sp.Symbol(name, real=True) if '(' not in name
+                               else sp.sympify(name) for name in arg_names)
+        else:
+            raise ValueError(f"Invalid .srepr format in {_SREPR_PATH}")
+    else:
+        # Fallback: derive symbolically
+        M_sub, F_sub, arg_symbols = _derive_symbolic()
+
+    # Apply CSE and build raw lambdified functions via Approach B
+    return _apply_cse_and_lambdify(M_sub, F_sub, arg_symbols)
+
+
+def _apply_cse_and_lambdify(M_sub, F_sub, args):
+    """Apply CSE to M and F; build raw lambdified functions via exec.
+
+    This is Approach B from test_cse_lambdify.py:
+    Generate Python function string, exec it, return the functions.
+
+    Args:
+        M_sub: 4x4 sympy matrix
+        F_sub: 4x1 sympy matrix
+        args: tuple of sympy symbols in lambdify order
+
+    Returns:
+        (_raw_M_func, _raw_F_func, args)
+        where _raw_M_func(*args) returns M elements as tuple
+        and _raw_F_func(*args) returns F elements as tuple
+        (both vectorized over numpy arrays; batch dim goes last).
+    """
+    # Extract elements for CSE
+    m_exprs = []
+    m_labels = []
+    for i in range(4):
+        for j in range(i, 4):  # Upper triangle only (symmetric)
+            m_exprs.append(M_sub[i, j])
+            m_labels.append((i, j))
+
+    f_exprs = [F_sub[i] for i in range(4)]
+
+    all_exprs = m_exprs + f_exprs
+
+    # Apply CSE
+    replacements, reduced = sp.cse(all_exprs, optimizations="basic")
+
+    # Generate Python code using NumPyPrinter
+    printer = NumPyPrinter()
+    arg_names = [str(s) for s in args]
+
+    # Build compute_M source
+    lines_M = [f"def _raw_M({', '.join(arg_names)}):"]
+    for sym, expr in replacements:
+        lines_M.append(f"    {sym} = {printer.doprint(expr)}")
+    for expr, (i, j) in zip(reduced[:len(m_exprs)], m_labels):
+        lines_M.append(f"    M_{i}{j} = {printer.doprint(expr)}")
+    ret_names_M = ", ".join(f"M_{i}{j}" for i, j in m_labels)
+    lines_M.append(f"    return {ret_names_M}")
+
+    # Build compute_F source
+    lines_F = [f"def _raw_F({', '.join(arg_names)}):"]
+    for sym, expr in replacements:
+        lines_F.append(f"    {sym} = {printer.doprint(expr)}")
+    for idx, expr in enumerate(reduced[len(m_exprs):]):
+        lines_F.append(f"    F_{idx} = {printer.doprint(expr)}")
+    ret_names_F = ", ".join(f"F_{idx}" for idx in range(len(f_exprs)))
+    lines_F.append(f"    return {ret_names_F}")
+
+    # Combine source
+    source = "\n".join(lines_M) + "\n\n" + "\n".join(lines_F)
+    source = source.replace("numpy.", "np.")
+
+    # Exec to create functions
+    local_ns = {"np": np}
+    exec(source, local_ns)
+
+    _raw_M = local_ns["_raw_M"]
+    _raw_F = local_ns["_raw_F"]
+
+    return _raw_M, _raw_F, args
+
+
 def M_func(
     *,
     u,
@@ -205,34 +312,36 @@ def M_func(
 ):
     """Numerically evaluate the mass matrix M in stereographic coordinates.
 
-    Uses the lambdified sympy derivation. Primarily for verification;
-    production code uses ``_generated_eom.compute_M``.
+    Wraps the raw lambdified callable from _load_or_derive().
+    Detects scalar vs batch input and returns shaped output.
 
     Args:
-        u: Stereographic u coordinate (dimensionless).
-        v: Stereographic v coordinate (dimensionless).
-        xd: Time derivative of x [m/s].
-        yd: Time derivative of y [m/s].
-        ud: Time derivative of u [1/s].
-        vd: Time derivative of v [1/s].
-        m_b: Buoy dry mass [kg].
-        m_d: Drogue dry mass [kg].
-        m_hat_d: Buoyancy correction for drogue [kg].
-        m_tilde_d: Drogue added mass [kg] (horizontal).
-        m_tilde_b: Buoy added mass [kg] (horizontal).
-        l: Pole length [m].
-        g: Gravitational acceleration [m/s^2].
-        k_b: Buoy drag coefficient [kg/m].
-        k_d: Drogue drag coefficient [kg/m].
-        U_b: Eastward current velocity at buoy [m/s].
-        V_b: Northward current velocity at buoy [m/s].
-        U_d: Eastward current velocity at drogue [m/s].
-        V_d: Northward current velocity at drogue [m/s].
+        u: Stereographic u coordinate (scalar or (N,) array).
+        v: Stereographic v coordinate (scalar or (N,) array).
+        xd: Time derivative of x [m/s] (scalar or (N,) array).
+        yd: Time derivative of y [m/s] (scalar or (N,) array).
+        ud: Time derivative of u [1/s] (scalar or (N,) array).
+        vd: Time derivative of v [1/s] (scalar or (N,) array).
+        m_b: Buoy dry mass [kg] (scalar or (N,) array).
+        m_d: Drogue dry mass [kg] (scalar or (N,) array).
+        m_hat_d: Buoyancy correction for drogue [kg] (scalar or (N,) array).
+        m_tilde_d: Drogue added mass [kg] (scalar or (N,) array).
+        m_tilde_b: Buoy added mass [kg] (scalar or (N,) array).
+        l: Pole length [m] (scalar or (N,) array).
+        g: Gravitational acceleration [m/s^2] (scalar or (N,) array).
+        k_b: Buoy drag coefficient [kg/m] (scalar or (N,) array).
+        k_d: Drogue drag coefficient [kg/m] (scalar or (N,) array).
+        U_b: Eastward current velocity at buoy [m/s] (scalar or (N,) array).
+        V_b: Northward current velocity at buoy [m/s] (scalar or (N,) array).
+        U_d: Eastward current velocity at drogue [m/s] (scalar or (N,) array).
+        V_d: Northward current velocity at drogue [m/s] (scalar or (N,) array).
 
     Returns:
-        4x4 mass matrix as nested list (use np.array() to convert).
+        4x4 mass matrix:
+        - Scalar input: (4,4) array
+        - Batch input: (N,4,4) array
     """
-    _M, _ = _derive_and_lambdify()
+    _raw_M, _, arg_symbols = _load_or_derive()
     params = LagrangeParams(
         u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
         m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
@@ -240,7 +349,32 @@ def M_func(
         l=l, g=g, k_b=k_b, k_d=k_d,
         U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
     )
-    return _M(*params)
+
+    # Detect batch size from first dynamic argument
+    u_arr = np.asarray(u)
+    batch_ndim = u_arr.ndim
+
+    # Call raw function with positional args
+    M_elems = _raw_M(*params)
+
+    if batch_ndim == 0:
+        # Scalar: assemble (4,4)
+        M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
+        M = np.array([
+            [M00, M01, M02, M03],
+            [M01, M11, M12, M13],
+            [M02, M12, M22, M23],
+            [M03, M13, M23, M33],
+        ], dtype=float)
+    else:
+        # Batch: assemble (N, 4, 4)
+        N = u_arr.shape[0]
+        M = np.zeros((N, 4, 4))
+        labels = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 1), (1, 2), (1, 3), (2, 2), (2, 3), (3, 3)]
+        for k, (i, j) in enumerate(labels):
+            M[:, i, j] = M[:, j, i] = np.broadcast_to(M_elems[k], N)
+
+    return M
 
 
 def F_func(
@@ -267,16 +401,18 @@ def F_func(
 ):
     """Numerically evaluate the force vector F in stereographic coordinates.
 
-    Uses the lambdified sympy derivation. Primarily for verification;
-    production code uses ``_generated_eom.compute_F``.
+    Wraps the raw lambdified callable from _load_or_derive().
+    Detects scalar vs batch input and returns shaped output.
 
     Args:
-        Same as ``M_func``.
+        Same as M_func.
 
     Returns:
-        Length-4 force vector as nested list (use np.array() to convert).
+        4-element force vector:
+        - Scalar input: (4,) array
+        - Batch input: (N,4) array
     """
-    _, _F = _derive_and_lambdify()
+    _, _raw_F, arg_symbols = _load_or_derive()
     params = LagrangeParams(
         u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
         m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
@@ -284,7 +420,23 @@ def F_func(
         l=l, g=g, k_b=k_b, k_d=k_d,
         U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
     )
-    return _F(*params)
+
+    # Detect batch size
+    u_arr = np.asarray(u)
+    batch_ndim = u_arr.ndim
+
+    # Call raw function
+    F_elems = _raw_F(*params)
+
+    if batch_ndim == 0:
+        # Scalar: (4,)
+        F = np.array(F_elems, dtype=float)
+    else:
+        # Batch: (N, 4)
+        N = u_arr.shape[0]
+        F = np.column_stack([np.broadcast_to(f, N) for f in F_elems])
+
+    return F
 
 
 def _uv_to_theta(u, v):

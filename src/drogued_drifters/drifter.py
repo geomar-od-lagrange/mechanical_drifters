@@ -1,8 +1,13 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from drogued_drifters._generated_eom import compute_F, compute_M
-from drogued_drifters.lagrange_model import _spherical_to_uv, _uv_to_spherical, _uv_to_theta
+from drogued_drifters.lagrange_model import (
+    F_func,
+    M_func,
+    _spherical_to_uv,
+    _uv_to_spherical,
+    _uv_to_theta,
+)
 
 
 def make_profile_sampler(depth_levels, U_profiles, V_profiles):
@@ -342,23 +347,18 @@ class DroguedDrifter:
         """Evaluate mass matrix and force vector numerically (scalar)."""
         U_b, V_b, U_d, V_d = currents
         p = self._params()
-        M_elems = compute_M(
-            u, v, xd, yd, ud, vd,
+
+        # Call M_func/F_func directly — they handle shaping
+        M = M_func(
+            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
             **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
-        )
-        F_elems = compute_F(
-            u, v, xd, yd, ud, vd,
+        )  # Returns (4,4)
+
+        F = F_func(
+            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
             **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
-        )
-        # Assemble 4x4 symmetric M from upper-triangle elements
-        M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
-        M = np.array([
-            [M00, M01, M02, M03],
-            [M01, M11, M12, M13],
-            [M02, M12, M22, M23],
-            [M03, M13, M23, M33],
-        ], dtype=float)
-        F = np.array(F_elems, dtype=float)
+        )  # Returns (4,)
+
         return M, F
 
     def rhs(self, t, y):
@@ -400,9 +400,8 @@ class DroguedDrifter:
     def _rhs_batch(self, Y, sample_uv):
         """Vectorized RHS for N particles.
 
-        Uses the generated numpy code from the sympy derivation. All
-        arithmetic broadcasts over ``(N,)`` arrays, so no per-particle
-        loop is needed.
+        Uses M_func and F_func for fast evaluation. All arithmetic broadcasts
+        over ``(N,)`` arrays, so no per-particle loop is needed.
 
         Args:
             Y: State array of shape ``(N, 8)``.
@@ -428,22 +427,18 @@ class DroguedDrifter:
 
         p = self._params()
 
-        M_elems = compute_M(u, v, xd, yd, ud, vd, **p,
-                            U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d)
-        F_elems = compute_F(u, v, xd, yd, ud, vd, **p,
-                            U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d)
+        # Call M_func/F_func with batch arrays
+        M = M_func(
+            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
+            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+        )  # Returns (N, 4, 4)
 
-        # Assemble symmetric (N, 4, 4) mass matrix from upper-triangle elements.
-        _i, _j = np.triu_indices(4)
-        M = np.zeros((N, 4, 4))
-        for k, (i, j) in enumerate(zip(_i, _j)):
-            M[:, i, j] = M[:, j, i] = np.broadcast_to(M_elems[k], N)
+        F = F_func(
+            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
+            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+        )  # Returns (N, 4)
 
-        # Assemble (N, 4) force vector.
-        F = np.column_stack([np.broadcast_to(f, N) for f in F_elems])
-
-        # Replace NaN/inf (from overflow in generated EOM) with identity/zero
-        # so degenerate particles don't crash the batched solve.
+        # Handle NaN/inf (overflow in expressions)
         bad = ~np.isfinite(M).all(axis=(1, 2)) | ~np.isfinite(F).all(axis=1)
         if np.any(bad):
             M[bad] = np.eye(4)

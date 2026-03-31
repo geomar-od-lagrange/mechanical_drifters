@@ -1,9 +1,10 @@
-"""CLI for drogued_drifters code generation.
+"""CLI for drogued_drifters code generation and cache management.
 
 Usage::
 
-    pixi run generate-eom          # generate _generated_eom.py
-    pixi run generate-eom --check  # verify freshness
+    pixi run generate-eom          # generate _generated_eom.py (deprecated)
+    pixi run generate-eom --check  # verify freshness (deprecated)
+    pixi run save-eom-cache        # save symbolic EOM to .srepr cache file
 """
 
 import hashlib
@@ -133,3 +134,23 @@ def generate_eom(check):
 
     OUTPUT_PATH.write_text(source)
     click.echo(f"Wrote {OUTPUT_PATH}")
+
+
+@click.command()
+def save_eom_cache():
+    """Save the symbolic EOM to .srepr cache file.
+
+    This pre-computes the symbolic derivation once and writes it to
+    src/drogued_drifters/data/symbolic_eom.srepr for faster imports.
+    """
+    cache_path = Path(__file__).resolve().parent / "data" / "symbolic_eom.srepr"
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    click.echo("Running sympy derivation (this may take a minute)...")
+    M_sub, F_sub, args = _derive_symbolic()
+
+    arg_names = ','.join(str(s) for s in args)
+    content = f"{sp.srepr(M_sub)}\n---\n{sp.srepr(F_sub)}\n---\n{arg_names}\n"
+
+    cache_path.write_text(content)
+    click.echo(f"Wrote {cache_path}")

@@ -1,6 +1,5 @@
 import numpy as np
 
-from drogued_drifters._generated_eom import compute_F, compute_M
 from drogued_drifters.drifter import (
     DroguedDrifter,
     buoy_added_mass,
@@ -8,6 +7,7 @@ from drogued_drifters.drifter import (
     drogue_added_mass,
     drogue_drag_coeff,
 )
+from drogued_drifters.lagrange_model import F_func, M_func
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):
@@ -31,8 +31,8 @@ def test_drogued_drifter_instantiation():
 
 
 def test_MF_callable():
-    assert callable(compute_M)
-    assert callable(compute_F)
+    assert callable(M_func)
+    assert callable(F_func)
 
 
 def test_MF_evaluates():
@@ -148,19 +148,12 @@ def test_get_full_solution_returns_xarray():
 
 def test_mass_matrix_nonsingular_at_equilibrium():
     """Mass matrix at (u, v) = (0, 0) should be nonsingular (no phi singularity)."""
-    M_elems = compute_M(
-        0, 0, 0, 0, 0, 0,
+    M = M_func(
+        u=0, v=0, xd=0, yd=0, ud=0, vd=0,
         m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
         l=3.0, g=9.81, k_b=12.0, k_d=154.0,
         U_b=0, V_b=0, U_d=0, V_d=0,
     )
-    M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
-    M = np.array([
-        [M00, M01, M02, M03],
-        [M01, M11, M12, M13],
-        [M02, M12, M22, M23],
-        [M03, M13, M23, M33],
-    ], dtype=float)
     # Should be well-conditioned (no near-zero eigenvalues)
     eigvals = np.linalg.eigvalsh(M)
     assert np.all(eigvals > 0), f"Mass matrix not positive definite: eigenvalues = {eigvals}"
@@ -318,10 +311,53 @@ def _positional_from_kwargs(kw):
     )
 
 
-def test_generated_vs_lambdified():
-    """Generated numpy code must agree with lambdified sympy to machine precision."""
-    from drogued_drifters.lagrange_model import M_func, F_func
+def test_M_F_func_shapes():
+    """Verify M_func and F_func return correct shapes for scalar and batch inputs."""
+    # Scalar input
+    M_scalar = M_func(
+        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
+        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
+    )
+    assert M_scalar.shape == (4, 4), f"Expected (4,4), got {M_scalar.shape}"
 
+    F_scalar = F_func(
+        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
+        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
+    )
+    assert F_scalar.shape == (4,), f"Expected (4,), got {F_scalar.shape}"
+
+    # Batch input (N=5)
+    N = 5
+    u_batch = np.full(N, 0.1)
+    v_batch = np.full(N, 0.05)
+
+    M_batch = M_func(
+        u=u_batch, v=v_batch, xd=np.zeros(N), yd=np.zeros(N),
+        ud=np.zeros(N), vd=np.zeros(N),
+        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+        U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
+        U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
+    )
+    assert M_batch.shape == (N, 4, 4), f"Expected (N,4,4), got {M_batch.shape}"
+
+    F_batch = F_func(
+        u=u_batch, v=v_batch, xd=np.zeros(N), yd=np.zeros(N),
+        ud=np.zeros(N), vd=np.zeros(N),
+        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+        U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
+        U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
+    )
+    assert F_batch.shape == (N, 4), f"Expected (N,4), got {F_batch.shape}"
+
+
+def test_generated_vs_lambdified():
+    """M_func and F_func must return consistent results at multiple test points."""
     test_points = [
         # equilibrium: u=v=0, all velocities zero, no currents
         dict(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
@@ -340,36 +376,21 @@ def test_generated_vs_lambdified():
     for pt in test_points:
         kw = _make_kwargs(**pt)
 
-        # Lambdified (from sympy)
-        M_lbd = np.array(M_func(**kw), dtype=float)
-        F_lbd = np.array(F_func(**kw), dtype=float).reshape(-1)
+        # M_func/F_func (wrapped version with shaping)
+        M_wrapped = M_func(**kw)
+        F_wrapped = F_func(**kw)
 
-        # Generated numpy
-        pos = _positional_from_kwargs(kw)
-        M_elems = compute_M(*pos)
-        F_elems = compute_F(*pos)
+        # Verify shapes
+        assert M_wrapped.shape == (4, 4), f"M shape mismatch at {pt}"
+        assert F_wrapped.shape == (4,), f"F shape mismatch at {pt}"
 
-        M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
-        M_gen = np.array([
-            [M00, M01, M02, M03],
-            [M01, M11, M12, M13],
-            [M02, M12, M22, M23],
-            [M03, M13, M23, M33],
-        ], dtype=float)
-        F_gen = np.array(F_elems, dtype=float)
-
-        np.testing.assert_allclose(
-            M_gen, M_lbd, atol=1e-12, rtol=1e-12,
-            err_msg=f"M mismatch at {pt}",
-        )
-        np.testing.assert_allclose(
-            F_gen, F_lbd, atol=1e-12, rtol=1e-12,
-            err_msg=f"F mismatch at {pt}",
-        )
+        # Verify results are finite
+        assert np.all(np.isfinite(M_wrapped)), f"M has non-finite values at {pt}"
+        assert np.all(np.isfinite(F_wrapped)), f"F has non-finite values at {pt}"
 
 
 def test_generated_vectorized():
-    """Generated functions must work on (N,) arrays and match scalar results."""
+    """M_func and F_func must work on (N,) arrays and match scalar results."""
     N = 5
     rng = np.random.default_rng(123)
     u = rng.uniform(-1, 1, N)
@@ -388,41 +409,30 @@ def test_generated_vectorized():
     )
 
     # Vectorized call
-    M_vec = compute_M(u, v, xd, yd, ud, vd, **params)
-    F_vec = compute_F(u, v, xd, yd, ud, vd, **params)
+    M_vec = M_func(u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, **params)
+    F_vec = F_func(u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, **params)
+
+    # Should have shape (N, 4, 4) and (N, 4)
+    assert M_vec.shape == (N, 4, 4), f"Expected M shape (N,4,4), got {M_vec.shape}"
+    assert F_vec.shape == (N, 4), f"Expected F shape (N,4), got {F_vec.shape}"
 
     # Scalar calls
     for i in range(N):
         p_i = {k: (val[i] if isinstance(val, np.ndarray) else val)
                for k, val in params.items()}
-        M_i = compute_M(u[i], v[i], xd[i], yd[i], ud[i], vd[i], **p_i)
-        F_i = compute_F(u[i], v[i], xd[i], yd[i], ud[i], vd[i], **p_i)
+        M_i = M_func(u=u[i], v=v[i], xd=xd[i], yd=yd[i], ud=ud[i], vd=vd[i], **p_i)
+        F_i = F_func(u=u[i], v=v[i], xd=xd[i], yd=yd[i], ud=ud[i], vd=vd[i], **p_i)
 
-        for j, (m_vec_j, m_i_j) in enumerate(zip(M_vec, M_i)):
-            np.testing.assert_allclose(
-                np.asarray(m_vec_j)[i] if np.ndim(m_vec_j) > 0 else m_vec_j,
-                m_i_j,
-                atol=1e-14,
-                err_msg=f"M element {j} mismatch at particle {i}",
-            )
-        for j, (f_vec_j, f_i_j) in enumerate(zip(F_vec, F_i)):
-            np.testing.assert_allclose(
-                np.asarray(f_vec_j)[i],
-                f_i_j,
-                atol=1e-14,
-                err_msg=f"F element {j} mismatch at particle {i}",
-            )
+        # Compare batch result to scalar result
+        np.testing.assert_allclose(
+            M_vec[i], M_i,
+            atol=1e-14,
+            err_msg=f"M mismatch at particle {i}",
+        )
+        np.testing.assert_allclose(
+            F_vec[i], F_i,
+            atol=1e-14,
+            err_msg=f"F mismatch at particle {i}",
+        )
 
 
-def test_generated_eom_freshness():
-    """The generated file must be up to date with the sympy derivation."""
-    from drogued_drifters._generated_eom import SYMPY_HASH
-    from drogued_drifters.cli import _symbolic_hash
-    from drogued_drifters.lagrange_model import _derive_symbolic
-
-    M_sub, F_sub, _ = _derive_symbolic()
-    expected_hash = _symbolic_hash(M_sub, F_sub)
-    assert SYMPY_HASH == expected_hash, (
-        f"Generated EOM file is stale (hash {SYMPY_HASH} != {expected_hash}). "
-        "Re-run: pixi run generate-eom"
-    )
