@@ -1,51 +1,43 @@
 # Agent guidelines for this project
 
-## Environment
+## Multi-agent workflow
 
-- Use **pixi** for environment management. Run all commands with `pixi run`.
-- Prefer conda packages. Use pypi only when no good conda package is available.
-- Never commit. Never push.
+**Model choice:** Use a lighter model for mechanical and verification tasks. Reserve more capable models for architecture, design decisions, and judgment calls.
+
+**Planning before code:** Write plans to `plans/*.md` before touching source. Don't skip planning for complex changes; don't let implementation agents make architectural decisions unguided.
+
+**Red-Green-Blue TDD:** One agent writes failing tests, another implements minimally to make them pass, a third reviews quality. Use this pattern for feature work and refactors.
+
+**Always review after implementation:** A separate review agent should examine the result. This catches both conceptual mistakes and quality issues.
+
+**Experimental validation:** Use `tmp_*/` directories to prove ideas before committing to architecture changes. Once validated, clean up or move to permanent locations.
+
+## Environment and build
+
+Use **pixi** for environment management. Run all commands with `pixi run`. Prefer conda packages; use pypi only when no suitable conda package exists.
 
 ## Code and derivations
 
-- **Sympy is a derivation tool, not a display tool.** Let sympy *derive*
-  the result from the physics. Don't hand-derive and then use sympy to
-  typeset. Keep the full chain: Lagrangian → sympy EOM → generated code.
-- When changing the physics or the drifter model, the sympy derivation
-  must remain the source of truth.
-- Plans go in `plans/*.md` before significant implementation work.
-- Be ruthless about dropping code. Don't be attached to implementations.
-  If something should be reimplemented differently, drop it and start
-  fresh rather than patching.
+**Sympy is a derivation tool, not a display tool.** Let sympy derive results from the physics — don't hand-derive and then use sympy to typeset. Keep the full chain from Lagrangian to executable functions intact and reproducible.
+
+**Be careful with generated or derived artifacts.** Some files in the repository may be cached outputs of expensive computations rather than hand-written source. Before editing them, check how they were produced and whether changing the source is the right fix instead.
+
+Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstraction is wrong.
 
 ## Notebooks
 
-- Use **papermill** for notebook execution.
-- Markdown cells for narrative.
-- Well-scoped, human-facing code cells. Don't mix imports, parameters,
-  and calculations in one cell.
+- Markdown cells for narrative; clean code cells for execution.
+- Well-scoped cells — don't mix imports, parameters, and calculations.
 - Use `display()` for sympy output.
-- **Never write summary or conclusion cells with prose that assumes
-  results.** Summary cells must be code-only — compute and print
-  findings dynamically. No fabricated "Key findings" markdown.
+- **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
+- After fixing bugs, rerun immediately without asking.
 
 ## Plotting
 
-- Don't customize plots unnecessarily. No custom colormaps, figsize, or
-  axis labels when xarray's built-in `.plot()` handles them.
-- Go with vanilla defaults. Focus on the data, not the presentation.
-- For maps: cartopy with 10m Natural Earth features, or OSM tiles.
-  Use `ccrs.Geodetic()` for transform with tile-based projections.
+- Keep plots vanilla. No custom colormaps, figsize, or axis labels when xarray handles them.
+- Focus on the data. Use cartopy with Natural Earth or OSM tiles for maps.
 
 ## Data access
 
-- Use `copernicusmarine.open_dataset` with minimal arguments. Don't
-  pin dataset versions. Subset with `.sel()`.
-- Linspace-regularize coordinates when matplotlib requires evenly
-  spaced grids.
-
-## Review
-
-- Use opus agents for critical review of derivations and notebooks.
-  Don't brief the reviewer on the expected result — let them evaluate
-  purely from what's written.
+- Use `copernicusmarine.open_dataset` with minimal arguments.
+- Subset with `.sel()`.
