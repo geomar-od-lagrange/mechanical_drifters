@@ -1,5 +1,5 @@
 [project]
-dependencies = ["sympy", "numpy", "scipy", "xarray", "click", "parcels @ git+https://github.com/OceanParcels/parcels.git@main"]
+dependencies = ["sympy", "numpy", "scipy", "xarray", "click", "parcels @ git+https://github.com/OceanParcels/parcels.git@17241585384f9cbb04a796cb3581cb49559df9df"]
 name = "drogued_drifters"
 requires-python = ">= 3.11"
 version = "0.1.0"

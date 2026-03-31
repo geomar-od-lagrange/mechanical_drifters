@@ -2,6 +2,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 from drogued_drifters._generated_eom import compute_F, compute_M
+from drogued_drifters.lagrange_model import _spherical_to_uv, _uv_to_spherical, _uv_to_theta
 
 
 def make_profile_sampler(depth_levels, U_profiles, V_profiles):
@@ -76,9 +77,13 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
 
     Returns:
         A callable with the Parcels ``vector_interp_method`` signature.
+
+    Warning:
+        This function uses ``parcels.interpolators._xinterpolators._get_corner_data_Agrid``,
+        a private Parcels API that may change without notice in future releases.
     """
     import xarray as xr
-    from parcels.interpolators._xinterpolators import XLinear, _get_corner_data_Agrid
+    from parcels.interpolators._xinterpolators import _get_corner_data_Agrid
 
     if warm_state is None:
         warm_state = {}
@@ -148,6 +153,9 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
         # Build profile sampler and run DD model
         sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
+        # TODO: warm_state cache validation only checks particle count.
+        # If particles are deleted mid-simulation (OOB) and N returns to the
+        # same value with different particles, stale state may be reused silently.
         y0_warm = warm_state.get("Y") if warm_state.get("n") == N else None
         xd_ms, yd_ms, theta, Y_final = dd.get_final_drift_batch(
             sample_uv=sample_uv, y0=y0_warm,
@@ -237,80 +245,6 @@ def buoy_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
         Buoy drag coefficient k_b [kg/m].
     """
     return 0.5 * rho * C_D_b * d_b * h_b
-
-
-def _uv_to_theta(u, v):
-    """Convert stereographic (u, v) to polar angle theta.
-
-    Args:
-        u, v: Stereographic coordinates (scalar or array).
-
-    Returns:
-        theta: Polar angle [rad], where theta=pi is drogue hanging down.
-    """
-    r = np.sqrt(u**2 + v**2)
-    delta = 2 * np.arctan2(r, 2)
-    return np.pi - delta
-
-
-def _uv_to_spherical(u, v, ud, vd):
-    """Convert stereographic (u, v, ud, vd) to spherical (theta, phi, thetad, phid).
-
-    Args:
-        u, v: Stereographic coordinates (scalar or array).
-        ud, vd: Stereographic velocities (scalar or array).
-
-    Returns:
-        (theta, phi, thetad, phid) tuple.
-    """
-    u, v, ud, vd = np.asarray(u, float), np.asarray(v, float), np.asarray(ud, float), np.asarray(vd, float)
-    r = np.sqrt(u**2 + v**2)
-    theta = _uv_to_theta(u, v)
-    phi = np.arctan2(v, u)
-
-    # Velocity Jacobian: d(theta)/d(u,v) and d(phi)/d(u,v)
-    safe = r > 1e-14
-    # d(delta)/dr = 4/(r^2+4), and delta = 2*arctan(r/2)
-    # d(theta)/dr = -d(delta)/dr = -4/(r^2+4)
-    # d(theta)/du = d(theta)/dr * u/r, d(theta)/dv = d(theta)/dr * v/r
-    # d(phi)/du = -v/r^2, d(phi)/dv = u/r^2
-    dtdr = np.where(safe, -4.0 / (r**2 + 4), -1.0)  # limit: -4/4 = -1
-    thetad = np.where(safe, dtdr * (u * ud + v * vd) / r, -(ud + vd) * 0.0)
-    # At r=0, thetad from ud alone: dtdr * ud (along u-axis), but direction
-    # is ambiguous. Set to magnitude:
-    thetad = np.where(safe, dtdr * (u * ud + v * vd) / r, -np.sqrt(ud**2 + vd**2))
-    phid = np.where(safe, (u * vd - v * ud) / r**2, 0.0)
-
-    return theta, phi, thetad, phid
-
-
-def _spherical_to_uv(theta, phi, thetad, phid):
-    """Convert spherical (theta, phi, thetad, phid) to stereographic (u, v, ud, vd).
-
-    Args:
-        theta: Polar angle [rad] (theta=pi is drogue down).
-        phi: Azimuthal angle [rad].
-        thetad, phid: Angular velocities [rad/s].
-
-    Returns:
-        (u, v, ud, vd) tuple.
-    """
-    theta, phi = np.asarray(theta, float), np.asarray(phi, float)
-    thetad, phid = np.asarray(thetad, float), np.asarray(phid, float)
-    delta = np.pi - theta
-    half_delta = delta / 2
-    tan_hd = np.tan(half_delta)
-    u = 2 * tan_hd * np.cos(phi)
-    v = 2 * tan_hd * np.sin(phi)
-
-    # dr/d(delta) = 1/cos^2(delta/2), d(delta)/d(theta) = -1
-    # du/d(theta) = -cos(phi)/cos^2(delta/2)
-    # du/d(phi)   = -2*tan(delta/2)*sin(phi)
-    sec2 = 1.0 / np.cos(half_delta)**2
-    ud = -sec2 * np.cos(phi) * thetad - 2 * tan_hd * np.sin(phi) * phid
-    vd = -sec2 * np.sin(phi) * thetad + 2 * tan_hd * np.cos(phi) * phid
-
-    return u, v, ud, vd
 
 
 class DroguedDrifter:
@@ -453,8 +387,6 @@ class DroguedDrifter:
 
         return np.array([xd, yd, ud, vd, *qdd])
 
-    _state_vars = ["x", "y", "u", "v", "xd", "yd", "ud", "vd"]
-
     def _z_eff_batch(self, u, v):
         """Compute effective drogue depth from stereographic (u, v).
 
@@ -549,11 +481,7 @@ class DroguedDrifter:
     def get_final_drift_batch(
         self,
         *,
-        sample_uv=None,
-        U_b=None,
-        V_b=None,
-        U_d=None,
-        V_d=None,
+        sample_uv,
         t_span=(0, 120),
         y0=None,
         theta0=0.999 * np.pi,
@@ -567,68 +495,47 @@ class DroguedDrifter:
         ``solve_ivp`` overhead is paid once, and the vectorized RHS
         (``_rhs_batch``) evaluates all particles simultaneously.
 
-        The velocity field can be provided in two ways:
+        ``sample_uv`` must be a callable ``sample_uv(z) -> (U, V)`` that returns
+        ``(N,)`` velocity arrays at depth ``z`` (scalar or ``(N,)`` array).
+        The ODE solver queries the buoy velocity at z=0 and the drogue velocity
+        at the current effective depth ``z_eff(theta)`` on every RHS evaluation,
+        so the drogue depth tracks the pole tilt dynamically.
 
-        1. **Profile sampler** (``sample_uv``): a callable
-           ``sample_uv(z) -> (U, V)`` that returns ``(N,)`` velocity arrays
-           at arbitrary depth ``z`` (scalar or ``(N,)``).  The ODE solver
-           queries the buoy velocity at z=0 and the drogue velocity at
-           the current effective depth ``z_eff(theta)`` on every RHS
-           evaluation, so the drogue depth tracks the pole tilt.
+        To use fixed buoy/drogue velocities, pass a step-function sampler::
 
-        2. **Static two-depth** (``U_b, V_b, U_d, V_d``): pre-sampled
-           velocity arrays of shape ``(N,)``.  The buoy and drogue
-           velocities are fixed throughout integration (drogue depth does
-           not evolve with tilt).  This is a convenience shortcut; internally
-           it wraps the arrays in a trivial sampler that ignores ``z``.
+            def sample_uv(z):
+                return (U_b, V_b) if np.all(z == 0) else (U_d, V_d)
 
         Integration terminates early when the maximum acceleration across all
         particles drops below ``conv_tol`` (global convergence detection).
 
         Args:
             sample_uv: Velocity profile sampler (see above).
-            U_b, V_b: Eastward/northward current at buoy, shape ``(N,)``.
-            U_d, V_d: Eastward/northward current at drogue, shape ``(N,)``.
             t_span: Integration window ``(t_start, t_end)`` in seconds.
-            y0: Initial state array of shape ``(N, 8)``.  If ``None``,
+            y0: Initial state array of shape ``(N, 8)`` in public format
+                ``(x, y, theta, phi, xd, yd, thetad, phid)``.  If ``None``,
                 starts from rest with ``theta=theta0`` (converted to (u, v)).
             theta0: Initial pole angle [rad] (used only when ``y0`` is None).
-            conv_tol: Stop when ``max(|xdd|, |ydd|) < conv_tol``
-                across all particles.
+            conv_tol: Stop when ``max(|xdd|, |ydd|) < conv_tol`` [m/s²]
+                across all particles.  With ``t_span=(0, 120)`` s this
+                corresponds to a velocity convergence of ~0.012 m/s — adequate
+                for typical drift velocities of 0.1–1.0 m/s.
             atol: Absolute tolerance for the ODE solver.
             rtol: Relative tolerance for the ODE solver.
 
         Returns:
             Tuple ``(xd_final, yd_final, theta_final, Y_final)`` where
             the first three are ``(N,)`` arrays and ``Y_final`` is the full
-            ``(N, 8)`` state (pass back as ``y0`` for warm-starting).
+            ``(N, 8)`` state in public format (pass back as ``y0`` for
+            warm-starting).  Column layout of ``Y_final``:
+            ``[x, y, theta, phi, xd, yd, thetad, phid]``.
         """
-        if sample_uv is not None and U_b is not None:
-            raise ValueError("Provide either sample_uv or U_b/V_b/U_d/V_d, not both.")
-
-        if sample_uv is None:
-            # Wrap static arrays in a trivial sampler (backward compat)
-            U_b = np.asarray(U_b, dtype=float)
-            V_b = np.asarray(V_b, dtype=float)
-            U_d = np.asarray(U_d, dtype=float)
-            V_d = np.asarray(V_d, dtype=float)
-            N = len(U_b)
-
-            def sample_uv(z):
-                # z=0 -> buoy, z>0 -> drogue (ignores actual z value)
-                z_arr = np.asarray(z)
-                at_surface = np.all(z_arr == 0) if z_arr.ndim > 0 else z_arr == 0
-                if at_surface:
-                    return U_b, V_b
-                return U_d, V_d
+        # Determine N from y0 or by probing the sampler
+        if y0 is not None:
+            N = np.asarray(y0).reshape(-1, 8).shape[0]
         else:
-            # Determine N from y0 or by probing the sampler
-            if y0 is not None:
-                N = np.asarray(y0).reshape(-1, 8).shape[0]
-            else:
-                probe = sample_uv(np.array([0.0]))
-                N = len(probe[0])
-
+            probe = sample_uv(np.array([0.0]))
+            N = len(probe[0])
 
         if y0 is not None:
             y0_arr = np.asarray(y0, dtype=float).reshape(N, 8)
@@ -753,80 +660,14 @@ class DroguedDrifter:
         """
         import xarray as xr
 
-        # Convert (theta, phi, thetad, phid) to (u, v, ud, vd)
-        delta = np.pi - theta
-        half_delta = delta / 2
-        tan_hd = np.tan(half_delta)
-        u0 = 2 * tan_hd * np.cos(phi)
-        v0 = 2 * tan_hd * np.sin(phi)
-
-        # Jacobian for velocity transform:
-        # [thetad, phid] = J22 * [ud, vd]
-        # We need the inverse: [ud, vd] = J22^{-1} * [thetad, phid]
-        # Rather than computing J22^{-1} symbolically, use the forward
-        # expressions:
-        #   d(theta)/dt = d(theta)/du * ud + d(theta)/dv * vd
-        #   d(phi)/dt   = d(phi)/du * ud + d(phi)/dv * vd
-        #
-        # For numerical purposes, compute J22 and invert.
-        r_st = np.sqrt(u0**2 + v0**2)
-        if r_st < 1e-14:
-            # At the origin, the Jacobian is -I/2 (from the limit)
-            # theta = pi - 2*atan(r/2), so d(theta)/d(r) = -1/(1+(r/2)^2)
-            # At r=0: d(theta)/d(r) = -1
-            # u = r*cos(phi), v = r*sin(phi)
-            # d(theta)/du = -u/r * 1/(1+(r/2)^2), limit -> indeterminate
-            # But for thetad=phid=0, ud=vd=0 regardless
-            ud0 = 0.0
-            vd0 = 0.0
-        else:
-            # Build J22 numerically and invert
-            # d(theta)/du, d(theta)/dv, d(phi)/du, d(phi)/dv
-            # theta = pi - 2*atan(r/2), r = sqrt(u^2+v^2)
-            # d(theta)/du = -2/(4+r^2) * u/r * r = -u/(1+(r/2)^2) * 1/r ... let me compute directly
-            # d(r)/du = u/r, d(r)/dv = v/r
-            # d(theta)/dr = -1/(1 + (r/2)^2)
-            # d(theta)/du = d(theta)/dr * u/r
-            # d(theta)/dv = d(theta)/dr * v/r
-            dtheta_dr = -1.0 / (1.0 + (r_st / 2)**2)
-            dtheta_du = dtheta_dr * u0 / r_st
-            dtheta_dv = dtheta_dr * v0 / r_st
-            # phi = atan2(v, u)
-            # d(phi)/du = -v/r^2, d(phi)/dv = u/r^2
-            dphi_du = -v0 / r_st**2
-            dphi_dv = u0 / r_st**2
-            J22 = np.array([[dtheta_du, dtheta_dv],
-                            [dphi_du, dphi_dv]])
-            J22_inv = np.linalg.inv(J22)
-            uv_dot = J22_inv @ np.array([thetad, phid])
-            ud0, vd0 = uv_dot
-
+        u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
         y0_internal = [x, y, u0, v0, xd, yd, ud0, vd0]
         sol = self._get_full_solution(t_span, y0_internal, t_eval=t_eval,
                                        atol=atol, rtol=rtol)
 
-        # Convert internal (u, v, ud, vd) back to (theta, phi, thetad, phid)
-        u_arr = sol.y[2]
-        v_arr = sol.y[3]
-        ud_arr = sol.y[6]
-        vd_arr = sol.y[7]
-
-        r_arr = np.sqrt(u_arr**2 + v_arr**2)
-        theta_arr = _uv_to_theta(u_arr, v_arr)
-        phi_arr = np.arctan2(v_arr, u_arr)
-
-        # Convert velocities back: [thetad, phid] = J22 * [ud, vd]
-        # Compute J22 element-wise
-        dtheta_dr_arr = -1.0 / (1.0 + (r_arr / 2)**2)
-        # Handle r~0 gracefully
-        safe_r = np.where(r_arr > 1e-14, r_arr, 1.0)
-        dtheta_du_arr = dtheta_dr_arr * np.where(r_arr > 1e-14, u_arr / safe_r, 0.0)
-        dtheta_dv_arr = dtheta_dr_arr * np.where(r_arr > 1e-14, v_arr / safe_r, 0.0)
-        dphi_du_arr = np.where(r_arr > 1e-14, -v_arr / safe_r**2, 0.0)
-        dphi_dv_arr = np.where(r_arr > 1e-14, u_arr / safe_r**2, 0.0)
-
-        thetad_arr = dtheta_du_arr * ud_arr + dtheta_dv_arr * vd_arr
-        phid_arr = dphi_du_arr * ud_arr + dphi_dv_arr * vd_arr
+        theta_arr, phi_arr, thetad_arr, phid_arr = _uv_to_spherical(
+            sol.y[2], sol.y[3], sol.y[6], sol.y[7],
+        )
 
         return xr.Dataset(
             {
@@ -854,23 +695,20 @@ class DroguedDrifter:
         yd=0.0,
         thetad=0.0,
         phid=0.0,
-        t_eval=None,
     ):
-        """Integrate and return the buoy drift velocity at the end.
+        """Integrate and return the steady-state buoy drift velocity.
 
         Args:
             t_span: ``(t_start, t_end)`` in seconds. Must be long enough for
                 the system to approach steady state.
             x, y, theta, phi, xd, yd, thetad, phid: Initial conditions
                 (same as ``get_full_solution``).
-            t_eval: Times at which to store the solution.
 
         Returns:
-            ``xarray.Dataset`` with the same structure as ``get_full_solution``.
-            The final buoy velocities are ``ds.xd.isel(time=-1)`` and
-            ``ds.yd.isel(time=-1)``.
+            Tuple ``(xd_final, yd_final)`` — the buoy drift velocity [m/s]
+            at the end of the integration.
         """
-        return self.get_full_solution(
+        ds = self.get_full_solution(
             t_span=t_span,
             x=x,
             y=y,
@@ -880,5 +718,5 @@ class DroguedDrifter:
             yd=yd,
             thetad=thetad,
             phid=phid,
-            t_eval=t_eval,
         )
+        return float(ds.xd.isel(time=-1)), float(ds.yd.isel(time=-1))

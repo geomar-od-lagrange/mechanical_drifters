@@ -10,6 +10,22 @@ from drogued_drifters.drifter import (
 )
 
 
+def _step_sampler(U_b, V_b, U_d, V_d):
+    """Return a sample_uv callable: buoy velocity at z=0, drogue velocity otherwise."""
+    U_b = np.asarray(U_b, dtype=float)
+    V_b = np.asarray(V_b, dtype=float)
+    U_d = np.asarray(U_d, dtype=float)
+    V_d = np.asarray(V_d, dtype=float)
+
+    def sample_uv(z):
+        z_arr = np.asarray(z)
+        if np.all(z_arr == 0):
+            return U_b, V_b
+        return U_d, V_d
+
+    return sample_uv
+
+
 def test_drogued_drifter_instantiation():
     dd = DroguedDrifter()
 
@@ -49,10 +65,10 @@ def test_no_drift_for_zero_currents():
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
-    ds = dd.get_final_drift(t_span=(0.0, 30.0), t_eval=(0, 30.0))
+    xd, yd = dd.get_final_drift(t_span=(0.0, 30.0))
 
-    np.testing.assert_almost_equal(float(ds.xd.isel(time=-1)), 0.0, decimal=1)
-    np.testing.assert_almost_equal(float(ds.yd.isel(time=-1)), 0.0, decimal=1)
+    np.testing.assert_almost_equal(xd, 0.0, decimal=1)
+    np.testing.assert_almost_equal(yd, 0.0, decimal=1)
 
 
 def test_no_drift_for_theta_pi_zero_currents():
@@ -63,10 +79,10 @@ def test_no_drift_for_theta_pi_zero_currents():
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
-    ds = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi, t_eval=(0, 30.0))
+    xd, yd = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi)
 
-    np.testing.assert_almost_equal(float(ds.xd.isel(time=-1)), 0.0, decimal=1)
-    np.testing.assert_almost_equal(float(ds.yd.isel(time=-1)), 0.0, decimal=1)
+    np.testing.assert_almost_equal(xd, 0.0, decimal=1)
+    np.testing.assert_almost_equal(yd, 0.0, decimal=1)
 
 
 def test_parameterization_matches_table1():
@@ -105,15 +121,11 @@ def test_steady_state_independent_of_added_mass():
         get_uv=_getuv_sheared,
     )
 
-    ds_with = dd_with.get_final_drift(t_span=(0.0, 600.0))
-    ds_without = dd_without.get_final_drift(t_span=(0.0, 600.0))
+    xd_with, yd_with = dd_with.get_final_drift(t_span=(0.0, 600.0))
+    xd_without, yd_without = dd_without.get_final_drift(t_span=(0.0, 600.0))
 
-    np.testing.assert_almost_equal(
-        float(ds_with.xd.isel(time=-1)), float(ds_without.xd.isel(time=-1)), decimal=1
-    )
-    np.testing.assert_almost_equal(
-        float(ds_with.yd.isel(time=-1)), float(ds_without.yd.isel(time=-1)), decimal=1
-    )
+    np.testing.assert_almost_equal(xd_with, xd_without, decimal=1)
+    np.testing.assert_almost_equal(yd_with, yd_without, decimal=1)
 
 
 def test_get_full_solution_returns_xarray():
@@ -181,9 +193,9 @@ def test_batch_matches_scalar():
     theta0 = 0.999 * np.pi
 
     # --- batch path ---
-    dd_batch = DroguedDrifter()  # default (unused) get_uv; batch path uses arrays directly
+    dd_batch = DroguedDrifter()
     xd_batch, yd_batch, theta_batch, _ = dd_batch.get_final_drift_batch(
-        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d, t_span=t_span, theta0=theta0,
+        sample_uv=_step_sampler(U_b, V_b, U_d, V_d), t_span=t_span, theta0=theta0,
     )
 
     # --- scalar path (one call per particle) ---
@@ -195,7 +207,7 @@ def test_batch_matches_scalar():
         dd_i = DroguedDrifter(
             get_uv=_make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
         )
-        ds = dd_i.get_final_drift(t_span=t_span, theta=theta0)
+        ds = dd_i.get_full_solution(t_span=t_span, theta=theta0)
         xd_scalar[i] = float(ds.xd.isel(time=-1))
         yd_scalar[i] = float(ds.yd.isel(time=-1))
         theta_scalar[i] = float(ds.theta.isel(time=-1))
@@ -212,7 +224,7 @@ def test_batch_zero_currents():
     dd = DroguedDrifter()
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
-        U_b=zeros, V_b=zeros, U_d=zeros, V_d=zeros, t_span=(0.0, 120.0),
+        sample_uv=_step_sampler(zeros, zeros, zeros, zeros), t_span=(0.0, 120.0),
     )
 
     np.testing.assert_allclose(xd, 0.0, atol=0.05)
@@ -226,10 +238,10 @@ def test_batch_uniform_currents():
     dd = DroguedDrifter()
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
-        U_b=np.full(N, 0.3),
-        V_b=np.full(N, -0.1),
-        U_d=np.full(N, 0.15),
-        V_d=np.full(N, -0.05),
+        sample_uv=_step_sampler(
+            np.full(N, 0.3), np.full(N, -0.1),
+            np.full(N, 0.15), np.full(N, -0.05),
+        ),
         t_span=(0.0, 120.0),
     )
 
@@ -244,10 +256,10 @@ def test_batch_opposite_shear():
     dd = DroguedDrifter()
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
-        U_b=np.array([0.1, 0.0]),
-        V_b=np.array([0.0, 0.0]),
-        U_d=np.array([0.0, 0.1]),
-        V_d=np.array([0.0, 0.0]),
+        sample_uv=_step_sampler(
+            np.array([0.1, 0.0]), np.array([0.0, 0.0]),
+            np.array([0.0, 0.1]), np.array([0.0, 0.0]),
+        ),
         t_span=(0.0, 120.0),
     )
 
@@ -266,10 +278,10 @@ def test_batch_drift_between_buoy_and_drogue():
     U_b_val, U_d_val = 0.2, 0.1
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
-        U_b=np.array([U_b_val]),
-        V_b=np.zeros(N),
-        U_d=np.array([U_d_val]),
-        V_d=np.zeros(N),
+        sample_uv=_step_sampler(
+            np.array([U_b_val]), np.zeros(N),
+            np.array([U_d_val]), np.zeros(N),
+        ),
         t_span=(0.0, 120.0),
     )
 

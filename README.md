@@ -5,9 +5,11 @@ connected by a rigid pole to a subsurface drogue (drag element). The model
 derives equations of motion from a Lagrangian formulation using SymPy, then
 integrates numerically with SciPy.
 
-The state vector is `[x, y, theta, phi, xd, yd, thetad, phid]` where `(x, y)`
-is the buoy position, `theta` is the pole polar angle (theta=pi means drogue
-hangs straight down), and `phi` is the azimuthal angle.
+The state vector internally uses stereographic coordinates for the pole
+direction: `[x, y, u, v, xd, yd, ud, vd]` where `(x, y)` is the buoy position,
+`(u, v)` are the stereographic coordinates for the pole direction (equilibrium
+at origin), and `(xd, yd, ud, vd)` are the time derivatives. The public API
+converts to and from spherical angles `(theta, phi)` for user-facing methods.
 
 ## Quick start
 
@@ -22,8 +24,8 @@ ds.x.plot()  # buoy x position over time
 ```
 
 Both `get_full_solution` and `get_final_drift` return an `xarray.Dataset` with
-time as coordinate and state variables `x, y, theta, phi, xd, yd, thetad, phid`
-as data variables. All initial conditions are keyword arguments with sensible
+time as coordinate and spherical state variables `x, y, theta, phi, xd, yd, thetad, phid`
+as data variables (converted from internal stereographic representation). All initial conditions are keyword arguments with sensible
 defaults (drogue hanging nearly straight down, at rest).
 
 Custom velocity fields are passed as a callback:
