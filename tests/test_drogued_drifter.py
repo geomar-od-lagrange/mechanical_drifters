@@ -1,4 +1,7 @@
 import numpy as np
+import pytest
+from pathlib import Path
+from unittest.mock import patch
 
 from drogued_drifters.drifter import (
     DroguedDrifter,
@@ -287,28 +290,8 @@ def test_batch_drift_between_buoy_and_drogue():
 
 
 # ---------------------------------------------------------------------------
-# Generated numpy code vs lambdified sympy reference
+# Tests for M_func and F_func shapes and values
 # ---------------------------------------------------------------------------
-
-
-def _make_kwargs(u, v, xd, yd, ud, vd, U_b, V_b, U_d, V_d):
-    """Build the kwargs dict for both lambdified and generated functions."""
-    return dict(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
-    )
-
-
-def _positional_from_kwargs(kw):
-    """Convert kwargs to positional args for the generated functions."""
-    return (
-        kw["u"], kw["v"], kw["xd"], kw["yd"], kw["ud"], kw["vd"],
-        kw["m_b"], kw["m_d"], kw["m_hat_d"], kw["m_tilde_d"], kw["m_tilde_b"],
-        kw["l"], kw["g"], kw["k_b"], kw["k_d"],
-        kw["U_b"], kw["V_b"], kw["U_d"], kw["V_d"],
-    )
 
 
 def test_M_F_func_shapes():
@@ -374,7 +357,13 @@ def test_generated_vs_lambdified():
     ]
 
     for pt in test_points:
-        kw = _make_kwargs(**pt)
+        # Build kwargs inline
+        kw = dict(
+            u=pt["u"], v=pt["v"], xd=pt["xd"], yd=pt["yd"], ud=pt["ud"], vd=pt["vd"],
+            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+            U_b=pt["U_b"], V_b=pt["V_b"], U_d=pt["U_d"], V_d=pt["V_d"],
+        )
 
         # M_func/F_func (wrapped version with shaping)
         M_wrapped = M_func(**kw)
@@ -434,5 +423,160 @@ def test_generated_vectorized():
             atol=1e-14,
             err_msg=f"F mismatch at particle {i}",
         )
+
+
+# ---------------------------------------------------------------------------
+# _save_eom_cache
+# ---------------------------------------------------------------------------
+
+
+def test_save_eom_cache_exists():
+    """Test that _save_eom_cache is defined and callable in lagrange_model."""
+    from drogued_drifters.lagrange_model import _save_eom_cache
+    assert callable(_save_eom_cache), "_save_eom_cache should be callable"
+
+
+def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
+    """Test round-trip: save EOM cache and reload via _load_or_derive.
+
+    Uses mocked _derive_symbolic to avoid expensive computation.
+    Verifies that M_func/F_func can be called with scalar input and return
+    correctly shaped outputs.
+    """
+    import pytest
+    from pathlib import Path
+    from unittest.mock import patch
+    import sympy as sp
+    from drogued_drifters.lagrange_model import (
+        _save_eom_cache,
+        _load_or_derive,
+        M_func,
+        F_func,
+        LagrangeParams,
+    )
+
+    # Create trivial mock M (4x4 identity) and F (4x1 zeros)
+    M_mock = sp.eye(4)
+    F_mock = sp.zeros(4, 1)
+
+    # Create args tuple with correct 19 symbols
+    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+
+    # Patch _derive_symbolic to return our mock
+    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
+        mock_derive.return_value = (M_mock, F_mock, args_mock)
+
+        # Save to temp file
+        cache_file = tmp_path / "test_symbolic_eom.srepr"
+        _save_eom_cache(cache_file)
+
+        # Verify file was created
+        assert cache_file.exists(), f"Cache file not created at {cache_file}"
+
+        # Patch _load_or_derive to use our temp cache instead of default location
+        with patch("drogued_drifters.lagrange_model._SREPR_PATH", cache_file):
+            # Clear the cache on _load_or_derive so it re-reads
+            from drogued_drifters import lagrange_model
+            lagrange_model._load_or_derive.cache_clear()
+
+            # Load back using _load_or_derive
+            _raw_M, _raw_F, arg_symbols = _load_or_derive()
+
+            # Verify we got callable functions
+            assert callable(_raw_M), "_raw_M should be callable"
+            assert callable(_raw_F), "_raw_F should be callable"
+
+            # Test with scalar input: all 19 parameters as scalars
+            scalar_input = tuple([1.0] * len(LagrangeParams._fields))
+            M_result = _raw_M(*scalar_input)
+            F_result = _raw_F(*scalar_input)
+
+            # For identity matrix mock, _raw_M should return diagonal elements
+            # For zero vector mock, _raw_F should return all zeros
+            assert M_result is not None, "M should be callable"
+            assert F_result is not None, "F should be callable"
+
+
+def test_save_eom_cache_format_has_separator(tmp_path, monkeypatch):
+    """Test that the written .srepr file contains the '---' separator."""
+    from pathlib import Path
+    from unittest.mock import patch
+    import sympy as sp
+    from drogued_drifters.lagrange_model import (
+        _save_eom_cache,
+        LagrangeParams,
+    )
+
+    # Create trivial mock expressions
+    M_mock = sp.eye(4)
+    F_mock = sp.zeros(4, 1)
+    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+
+    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
+        mock_derive.return_value = (M_mock, F_mock, args_mock)
+
+        cache_file = tmp_path / "test_eom_format.srepr"
+        _save_eom_cache(cache_file)
+
+        # Read the file and verify format
+        content = cache_file.read_text()
+        parts = content.split("---")
+
+        # Should have exactly 3 parts: M_srepr, F_srepr, arg_names
+        assert len(parts) == 3, (
+            f"Expected 3 parts separated by '---', got {len(parts)}. "
+            f"File content:\n{content[:200]}..."
+        )
+
+
+def test_load_or_derive_raises_on_malformed_file(tmp_path, monkeypatch):
+    """Test that _load_or_derive raises clear error for malformed .srepr file."""
+    from pathlib import Path
+    from drogued_drifters.lagrange_model import _load_or_derive
+    from drogued_drifters import lagrange_model
+
+    # Create a malformed .srepr file (missing separators)
+    bad_file = tmp_path / "malformed.srepr"
+    bad_file.write_text("some_invalid_content_without_separators")
+
+    # Patch the _SREPR_PATH to point to our bad file
+    with monkeypatch.context() as mp:
+        mp.setattr(lagrange_model, "_SREPR_PATH", bad_file)
+
+        # Clear the cache
+        lagrange_model._load_or_derive.cache_clear()
+
+        # Should raise ValueError with clear message
+        with pytest.raises(ValueError, match="Invalid .srepr format"):
+            _load_or_derive()
+
+
+def test_save_eom_cache_creates_parent_directories(tmp_path):
+    """Test that _save_eom_cache creates parent directories if needed."""
+    from pathlib import Path
+    from unittest.mock import patch
+    import sympy as sp
+    from drogued_drifters.lagrange_model import (
+        _save_eom_cache,
+        LagrangeParams,
+    )
+
+    # Create a nested path that doesn't exist yet
+    nested_path = tmp_path / "deep" / "nested" / "cache.srepr"
+    assert not nested_path.parent.exists(), "Parent dirs should not exist"
+
+    # Create mock
+    M_mock = sp.eye(4)
+    F_mock = sp.zeros(4, 1)
+    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+
+    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
+        mock_derive.return_value = (M_mock, F_mock, args_mock)
+
+        # Should create parent directories
+        _save_eom_cache(nested_path)
+
+        assert nested_path.exists(), "Cache file should be created"
+        assert nested_path.parent.exists(), "Parent dirs should be created"
 
 

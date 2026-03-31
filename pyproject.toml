@@ -5,7 +5,6 @@ requires-python = ">= 3.11"
 version = "0.1.0"
 
 [project.scripts]
-generate-eom = "drogued_drifters.cli:generate_eom"
 save-eom-cache = "drogued_drifters.cli:save_eom_cache"
 
 [build-system]
@@ -22,6 +21,7 @@ platforms = ["osx-arm64"]
 drogued_drifters = { path = ".", editable = true }
 
 [tool.pixi.tasks]
+test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v tests/"
 
 [tool.pixi.dependencies]
 ipython = ">=9.9.0,<10"
@@ -35,3 +35,4 @@ netcdf4 = ">=1.7.4,<2"
 pyproj = ">=3.7.2,<4"
 papermill = ">=2.7.0,<3"
 cartopy = ">=0.25.0,<0.26"
+pytest-cov = ">=7.1.0,<8"

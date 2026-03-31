@@ -171,19 +171,25 @@ def _derive_symbolic():
     return M_sub, F_sub, args
 
 
-@functools.lru_cache()
-def _derive_and_lambdify():
-    """Derive and lambdify M and F (cached).
-
-    This runs the full sympy derivation once on first use.
-    """
-    M_sub, F_sub, args = _derive_symbolic()
-    M_lbd = sp.lambdify(args, M_sub, modules="numpy")
-    F_lbd = sp.lambdify(args, F_sub, modules="numpy")
-    return M_lbd, F_lbd
-
-
 _SREPR_PATH = Path(__file__).resolve().parent / "data" / "symbolic_eom.srepr"
+
+
+def _save_eom_cache(path):
+    """Save the symbolic EOM to a .srepr cache file.
+
+    Args:
+        path: Path where the cache file should be written.
+              Parent directories are created if needed.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    M_sub, F_sub, args = _derive_symbolic()
+
+    arg_names = ','.join(str(s) for s in args)
+    content = f"{sp.srepr(M_sub)}\n---\n{sp.srepr(F_sub)}\n---\n{arg_names}\n"
+
+    path.write_text(content)
 
 
 @functools.lru_cache()
