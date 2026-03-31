@@ -433,31 +433,14 @@ class DroguedDrifter:
         F_elems = compute_F(u, v, xd, yd, ud, vd, **p,
                             U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d)
 
-        M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
-        F0, F1, F2, F3 = F_elems
+        # Assemble symmetric (N, 4, 4) mass matrix from upper-triangle elements.
+        _i, _j = np.triu_indices(4)
+        M = np.zeros((N, 4, 4))
+        for k, (i, j) in enumerate(zip(_i, _j)):
+            M[:, i, j] = M[:, j, i] = np.broadcast_to(M_elems[k], N)
 
-        # Assemble (N, 4, 4) mass matrix and (N, 4) force vector.
-        # Some elements (e.g. M01=0) may be scalar; np.broadcast_to handles this.
-        M = np.empty((N, 4, 4))
-        M[:, 0, 0] = M00
-        M[:, 0, 1] = M01
-        M[:, 0, 2] = M02
-        M[:, 0, 3] = M03
-        M[:, 1, 0] = M01
-        M[:, 1, 1] = M11
-        M[:, 1, 2] = M12
-        M[:, 1, 3] = M13
-        M[:, 2, 0] = M02
-        M[:, 2, 1] = M12
-        M[:, 2, 2] = M22
-        M[:, 2, 3] = M23
-        M[:, 3, 0] = M03
-        M[:, 3, 1] = M13
-        M[:, 3, 2] = M23
-        M[:, 3, 3] = M33
-
-        F = np.stack([np.broadcast_to(F0, N), np.broadcast_to(F1, N),
-                      np.broadcast_to(F2, N), np.broadcast_to(F3, N)], axis=-1)
+        # Assemble (N, 4) force vector.
+        F = np.column_stack([np.broadcast_to(f, N) for f in F_elems])
 
         # Replace NaN/inf (from overflow in generated EOM) with identity/zero
         # so degenerate particles don't crash the batched solve.
