@@ -30,11 +30,13 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 - Well-scoped cells — don't mix imports, parameters, and calculations.
 - Use `display()` for sympy output.
 - **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
+- Use xarray, pandas etc. _public_ API. Example: `ds.lon.isel(traj=0)` instead of `ds.lon.values[0, :]` etc.
 - After fixing bugs, rerun immediately without asking.
 
 ## Plotting
 
 - Keep plots vanilla. No custom colormaps, figsize, or axis labels when xarray handles them.
+- Use builtin plotting instead of raw matplotlib if possible.
 - Focus on the data. Use cartopy with Natural Earth or OSM tiles for maps.
 
 ## Data access
