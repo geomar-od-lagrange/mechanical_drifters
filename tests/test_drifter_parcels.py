@@ -142,16 +142,16 @@ def test_make_profile_sampler_multiple_particles():
 
 
 def test_make_profile_sampler_degenerate_interval():
-    """Handle degenerate depth interval (two identical depths)."""
-    depth_levels = np.array([0.0, 0.0, 5.0])  # Degenerate interval at [0, 0]
+    """Handle degenerate depth interval (two identical depths at surface, z-up)."""
+    depth_levels = np.array([-5.0, 0.0, 0.0])  # Degenerate interval at surface [0, 0]
     N = 1
-    U_profiles = np.array([[0.1], [0.1], [0.2]])
+    U_profiles = np.array([[0.2], [0.1], [0.1]])
     V_profiles = np.zeros((3, 1))
 
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
     # Should not divide by zero (we have dz-epsilon clamping)
-    U, V = sample_uv(0.5)
+    U, V = sample_uv(-2.5)
     assert np.isfinite(U[0]), f"Expected finite U, got {U}"
 
 

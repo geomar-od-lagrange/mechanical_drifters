@@ -5,10 +5,10 @@ from unittest.mock import patch
 
 from drogued_drifters.drifter import (
     DroguedDrifter,
-    buoy_added_mass,
-    buoy_drag_coeff,
-    drogue_added_mass,
-    drogue_drag_coeff,
+    buoy_horizontal_added_mass,
+    buoy_horizontal_drag_coeff,
+    drogue_horizontal_added_mass,
+    drogue_horizontal_drag_coeff,
 )
 from drogued_drifters.lagrange_model import F_func, M_func
 
@@ -94,17 +94,17 @@ def test_parameterization_matches_table1():
     """Check that parameterization functions reproduce Callies et al. values."""
     rho = 1025.0
     # Drogue: cross of two plates, w_d=0.5m, h_d=0.5m
-    m_tilde_d = drogue_added_mass(rho=rho, w_d=0.5, h_d=0.5)
+    m_tilde_d = drogue_horizontal_added_mass(rho=rho, w_d=0.5, h_d=0.5)
     np.testing.assert_almost_equal(m_tilde_d, 101.0, decimal=0)
 
-    k_d = drogue_drag_coeff(rho=rho, w_d=0.5, h_d=0.5)
+    k_d = drogue_horizontal_drag_coeff(rho=rho, w_d=0.5, h_d=0.5)
     np.testing.assert_almost_equal(k_d, 154.0, decimal=-1)
 
     # Buoy: cylinder, d_b=0.1m, h_b=0.24m
-    m_tilde_b = buoy_added_mass(rho=rho, d_b=0.1, h_b=0.24)
+    m_tilde_b = buoy_horizontal_added_mass(rho=rho, d_b=0.1, h_b=0.24)
     np.testing.assert_almost_equal(m_tilde_b, 1.9, decimal=1)
 
-    k_b = buoy_drag_coeff(rho=rho, d_b=0.1, h_b=0.24)
+    k_b = buoy_horizontal_drag_coeff(rho=rho, d_b=0.1, h_b=0.24)
     np.testing.assert_almost_equal(k_b, 12.0, decimal=0)
 
 
@@ -569,5 +569,100 @@ def test_save_eom_cache_creates_parent_directories(tmp_path):
 
         assert nested_path.exists(), "Cache file should be created"
         assert nested_path.parent.exists(), "Parent dirs should be created"
+
+
+# ---------------------------------------------------------------------------
+# Batch 2: horizontal rename tests (RED phase — these should FAIL until rename)
+# ---------------------------------------------------------------------------
+
+_NEW_NAMES = [
+    "drogue_horizontal_added_mass",
+    "buoy_horizontal_added_mass",
+    "drogue_horizontal_drag_coeff",
+    "buoy_horizontal_drag_coeff",
+]
+
+_OLD_NAMES = [
+    "drogue_added_mass",
+    "buoy_added_mass",
+    "drogue_drag_coeff",
+    "buoy_drag_coeff",
+]
+
+
+class TestHorizontalRename:
+    """Tests that the four helper functions have been renamed to include '_horizontal'."""
+
+    def test_new_names_importable(self):
+        """The new *_horizontal_* names must be importable from drifter module."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        for name in _NEW_NAMES:
+            assert hasattr(mod, name), (
+                f"{name} not found in drogued_drifters.drifter"
+            )
+
+    def test_new_names_callable(self):
+        """Each renamed function must be callable."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        for name in _NEW_NAMES:
+            fn = getattr(mod, name, None)
+            assert fn is not None, f"{name} not found"
+            assert callable(fn), f"{name} is not callable"
+
+    def test_old_names_removed(self):
+        """The old names must NOT exist in the module after rename."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        for name in _OLD_NAMES:
+            assert not hasattr(mod, name), (
+                f"Old name {name} still exists — should have been renamed"
+            )
+
+    def test_drogue_horizontal_added_mass_value(self):
+        """drogue_horizontal_added_mass must return same value as old function."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        fn = getattr(mod, "drogue_horizontal_added_mass")
+        result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
+        np.testing.assert_almost_equal(result, 101.0, decimal=0)
+
+    def test_buoy_horizontal_added_mass_value(self):
+        """buoy_horizontal_added_mass must return same value as old function."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        fn = getattr(mod, "buoy_horizontal_added_mass")
+        result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
+        np.testing.assert_almost_equal(result, 1.9, decimal=1)
+
+    def test_drogue_horizontal_drag_coeff_value(self):
+        """drogue_horizontal_drag_coeff must return same value as old function."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        fn = getattr(mod, "drogue_horizontal_drag_coeff")
+        result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
+        np.testing.assert_almost_equal(result, 154.0, decimal=-1)
+
+    def test_buoy_horizontal_drag_coeff_value(self):
+        """buoy_horizontal_drag_coeff must return same value as old function."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        fn = getattr(mod, "buoy_horizontal_drag_coeff")
+        result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
+        np.testing.assert_almost_equal(result, 12.0, decimal=0)
+
+    def test_docstrings_mention_horizontal(self):
+        """All renamed functions must have 'horizontal' in their docstring."""
+        import importlib
+        mod = importlib.import_module("drogued_drifters.drifter")
+        for name in _NEW_NAMES:
+            fn = getattr(mod, name, None)
+            assert fn is not None, f"{name} not found"
+            doc = fn.__doc__
+            assert doc is not None, f"{name} has no docstring"
+            assert "horizontal" in doc.lower(), (
+                f"{name}.__doc__ does not mention 'horizontal': {doc!r}"
+            )
 
 

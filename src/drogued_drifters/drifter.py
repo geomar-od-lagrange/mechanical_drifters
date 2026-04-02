@@ -10,6 +10,7 @@ from drogued_drifters.lagrange_model import (
 )
 
 
+# depth_levels must be sorted ascending (z-up, e.g. [-20, -10, 0]); the Parcels bridge handles the conversion.
 def make_profile_sampler(depth_levels, U_profiles, V_profiles):
     """Build a fast ``sample_uv(z)`` from pre-sampled velocity profiles.
 
@@ -50,6 +51,7 @@ def make_profile_sampler(depth_levels, U_profiles, V_profiles):
     return sample_uv
 
 
+# Parcels v4 alpha — pinned to specific commit in pyproject.toml.
 def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
     """Create a Parcels v4 vector interpolator that returns the drogued drifter
     steady-state drift velocity.
@@ -192,8 +194,8 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
     return _interpolator
 
 
-def drogue_added_mass(*, rho, w_d, h_d, C_perp_d=np.pi / 4):
-    """Drogue added mass: m_tilde_d = C_perp_d * rho * w_d^2 * h_d.
+def drogue_horizontal_added_mass(*, rho, w_d, h_d, C_perp_d=np.pi / 4):
+    """Horizontal added mass of the drogue: m_tilde_d = C_perp_d * rho * w_d^2 * h_d.
 
     The drogue is a cross of two vertical plates. For any horizontal
     acceleration, one plate is broadside. The added mass equals the mass
@@ -211,8 +213,8 @@ def drogue_added_mass(*, rho, w_d, h_d, C_perp_d=np.pi / 4):
     return C_perp_d * rho * w_d**2 * h_d
 
 
-def buoy_added_mass(*, rho, d_b, h_b, C_perp_b=1.0):
-    """Buoy added mass: m_tilde_b = C_perp_b * rho * pi/4 * d_b^2 * h_b.
+def buoy_horizontal_added_mass(*, rho, d_b, h_b, C_perp_b=1.0):
+    """Horizontal added mass of the buoy: m_tilde_b = C_perp_b * rho * pi/4 * d_b^2 * h_b.
 
     The buoy is a nearly fully submerged cylinder accelerated broadside.
 
@@ -228,8 +230,8 @@ def buoy_added_mass(*, rho, d_b, h_b, C_perp_b=1.0):
     return C_perp_b * rho * np.pi / 4 * d_b**2 * h_b
 
 
-def drogue_drag_coeff(*, rho, w_d, h_d, C_D_d=1.2):
-    """Drogue drag coefficient: k_d = 0.5 * rho * C_D_d * w_d * h_d.
+def drogue_horizontal_drag_coeff(*, rho, w_d, h_d, C_D_d=1.2):
+    """Horizontal drag coefficient of the drogue: k_d = 0.5 * rho * C_D_d * w_d * h_d.
 
     By cross symmetry, one plate is broadside for any horizontal flow,
     so the reference area is w_d * h_d.
@@ -246,8 +248,8 @@ def drogue_drag_coeff(*, rho, w_d, h_d, C_D_d=1.2):
     return 0.5 * rho * C_D_d * w_d * h_d
 
 
-def buoy_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
-    """Buoy drag coefficient: k_b = 0.5 * rho * C_D_b * d_b * h_b.
+def buoy_horizontal_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
+    """Horizontal drag coefficient of the buoy: k_b = 0.5 * rho * C_D_b * d_b * h_b.
 
     The projected area is d_b * h_b (cylinder broadside to flow).
 
@@ -298,6 +300,11 @@ class DroguedDrifter:
             dataset) before passing it here.
     """
 
+    # Default values for the Callies et al. drifter geometry (rho=1025 kg/m^3):
+    #   m_tilde_d = drogue_horizontal_added_mass(rho=1025, w_d=0.5, h_d=0.5)   ≈ 101.0 kg
+    #   m_tilde_b = buoy_horizontal_added_mass(rho=1025, d_b=0.1, h_b=0.24)    ≈   1.9 kg
+    #   k_d       = drogue_horizontal_drag_coeff(rho=1025, w_d=0.5, h_d=0.5)   ≈ 154.0 kg/m
+    #   k_b       = buoy_horizontal_drag_coeff(rho=1025, d_b=0.1, h_b=0.24)    ≈  12.0 kg/m
     def __init__(
         self,
         *,
@@ -344,7 +351,7 @@ class DroguedDrifter:
         return -1.0, -1.0
 
     def _params(self):
-        """Return the physical parameter dict for compute_M / compute_F."""
+        """Return the physical parameter dict for M_func / F_func."""
         return dict(
             m_b=self.m_b,
             m_d=self.m_d,
@@ -484,7 +491,7 @@ class DroguedDrifter:
         sample_uv,
         t_span=(0, 120),
         y0=None,
-        theta0=0.999 * np.pi,
+        theta0=np.pi,
         conv_tol=1e-4,
         atol=1e-3,
         rtol=1e-3,
@@ -622,7 +629,7 @@ class DroguedDrifter:
         t_span,
         x=0.0,
         y=0.0,
-        theta=0.999 * np.pi,
+        theta=np.pi,
         phi=0.0,
         xd=0.0,
         yd=0.0,
@@ -689,7 +696,7 @@ class DroguedDrifter:
         t_span,
         x=0.0,
         y=0.0,
-        theta=0.999 * np.pi,
+        theta=np.pi,
         phi=0.0,
         xd=0.0,
         yd=0.0,

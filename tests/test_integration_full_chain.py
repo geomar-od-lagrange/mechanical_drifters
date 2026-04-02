@@ -127,8 +127,6 @@ def test_full_chain_zero_stokes_zero_drift():
 
 def test_full_chain_shear_increases_drift():
     """Strong velocity shear should increase drift magnitude."""
-    depth_levels = np.array([0.0, 10.0])
-
     # No Stokes drift, but velocity shear
     def sample_uv_weak(*, t, x, y, z):
         return (0.1, 0.0) if z == 0 else (0.01, 0.0)
@@ -211,6 +209,7 @@ def test_full_chain_multiple_particles_independence():
     xd, yd, theta, _ = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
+        theta0=0.999 * np.pi,
     )
 
     # Particle 0 should have stronger drift
@@ -223,8 +222,6 @@ def test_full_chain_multiple_particles_independence():
 
 def test_full_chain_opposite_shear_direction():
     """Opposite shear directions should produce opposite drift."""
-    depth_levels = np.array([0.0, 10.0])
-
     # Eastward shear
     def sample_uv_east(*, t, x, y, z):
         return (0.2, 0.0) if z == 0 else (0.1, 0.0)
