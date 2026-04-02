@@ -65,13 +65,14 @@ Three notebooks covering pure drifter physics in controlled conditions:
 
 | Notebook | Purpose | Based on |
 |----------|---------|----------|
-| `00_fetch_cmems_data.ipynb` | Data acquisition and caching | Existing 00 |
-| `01_derive_effective_currents.ipynb` | Eulerian + Stokes → effective currents | Existing 06 |
-| `02_clean_observations.ipynb` | GPS data QA, phase detection | Existing 07 |
-| `03_validate_effective_current_fields.ipynb` | Diagnostic: sample fields along observed tracks | Existing 10 |
-| `04_run_simulations.ipynb` | Forward integration (DD, surface PP, drogue-depth PP) | Existing 09a+09b |
-| `05_validation_plots.ipynb` | Skill metrics, trajectory maps, separation curves | Existing 09b |
-| `06_parameter_sensitivity.ipynb` (optional) | Sensitivity to k_d, m_tilde_d | Existing 12 |
+| `00_extract_science_periods.ipynb` | Extract science periods from raw real drifter data | New |
+| `01_fetch_cmems_data.ipynb` | Data acquisition and caching | Existing 00 |
+| `02_derive_effective_currents.ipynb` | Eulerian + Stokes → effective currents | Existing 06 |
+| `03_clean_observations.ipynb` | GPS data QA, phase detection | Existing 07 |
+| `04_validate_effective_current_fields.ipynb` | Diagnostic: sample fields along observed tracks | Existing 10 |
+| `05_run_simulations.ipynb` | Forward integration (DD, surface PP, drogue-depth PP) | Existing 09a+09b |
+| `06_validation_plots.ipynb` | Skill metrics, trajectory maps, separation curves | Existing 09b |
+| `07_parameter_sensitivity.ipynb` (optional) | Sensitivity to k_d, m_tilde_d | Existing 12 |
 
 **Notebooks to remove**: 08 (redundant with 10), old 01-05 (absorbed into idealized_flow set)
 
@@ -103,13 +104,14 @@ examples/
 │
 ├── baltic_drifters/                             ← TODO (refactor from current)
 │   ├── README.md
-│   ├── 00_fetch_cmems_data.ipynb
-│   ├── 01_derive_effective_currents.ipynb
-│   ├── 02_clean_observations.ipynb
-│   ├── 03_validate_effective_current_fields.ipynb
-│   ├── 04_run_simulations.ipynb
-│   ├── 05_validation_plots.ipynb
-│   ├── 06_parameter_sensitivity.ipynb           (optional)
+│   ├── 00_extract_science_periods.ipynb
+│   ├── 01_fetch_cmems_data.ipynb
+│   ├── 02_derive_effective_currents.ipynb
+│   ├── 03_clean_observations.ipynb
+│   ├── 04_validate_effective_current_fields.ipynb
+│   ├── 05_run_simulations.ipynb
+│   ├── 06_validation_plots.ipynb
+│   ├── 07_parameter_sensitivity.ipynb           (optional)
 │   ├── data/
 │   └── output/
 ```
@@ -130,7 +132,7 @@ examples/
 ## Remaining Work
 
 ### Baltic Drifters Refactor
-1. Consolidate current 13 notebooks into 6–7 focused notebooks
+1. Consolidate current 13 notebooks into 7–8 focused notebooks
 2. Ensure z-up convention throughout (see `plans/z_convention_upward.md`)
 3. Use `compute_stokes_profile()` from `src/` for wave partition handling
 4. Remove redundant notebooks (08, old idealized/wave notebooks)
