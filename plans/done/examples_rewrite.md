@@ -46,9 +46,9 @@ Three notebooks covering pure drifter physics in controlled conditions:
 
 ---
 
-### Set 2: Baltic Drifters — TODO
+### Set 2: Baltic Drifters — DONE
 
-**Directory**: `examples/baltic_drifters/` (to be refined from current 13 notebooks)
+**Directory**: `examples/baltic_drifters/`
 
 **Purpose**: Validate the drogued drifter model against real observations in the southern Baltic Sea.
 
@@ -61,20 +61,20 @@ Three notebooks covering pure drifter physics in controlled conditions:
 
 **Dependencies**: Parcels v4, copernicusmarine, numpy, xarray, pandas, matplotlib, scipy
 
-**Target notebooks** (refined from current):
+**Notebooks**:
 
-| Notebook | Purpose | Based on |
-|----------|---------|----------|
-| `00_extract_science_periods.ipynb` | Extract science periods from raw real drifter data | New |
-| `01_fetch_cmems_data.ipynb` | Data acquisition and caching | Existing 00 |
-| `02_derive_effective_currents.ipynb` | Eulerian + Stokes → effective currents | Existing 06 |
-| `03_clean_observations.ipynb` | GPS data QA, phase detection | Existing 07 |
-| `04_validate_effective_current_fields.ipynb` | Diagnostic: sample fields along observed tracks | Existing 10 |
-| `05_run_simulations.ipynb` | Forward integration (DD, surface PP, drogue-depth PP) | Existing 09a+09b |
-| `06_validation_plots.ipynb` | Skill metrics, trajectory maps, separation curves | Existing 09b |
-| `07_parameter_sensitivity.ipynb` (optional) | Sensitivity to k_d, m_tilde_d | Existing 12 |
+| Notebook | Purpose | Status |
+|----------|---------|--------|
+| `00_extract_science_periods.ipynb` | Extract science periods from raw drifter GPS data; 1-min resampled positions, 1h-binned classification (speed/accel/beaching thresholds), 2-day minimum segment filter | Done |
+| `01_fetch_cmems_data.ipynb` | Data acquisition and caching; time range from 00's science period coverage (full days); overview plots of mean currents, Stokes, landmask | Done |
+| `02_derive_effective_currents.ipynb` | Eulerian + Stokes → effective currents; Liu et al. 2020 citation; maps of mean speed at 0m and 3m | Done |
+| `03_validate_effective_current_fields.ipynb` | Sample effective currents along observed tracks (surface + 3m); speed and U/V component time series; land extrapolation via rolling fill | Done |
+| `04_run_simulations.ipynb` | Full-duration forward integration (DD, surface PP, 3m PP); output to `output/*.zarr` | Done |
+| `05_validation_plots.ipynb` | Trajectory maps (2×3), separation distance curves, summary statistics; science-period obs at 1-min resolution | Done |
+| `06_run_short_simulations.ipynb` | 12h segments restarted every 12h from observed positions; loops over release times to handle Parcels runtime semantics; output to `output/short_*.zarr` | Done |
+| `07_short_horizon_skill.ipynb` | Separation vs lead time (0–12h) with individual + mean lines per drifter; trajectory maps; summary stats at 1/3/6h | Done |
 
-**Notebooks to remove**: 08 (redundant with 10), old 01-05 (absorbed into idealized_flow set)
+**Notebooks removed**: 03_clean_observations (superseded by 00), 08 (redundant with 10), old 01-05 (absorbed into idealized_flow set)
 
 ---
 
@@ -102,16 +102,15 @@ examples/
 │   ├── 03_drogued_drifter_in_wave_orbitals.ipynb
 │   └── output/
 │
-├── baltic_drifters/                             ← TODO (refactor from current)
-│   ├── README.md
+├── baltic_drifters/                             ← DONE
 │   ├── 00_extract_science_periods.ipynb
 │   ├── 01_fetch_cmems_data.ipynb
 │   ├── 02_derive_effective_currents.ipynb
-│   ├── 03_clean_observations.ipynb
-│   ├── 04_validate_effective_current_fields.ipynb
-│   ├── 05_run_simulations.ipynb
-│   ├── 06_validation_plots.ipynb
-│   ├── 07_parameter_sensitivity.ipynb           (optional)
+│   ├── 03_validate_effective_current_fields.ipynb
+│   ├── 04_run_simulations.ipynb                  → output/*.zarr
+│   ├── 05_validation_plots.ipynb                  ← reads zarr
+│   ├── 06_run_short_simulations.ipynb             → output/short_*.zarr
+│   ├── 07_short_horizon_skill.ipynb               ← reads short zarr
 │   ├── data/
 │   └── output/
 ```
@@ -131,14 +130,9 @@ examples/
 
 ## Remaining Work
 
-### Baltic Drifters Refactor
-1. Consolidate current 13 notebooks into 7–8 focused notebooks
-2. Ensure z-up convention throughout (see `plans/z_convention_upward.md`)
-3. Use `compute_stokes_profile()` from `src/` for wave partition handling
-4. Remove redundant notebooks (08, old idealized/wave notebooks)
-5. Write README
-
 ### Optional Enhancements
 - `examples_utils.py` module for shared Baltic notebook helpers
 - Shallow-water wavenumber adjustment in `stokes.py`
 - Automated notebook testing with papermill + pytest
+- Parameter sensitivity notebook (k_d, m_tilde_d)
+- README files for each example set
