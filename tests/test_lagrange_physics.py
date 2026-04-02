@@ -155,7 +155,7 @@ def test_zero_velocity_zero_force():
 
 
 def test_z_eff_batch_range():
-    """Effective drogue depth should be in [0, l] where l is pole length."""
+    """Effective drogue vertical position should be in [-l, 0] where l is pole length."""
     dd = DroguedDrifter(l=3.0)
 
     N = 20
@@ -168,13 +168,13 @@ def test_z_eff_batch_range():
     # Should have shape (N,)
     assert z_eff.shape == (N,)
 
-    # All values should be in [0, 3.0]
-    assert np.all(z_eff >= 0.0), f"z_eff has negative values: {z_eff[z_eff < 0]}"
-    assert np.all(z_eff <= 3.0), f"z_eff exceeds pole length: {z_eff[z_eff > 3.0]}"
+    # All values should be in [-3.0, 0] (z-up: non-positive, magnitude <= l)
+    assert np.all(z_eff <= 0.0), f"z_eff has positive values: {z_eff[z_eff > 0]}"
+    assert np.all(z_eff >= -3.0), f"z_eff exceeds pole length: {z_eff[z_eff < -3.0]}"
 
 
 def test_z_eff_batch_equilibrium():
-    """At equilibrium (u, v)=(0, 0), drogue should hang straight down: z_eff = l."""
+    """At equilibrium (u, v)=(0, 0), drogue should hang straight down: z_eff = -l."""
     dd = DroguedDrifter(l=3.0)
 
     N = 5
@@ -183,16 +183,16 @@ def test_z_eff_batch_equilibrium():
 
     z_eff = dd._z_eff_batch(u, v)
 
-    np.testing.assert_allclose(z_eff, 3.0, rtol=1e-10,
-                                err_msg="At equilibrium, z_eff should equal pole length l=3.0")
+    np.testing.assert_allclose(z_eff, -3.0, rtol=1e-10,
+                                err_msg="At equilibrium, z_eff should equal -l = -3.0 (z-up)")
 
 
 def test_z_eff_batch_tilt_increases_depth():
-    """Tilting pole away from vertical should decrease effective depth.
+    """Tilting pole away from vertical should make drogue shallower (less negative z_eff).
 
-    At (u, v)=(0, 0), pole is vertical, z_eff = l.
+    At (u, v)=(0, 0), pole is vertical, z_eff = -l.
     As pole tilts (u, v increase), cos(theta) becomes less negative,
-    so z_eff = -l*cos(theta) decreases.
+    so z_eff = l*cos(theta) increases toward 0 (shallower).
     """
     dd = DroguedDrifter(l=3.0)
 
@@ -206,10 +206,10 @@ def test_z_eff_batch_tilt_increases_depth():
     v_large = np.array([0.0])
     z_large = dd._z_eff_batch(u_large, v_large)[0]
 
-    # Larger tilt should give shallower depth (smaller z_eff)
-    assert z_large < z_small, (
-        f"Expected z_eff to decrease with tilt, but z({u_small[0]})={z_small} "
-        f"vs z({u_large[0]})={z_large}"
+    # Larger tilt should give shallower depth (larger z_eff, i.e. less negative)
+    assert z_large > z_small, (
+        f"Expected z_eff to increase (become shallower) with tilt, "
+        f"but z({u_small[0]})={z_small} vs z({u_large[0]})={z_large}"
     )
 
 

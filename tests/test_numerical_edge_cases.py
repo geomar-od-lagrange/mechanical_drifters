@@ -99,11 +99,11 @@ def test_extreme_horizontal_pole():
 
 def test_zero_drogue_velocity():
     """Drogue velocity stationary, buoy moving: drift should converge."""
-    def sample_uv_sheared(*, t, z_d, y_b, x_b):
+    def sample_uv_sheared(*, t, x, y, z):
         """Buoy: v=0.5 m/s, Drogue: v=0.0 m/s."""
-        if z_d == 0:
-            return 0.0, 0.5, 0.0, 0.0
-        return 0.0, 0.0, 0.0, 0.0
+        if z == 0:
+            return 0.0, 0.5
+        return 0.0, 0.0
 
     dd = DroguedDrifter(get_uv=sample_uv_sheared)
     xd, yd = dd.get_final_drift(t_span=(0, 120))
@@ -207,19 +207,19 @@ def test_very_small_perturbation_stability():
     """Tiny perturbations should not cause numerical instability."""
     eps = 1e-12
 
-    def sample_uv_base(*, t, z_d, y_b, x_b):
-        if z_d == 0:
-            return 0.1, 0.05, 0.05, 0.025
-        return 0.05, 0.025, 0.05, 0.025
+    def sample_uv_base(*, t, x, y, z):
+        if z == 0:
+            return 0.1, 0.05
+        return 0.05, 0.025
 
     dd_base = DroguedDrifter(get_uv=sample_uv_base)
     xd_base, yd_base = dd_base.get_final_drift(t_span=(0, 120))
 
     # Integrate with tiny perturbation
-    def sample_uv_pert(*, t, z_d, y_b, x_b):
-        if z_d == 0:
-            return 0.1 + eps, 0.05 + eps, 0.05 + eps, 0.025 + eps
-        return 0.05 + eps, 0.025 + eps, 0.05 + eps, 0.025 + eps
+    def sample_uv_pert(*, t, x, y, z):
+        if z == 0:
+            return 0.1 + eps, 0.05 + eps
+        return 0.05 + eps, 0.025 + eps
 
     dd_pert = DroguedDrifter(get_uv=sample_uv_pert)
     xd_pert, yd_pert = dd_pert.get_final_drift(t_span=(0, 120))
@@ -275,8 +275,8 @@ def test_spherical_singularity_at_pi():
 
 def test_large_depth_pole_length():
     """Very long pole should not cause numerical issues."""
-    def sample_uv(*, t, z_d, y_b, x_b):
-        return 0.1, 0.0, 0.05, 0.0
+    def sample_uv(*, t, x, y, z):
+        return (0.1, 0.0) if z == 0 else (0.05, 0.0)
 
     dd_long = DroguedDrifter(l=100.0, get_uv=sample_uv)  # Very long pole
 
@@ -290,8 +290,8 @@ def test_large_depth_pole_length():
 
 def test_tiny_pole_length():
     """Very short pole should reduce to point particle."""
-    def sample_uv(*, t, z_d, y_b, x_b):
-        return 0.1, 0.0, 0.05, 0.0
+    def sample_uv(*, t, x, y, z):
+        return (0.1, 0.0) if z == 0 else (0.05, 0.0)
 
     dd_short = DroguedDrifter(l=0.01, get_uv=sample_uv)  # Very short pole
     xd, yd = dd_short.get_final_drift(t_span=(0, 120))

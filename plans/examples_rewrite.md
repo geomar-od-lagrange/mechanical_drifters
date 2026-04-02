@@ -46,10 +46,10 @@ This plan reorganizes the examples into three independent, self-contained direct
 **Results**: Trajectories lie between surface and depth-fixed particles  
 **Imports from package**: `DroguedDrifter`, `make_dd_velocity_interpolator()`, `make_profile_sampler()`
 
-### Set 2: Wave Orbitals (2 notebooks, ~300 lines)
+### Set 2: Wave Orbitals (3 notebooks, ~400 lines)
 **Who**: Users wanting to understand wave effects and Stokes drift  
-**What**: Pendulum filtering, monochromatic and multi-partition wave tests  
-**Results**: Stokes profile ≈ orbital velocity; transfer function plot  
+**What**: Eigenfrequency analysis, analytical effective drift in multi-component wave field, time-domain simulation  
+**Results**: Undamped eigenfrequency characterizes filtering; Stokes-profile drift matches orbital drift; random-phase ensemble shows robustness  
 **Imports from package**: `DroguedDrifter`, `compute_stokes_profile()`
 
 ### Set 3: Baltic Drifters (6 notebooks: 4 core + 2 optional, ~2000 lines)
@@ -142,72 +142,41 @@ This plan reorganizes the examples into three independent, self-contained direct
 
 ---
 
-## Example Set 2: Wave Orbital Filtering
+## Example Set 2: Wave Orbital Simulation
 
 **Directory**: `examples/wave_orbitals/`
 
-**Purpose**: Show that a drogued drifter's finite inertia filters out wave-frequency oscillations, and that a Stokes profile (depth-dependent) approximation is equivalent to explicit wave orbital velocities for the drifter's timescale.
+**Purpose**: Simulate a drogued drifter in a superposition of 3 random-phase wave components and compare the long-term mean drift against two Stokes drift reference quantities: the depth-average over the upper 3 m and the point value at 3 m depth.
 
 **Physics narrative**:
-- Pole-pendulum mode has a period of ~27 seconds (heavily damped)
-- A transfer function H(ω) = 1 / (1 + (ω/ω_p)²) characterizes the response
-- For Baltic wind-wave periods (T = 2–4 s), ω/ω_p ≫ 1, so H ≈ 0 (waves are filtered out)
-- Conclusion: Stokes profile is a valid model for drifter forcing
+- Wave orbital velocity at depth z: `u_orb = A * ω * exp(-kz) * cos(ωt + φ)`
+- Long-term mean drift of the drifter is small compared to orbital velocity amplitude (wave filtering)
+- The residual drift should be compared to Stokes drift references: depth-average over 0–3 m vs point value at 3 m
 
 **Dependencies**:
 - `src/drogued_drifters/drifter.py`: `DroguedDrifter` class
-- `src/drogued_drifters/stokes.py`: `compute_stokes_profile` function (if used; can also use hard-coded deep-water exponential)
-- NumPy, SciPy, matplotlib
+- `src/drogued_drifters/stokes.py`: `compute_stokes_profile` function
+- NumPy, matplotlib
 
 **Notebooks**:
 
-### `01_pendulum_transfer_function.ipynb`
+### `01_wave_orbital_drift.ipynb`
 **Cells**:
-1. Markdown: Title and motivation (why filter wave forcing?)
-2. Markdown: Pole-pendulum theory (natural period, damping, transfer function)
-3. Code: Import packages, set up matplotlib
-4. Code: Define pendulum natural frequency ω_p from drifter parameters
-5. Code: Compute transfer function H(ω) for a frequency range
-6. Code: Plot H(ω) with marked wave periods (wind waves T=2–4 s, swell T=8–15 s)
-7. Markdown: Interpretation (waves are filtered; Stokes profile is OK)
-
-**Output**: Transfer function plot with wave periods marked
-
-### `02_monochromatic_wave_test.ipynb`
-**Cells**:
-1. Markdown: Test setup (monochromatic wave, steady-state drift comparison)
-2. Code: Define a single wave with period T = 3 s, surface amplitude A = 0.5 m
-3. Code: Derive orbital velocity amplitude u_orb = A * ω = A * (2π/T)
-4. Code: Create two velocity fields:
-   - Field A: explicit wave orbital velocity u(t) = u_orb * cos(ωt)
-   - Field B: equivalent Stokes profile using `compute_stokes_profile` (or exponential decay)
-5. Code: Initialize `DroguedDrifter` twice, once for each field
-6. Code: Run each to steady state (t_span = (0, 100) seconds, well after transient)
-7. Code: Extract final drift velocities and compare (should converge within ~1 mm/s)
-8. Markdown: Results
-9. Code: Plot time series of position and velocity for both cases (two subplots)
-10. Code: Print RMSE or max absolute difference between drift velocities
+1. Markdown: Title and motivation
+2. Code: `SEED = 42` parameter cell
+3. Code: Imports
+4. Code: Define 3 wave components (wind-wave T=3s H_s=1m dir=0°, swell1 T=10s H_s=0.8m dir=45°, swell2 T=15s H_s=0.5m dir=315°); compute wave parameters (A, ω, k, orbital amplitude, surface Stokes)
+5. Code: Draw random phases; build time-varying `get_uv` callback using orbital velocities `A*ω*exp(-kz)*cos(ωt+φ)` for each component
+6. Code: Run `DroguedDrifter.get_full_solution()` over a long integration (t = 0 to 3600 s)
+7. Code: Plot time series of drift velocity (xd, yd); compute time-mean drift over the last half of the integration
+8. Code: Compute Stokes reference quantities using `compute_stokes_profile`:
+   - Depth-average of total Stokes profile over 0–3 m
+   - Point value of total Stokes profile at z = 3 m
+9. Code: Print comparison table — drifter mean drift, Stokes depth-average 0–3 m, Stokes at 3 m
 
 **Expected output**:
-- Time series plot showing trajectories from both methods converging after ~30 s
-- Difference table (should be < 1 mm/s at steady state)
-
-### `03_multipartition_wave_test.ipynb`
-**Cells**:
-1. Markdown: Test with 3-component wave spectrum (WW, SW1, SW2 from CMEMS partitions)
-2. Code: Load sample CMEMS wave partition data (or use synthetic 3-partition spectrum)
-3. Code: For each partition, compute Stokes profile and orbital velocity field separately
-4. Code: Construct composite velocity field (time-varying, multi-frequency)
-5. Code: Run DD model with both orbital and Stokes representations
-6. Code: Repeat 10 times with random phase realizations
-7. Code: Compute mean drift and std across phase realizations
-8. Markdown: Results
-9. Code: Difference histogram (orbital vs Stokes) for 10 realizations
-10. Code: Summary table: mean difference, std, max difference
-
-**Expected output**:
-- Phase-ensemble statistics showing negligible difference (< 2 mm/s std)
-- Justification for using Stokes profile in CMEMS-driven simulations
+- Time series showing drifter oscillates at wave frequency with a small mean drift
+- Comparison table showing how mean drift relates to both Stokes reference quantities
 
 ---
 
@@ -410,9 +379,9 @@ examples/
 │
 ├── wave_orbitals/
 │   ├── README.md
-│   ├── 01_pendulum_transfer_function.ipynb
-│   ├── 02_monochromatic_wave_test.ipynb
-│   ├── 03_multipartition_wave_test.ipynb
+│   ├── 01_eigenfrequency_analysis.ipynb
+│   ├── 02_stokes_drift_3component_wave_field.ipynb
+│   ├── 03_time_evolution_random_phase.ipynb
 │   └── output/
 │
 ├── baltic_drifters/
@@ -451,15 +420,19 @@ intermediate speed between surface and depth-anchored point particles.
 ```markdown
 # Wave Orbital Filtering by Drogued Drifter Inertia
 
-Shows that a drogued drifter's finite inertia (pole-pendulum damping) 
-filters out wave-frequency oscillations. Demonstrates equivalence between 
-Stokes drift profiles and explicit wave orbital velocities for drifter 
-timescales. Justifies the use of depth-dependent Stokes profiles in 
-Eulerian current fields.
+Three-notebook progression justifying the use of depth-dependent Stokes
+profiles in place of explicit wave orbital velocities:
+
+1. Eigenfrequency analysis: undamped ω₀ and transfer function H(ω) show
+   that Baltic wind-wave frequencies are strongly filtered.
+2. Analytical effective drift: for a 3-component wave field the Stokes-profile
+   approach matches orbital-velocity drift to < 1 mm/s.
+3. Time-domain validation: random-phase ensemble integration confirms the
+   result numerically and quantifies phase-ensemble spread.
 
 **Requirements**: numpy, scipy, matplotlib
-**Runtime**: ~1 minute
-**Output**: Transfer function plot, drift velocity comparisons
+**Runtime**: ~5 minutes
+**Output**: Transfer function plot, Stokes depth profiles, drift comparison table, ensemble statistics
 ```
 
 ### `baltic_drifters/README.md`
@@ -497,10 +470,10 @@ buoys in the southern Baltic Sea, April 2023.
    - Focus on intermediate trajectory behavior
 
 2. Create `examples/wave_orbitals/` with three notebooks
-   - `01_pendulum_transfer_function.ipynb`: purely analytical
-   - `02_monochromatic_wave_test.ipynb`: synthetic 1-frequency wave
-   - `03_multipartition_wave_test.ipynb`: synthetic 3-partition wave (or sample CMEMS data)
-   - No Parcels needed; use `DroguedDrifter.get_full_solution` directly
+   - `01_eigenfrequency_analysis.ipynb`: rename of `00_eigenfrequency_analysis.ipynb`; ω₀ derivation + transfer function
+   - `02_stokes_drift_3component_wave_field.ipynb`: analytical/semi-analytical effective drift in superposed wave field
+   - `03_time_evolution_random_phase.ipynb`: full ODE integration, random-phase ensemble, phase-spread statistics
+   - No Parcels needed; use `DroguedDrifter.get_full_solution` and `get_final_drift` directly
 
 3. Refactor `examples/baltic_drifters/`
    - Rename old notebooks (00, 01, etc.) → new names (00 through 06)
@@ -561,8 +534,9 @@ After reorganization:
 |---|---|---|---|---|
 | Idealized | 01_synthetic_flow_profiles | Direct API test (no Parcels) | DroguedDrifter, numpy | ~1 min |
 | Idealized | 02_sheared_jet_parcels | Parcels + DD integration | DroguedDrifter, make_dd_velocity_interpolator, Parcels v4 | ~3 min |
-| Wave orbitals | 01_stokes_depth_profile | Profile computation demo | compute_stokes_profile, numpy, matplotlib | ~1 min |
-| Wave orbitals | 02_wave_filtering | Orbital vs Stokes comparison | DroguedDrifter, numpy | ~2 min |
+| Wave orbitals | 01_eigenfrequency_analysis | Undamped eigenfrequency + transfer function | DroguedDrifter, numpy, matplotlib | ~1 min |
+| Wave orbitals | 02_stokes_drift_3component_wave_field | Analytical Stokes-profile drift in 3-component field | DroguedDrifter, compute_stokes_profile, numpy | ~1 min |
+| Wave orbitals | 03_time_evolution_random_phase | ODE time integration, single random-phase realisation | DroguedDrifter, numpy, scipy | ~1 min |
 | Baltic | 00_download_and_cache_data | Data acquisition | copernicusmarine, xarray | ~20 min (network) |
 | Baltic | 01_effective_currents | Field construction | compute_stokes_profile, xarray, matplotlib | ~5 min |
 | Baltic | 02_clean_observations | Data QA | pandas, numpy, matplotlib | ~2 min |
@@ -587,10 +561,11 @@ After reorganization:
 - **02_sheared_jet_parcels**: Parcels integration (based on existing 01_idealized_flow.ipynb)
 - Test: trajectories should lie between surface and drogue-depth cases
 
-### Phase 3: Wave Orbitals (1.5 days)
-- **01_stokes_depth_profile**: demo `compute_stokes_profile()`, show decay
-- **02_wave_filtering**: monochromatic + multi-partition tests (based on existing 05_wave_orbital_effects.ipynb, condensed)
-- Test: orbital vs Stokes drift difference <1 mm/s
+### Phase 3: Wave Orbitals (2 days)
+- **01_eigenfrequency_analysis**: rename `00_eigenfrequency_analysis.ipynb`; add transfer function H(ω) with wave-period markers
+- **02_stokes_drift_3component_wave_field**: define 3 Baltic-representative wave components; depth profiles; compare Stokes-profile drift vs orbital-velocity drift
+- **03_time_evolution_random_phase**: single random-phase realisation (fixed seed); ODE integration; compare to Stokes-profile prediction
+- Test: departure from Stokes-profile prediction < 2 mm/s
 
 ### Phase 4: Baltic Drifters Core (4 days)
 - **00_download_and_cache_data**: new (based on existing 00_get_cmems_data.ipynb)
@@ -692,7 +667,7 @@ Out of scope for this rewrite but worth documenting:
 
 **After**: Three focused example sets with 9 core notebooks + 2 optional
 - **Idealized**: 2 notebooks, ~200 lines, ~15 min runtime, 0 external dependencies
-- **Wave Orbitals**: 2 notebooks, ~300 lines, ~3 min runtime, 0 external dependencies
+- **Wave Orbitals**: 3 notebooks, ~400 lines, ~5 min runtime, 0 external dependencies
 - **Baltic**: 4 core + 2 optional notebooks, ~2500 lines, ~1 hour runtime (with CMEMS fetch), requires Copernicus Marine account
 
 **Benefits**:

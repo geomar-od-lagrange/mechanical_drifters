@@ -42,7 +42,9 @@ def test_MF_evaluates():
     dd = DroguedDrifter()
 
     t = 0.0
-    currents = dd.get_uv(t=t, z_d=0.0, y_b=0.0, x_b=0.0)
+    U_b, V_b = dd.get_uv(t=t, x=0.0, y=0.0, z=0.0)
+    U_d, V_d = dd.get_uv(t=t, x=0.0, y=0.0, z=-3.0)
+    currents = U_b, V_b, U_d, V_d
 
     # Use stereographic coordinates: u=0.1, v=0.05 (small tilt from vertical)
     M, F = dd._eval_M_F(
@@ -63,8 +65,8 @@ def test_MF_evaluates():
 
 
 def test_no_drift_for_zero_currents():
-    def _getuv_zero(*, t, z_d, y_b, x_b):
-        return 0.0, 0.0, 0.0, 0.0
+    def _getuv_zero(*, t, x, y, z):
+        return 0.0, 0.0
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
@@ -77,8 +79,8 @@ def test_no_drift_for_zero_currents():
 def test_no_drift_for_theta_pi_zero_currents():
     """Drogue hangs straight down (theta=pi), no currents: should stay at rest."""
 
-    def _getuv_zero(*, t, z_d, y_b, x_b):
-        return 0.0, 0.0, 0.0, 0.0
+    def _getuv_zero(*, t, x, y, z):
+        return 0.0, 0.0
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
@@ -109,9 +111,9 @@ def test_parameterization_matches_table1():
 def test_steady_state_independent_of_added_mass():
     """Added mass only affects acceleration, not steady-state drift."""
 
-    def _getuv_sheared(*, t, z_d, y_b, x_b):
-        factor = np.exp(-abs(z_d) / 2.0)
-        return 1.0, 0.0, factor, 0.0
+    def _getuv_sheared(*, t, x, y, z):
+        factor = np.exp(-abs(z) / 2.0)
+        return factor, 0.0
 
     dd_with = DroguedDrifter(
         m_tilde_d=101.0,
@@ -155,10 +157,12 @@ def test_get_full_solution_returns_xarray():
 
 
 def _make_const_uv(U_b, V_b, U_d, V_d):
-    """Return a get_uv callback that always returns the given constants."""
+    """Return a get_uv callback that returns buoy velocity at z=0, drogue otherwise."""
 
-    def _getuv(*, t, z_d, y_b, x_b):
-        return U_b, V_b, U_d, V_d
+    def _getuv(*, t, x, y, z):
+        if z == 0.0:
+            return U_b, V_b
+        return U_d, V_d
 
     return _getuv
 

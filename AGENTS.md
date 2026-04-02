@@ -32,6 +32,8 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 - **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
 - Use xarray, pandas etc. _public_ API. Example: `ds.lon.isel(traj=0)` instead of `ds.lon.values[0, :]` etc.
 - After fixing bugs, rerun immediately without asking.
+- **Execute notebooks with papermill**: `cd <notebook-dir> && pixi run papermill <nb.ipynb> <nb.ipynb>` (in-place, cwd = notebook directory). Use `--execution-timeout 600` for notebooks with symbolic derivations. Do not use `jupyter nbconvert --execute`.
+- Ensure all parameters are in a parameters cell close to the beginning of the notebook. The parameters cell neesd to be tagged "parameters" and only declare and assign primitives. All calculations, transformations, etc. of these parameters have to happen outside of the parameters cell.
 
 ## Plotting
 

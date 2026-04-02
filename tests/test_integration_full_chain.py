@@ -25,7 +25,7 @@ def test_full_chain_stokes_to_drifter():
     surface_u = 0.05
     surface_v = 0.0
     peak_period = 10.0
-    depth_levels = np.array([0.0, 5.0, 10.0, 15.0, 20.0])
+    depth_levels = np.array([-20.0, -15.0, -10.0, -5.0, 0.0])
 
     u_stokes, v_stokes = compute_stokes_profile(
         surface_u, surface_v, peak_period, depth_levels
@@ -61,7 +61,7 @@ def test_full_chain_stokes_to_drifter():
 
 def test_full_chain_multi_partition_stokes():
     """Full chain with multi-partition Stokes drift summation."""
-    depth_levels = np.array([0.0, 5.0, 10.0, 15.0])
+    depth_levels = np.array([-15.0, -10.0, -5.0, 0.0])
 
     # Partition 1: T=10s
     u1, v1 = compute_stokes_profile(0.04, 0.01, 10.0, depth_levels)
@@ -103,7 +103,7 @@ def test_full_chain_multi_partition_stokes():
 
 def test_full_chain_zero_stokes_zero_drift():
     """With zero Stokes drift, final drift should be zero."""
-    depth_levels = np.array([0.0, 5.0, 10.0])
+    depth_levels = np.array([-10.0, -5.0, 0.0])
 
     # Zero Stokes drift
     u_stokes, v_stokes = compute_stokes_profile(0.0, 0.0, 10.0, depth_levels)
@@ -130,11 +130,11 @@ def test_full_chain_shear_increases_drift():
     depth_levels = np.array([0.0, 10.0])
 
     # No Stokes drift, but velocity shear
-    def sample_uv_weak(*, t, z_d, y_b, x_b):
-        return (0.1, 0.0, 0.01, 0.0) if z_d == 0 else (0.01, 0.0, 0.01, 0.0)
+    def sample_uv_weak(*, t, x, y, z):
+        return (0.1, 0.0) if z == 0 else (0.01, 0.0)
 
-    def sample_uv_strong(*, t, z_d, y_b, x_b):
-        return (0.5, 0.0, 0.01, 0.0) if z_d == 0 else (0.01, 0.0, 0.01, 0.0)
+    def sample_uv_strong(*, t, x, y, z):
+        return (0.5, 0.0) if z == 0 else (0.01, 0.0)
 
     dd_weak = DroguedDrifter(get_uv=sample_uv_weak)
     xd_weak, yd_weak = dd_weak.get_final_drift(t_span=(0, 120))
@@ -156,7 +156,7 @@ def test_full_chain_shear_increases_drift():
 
 def test_full_chain_preserves_initial_condition_for_warm_start():
     """Warm-starting from previous solution should converge quickly."""
-    depth_levels = np.array([0.0, 5.0, 10.0])
+    depth_levels = np.array([-10.0, -5.0, 0.0])
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.0, 10.0, depth_levels)
 
@@ -193,7 +193,7 @@ def test_full_chain_preserves_initial_condition_for_warm_start():
 
 def test_full_chain_multiple_particles_independence():
     """Multiple particles should evolve independently with different profiles."""
-    depth_levels = np.array([0.0, 10.0])
+    depth_levels = np.array([-10.0, 0.0])
 
     # Particle 0: moderate Stokes
     u0, v0 = compute_stokes_profile(0.05, 0.0, 10.0, depth_levels)
@@ -226,12 +226,12 @@ def test_full_chain_opposite_shear_direction():
     depth_levels = np.array([0.0, 10.0])
 
     # Eastward shear
-    def sample_uv_east(*, t, z_d, y_b, x_b):
-        return (0.2, 0.0, 0.1, 0.0) if z_d == 0 else (0.1, 0.0, 0.1, 0.0)
+    def sample_uv_east(*, t, x, y, z):
+        return (0.2, 0.0) if z == 0 else (0.1, 0.0)
 
     # Westward shear (opposite)
-    def sample_uv_west(*, t, z_d, y_b, x_b):
-        return (-0.2, 0.0, -0.1, 0.0) if z_d == 0 else (-0.1, 0.0, -0.1, 0.0)
+    def sample_uv_west(*, t, x, y, z):
+        return (-0.2, 0.0) if z == 0 else (-0.1, 0.0)
 
     dd_east = DroguedDrifter(get_uv=sample_uv_east)
     xd_east, _ = dd_east.get_final_drift(t_span=(0, 120))
@@ -247,7 +247,7 @@ def test_full_chain_opposite_shear_direction():
 
 def test_full_chain_convergence_time():
     """Drifter should reach steady state within integration window."""
-    depth_levels = np.array([0.0, 5.0, 10.0])
+    depth_levels = np.array([-10.0, -5.0, 0.0])
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.01, 10.0, depth_levels)
 
@@ -274,16 +274,16 @@ def test_full_chain_convergence_time():
 
 def test_full_chain_scalar_to_batch_consistency():
     """Batch solution should match scalar solution with N=1."""
-    depth_levels = np.array([0.0, 10.0])
+    depth_levels = np.array([-10.0, 0.0])
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.0, 10.0, depth_levels)
 
     # Scalar path (using custom get_uv)
-    def sample_uv_scalar(*, t, z_d, y_b, x_b):
-        if z_d == 0:
-            return u_stokes[0], v_stokes[0], u_stokes[-1], v_stokes[-1]
-        else:
-            return u_stokes[-1], v_stokes[-1], u_stokes[-1], v_stokes[-1]
+    # depth_levels[-1] = 0.0 (surface), depth_levels[0] = -10.0 (deep)
+    def sample_uv_scalar(*, t, x, y, z):
+        if z == 0:
+            return u_stokes[-1], v_stokes[-1]  # surface (index -1 = z=0)
+        return u_stokes[0], v_stokes[0]  # deep (index 0 = z=-10)
 
     dd = DroguedDrifter(get_uv=sample_uv_scalar)
     xd_scalar, yd_scalar = dd.get_final_drift(t_span=(0, 120))
@@ -306,15 +306,14 @@ def test_full_chain_scalar_to_batch_consistency():
 
 def test_full_chain_xarray_output():
     """get_full_solution should return xarray Dataset."""
-    depth_levels = np.array([0.0, 10.0])
+    depth_levels = np.array([-10.0, 0.0])
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.01, 10.0, depth_levels)
 
-    def sample_uv(*, t, z_d, y_b, x_b):
-        if z_d == 0:
-            return u_stokes[0], v_stokes[0], u_stokes[-1], v_stokes[-1]
-        else:
-            return u_stokes[-1], v_stokes[-1], u_stokes[-1], v_stokes[-1]
+    def sample_uv(*, t, x, y, z):
+        if z == 0:
+            return u_stokes[-1], v_stokes[-1]  # surface (z=0 at last index)
+        return u_stokes[0], v_stokes[0]  # deep (z=-10 at index 0)
 
     dd = DroguedDrifter(get_uv=sample_uv)
 

@@ -18,7 +18,9 @@ def make_profile_sampler(depth_levels, U_profiles, V_profiles):
     This avoids repeated (expensive) FieldSet queries.
 
     Args:
-        depth_levels: 1-D array of depth values, shape ``(D,)``, sorted.
+        depth_levels: 1-D array of vertical positions [m], positive upward
+            (0 = surface, negative = below MSL), shape ``(D,)``.  Must be
+            sorted ascending (deepest first, e.g. ``[-20, -10, 0]``).
         U_profiles: Eastward velocity at each depth for each particle,
             shape ``(D, N)``.
         V_profiles: Northward velocity, same shape.
@@ -103,13 +105,16 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
 
         field_U = vectorfield.U
         field_V = vectorfield.V
-        depth_levels = np.asarray(field_U.grid.depth, dtype=float)
-        D = len(depth_levels)
+        # Parcels stores depth positive downward; convert to z-up convention
+        # (negate) after extraction and reverse to maintain ascending order.
+        depth_levels_parcels = np.asarray(field_U.grid.depth, dtype=float)
+        D = len(depth_levels_parcels)
 
         axis_dim = field_U.grid.get_axis_dim_mapping(field_U.data.dims)
         lenT = 2 if np.any(tau > 0) else 1
 
-        # Extract profiles: for each depth level, get the (t, y, x)-interpolated value
+        # Extract profiles: for each depth level, get the (t, y, x)-interpolated value.
+        # Loop index iz aligns with Parcels' depth ordering (z-down, ascending positive).
         U_profiles = np.empty((D, N))
         V_profiles = np.empty((D, N))
 
@@ -146,6 +151,12 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
                 + (1 - xsi) * eta * cV[1, 0]
                 + xsi * eta * cV[1, 1]
             )
+
+        # Convert Parcels z-down depths to z-up convention and reverse so that
+        # depth_levels is sorted ascending (deepest first, surface last).
+        depth_levels = -depth_levels_parcels[::-1]
+        U_profiles = U_profiles[::-1]
+        V_profiles = V_profiles[::-1]
 
         # The raw field data from _get_corner_data_Agrid is in m/s (as stored
         # in the netCDF). No unit conversion needed here. The output
@@ -277,9 +288,12 @@ class DroguedDrifter:
         k_b: Buoy drag coefficient [kg/m].
         k_d: Drogue drag coefficient [kg/m].
         g: Gravitational acceleration [m/s^2].
-        get_uv: Callback that returns ocean currents at a given position.
-            Must have signature ``get_uv(*, t, z_d, y_b, x_b)`` and return
-            ``(U_b, V_b, U_d, V_d)``. If None, uses ``default_uv``.
+        get_uv: Callback that returns the ocean current at a given position.
+            Must have signature ``get_uv(*, t, x, y, z) -> (U, V)``.
+            ``z`` is vertical position [m], positive upward (0 = surface,
+            negative = below MSL).
+            Called separately at ``z=0`` (buoy) and ``z=z_d`` (drogue).
+            If None, uses ``default_uv``.
             Use ``functools.partial`` to bind external data (e.g. an xarray
             dataset) before passing it here.
     """
@@ -313,21 +327,21 @@ class DroguedDrifter:
         else:
             self.get_uv = self.default_uv
 
-    def default_uv(self, *, t, z_d, y_b, x_b):
-        """Default velocity callback for testing. Returns uniform currents.
+    def default_uv(self, *, t, x, y, z):
+        """Default velocity callback for testing. Returns sheared currents.
 
         Args:
             t: Time [s].
-            z_d: Drogue depth [m], positive downward.
-            y_b: Buoy y position [m].
-            x_b: Buoy x position [m].
+            x: Position x [m].
+            y: Position y [m].
+            z: Vertical position [m], positive upward (0 = surface, negative = below MSL).
 
         Returns:
-            Tuple of ``(U_b, V_b, U_d, V_d)`` current velocities [m/s].
+            Tuple ``(U, V)`` current velocity [m/s] at (x, y, z).
         """
-        U_b, V_b = 1.0, 1.0
-        U_d, V_d = -1.0, -1.0
-        return U_b, V_b, U_d, V_d
+        if z == 0.0:
+            return 1.0, 1.0
+        return -1.0, -1.0
 
     def _params(self):
         """Return the physical parameter dict for compute_M / compute_F."""
@@ -375,9 +389,13 @@ class DroguedDrifter:
         x_b, y_b, u, v, xd, yd, ud, vd = y
 
         theta = _uv_to_theta(u, v)
-        z_d = float(max(0.0, -self.l * np.cos(theta)))
+        # z-up: at equilibrium (theta=pi), cos(pi)=-1 so z_d = l*(-1) = -l.
+        # min clamp ensures z_d <= 0 (drogue cannot be above the surface).
+        z_d = float(min(0.0, self.l * np.cos(theta)))
 
-        currents = self.get_uv(t=t, z_d=z_d, y_b=y_b, x_b=x_b)
+        U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
+        U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
+        currents = U_b, V_b, U_d, V_d
 
         M, F = self._eval_M_F(
             t, x_b, y_b, u, v, xd, yd, ud, vd, currents
@@ -388,14 +406,18 @@ class DroguedDrifter:
         return np.array([xd, yd, ud, vd, *qdd])
 
     def _z_eff_batch(self, u, v):
-        """Compute effective drogue depth from stereographic (u, v).
+        """Compute effective drogue vertical position from stereographic (u, v).
 
         Returns:
-            z_eff: Drogue depth [m], positive downward, shape ``(N,)``.
+            z_eff: Drogue vertical position [m], positive upward (non-positive),
+                shape ``(N,)``.  At equilibrium (pole vertical) returns ``-l``.
+                Clamped to ``<= 0`` (drogue cannot be above the surface).
         """
         s = u**2 + v**2
         cos_theta = (s - 4) / (s + 4)
-        return np.maximum(0.0, -self.l * cos_theta)
+        # At equilibrium cos_theta = -1, so l * cos_theta = -l (below surface).
+        # min clamp ensures z_eff <= 0 (drogue cannot be above water).
+        return np.minimum(0.0, self.l * cos_theta)
 
     def _rhs_batch(self, Y, sample_uv):
         """Vectorized RHS for N particles.
