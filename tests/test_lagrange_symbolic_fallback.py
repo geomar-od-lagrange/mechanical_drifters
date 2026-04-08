@@ -16,7 +16,7 @@ from drogued_drifters.lagrange_model import (
     M_func,
     _apply_cse_and_lambdify,
     _derive_symbolic,
-    _load_or_derive,
+    _get_eom_callables,
 )
 
 
@@ -161,8 +161,8 @@ def test_derived_vs_cached_numerical_agreement():
 
 
 @pytest.mark.slow
-def test_load_or_derive_fallback_on_missing_cache(tmp_path, monkeypatch):
-    """_load_or_derive should fall back to _derive_symbolic if cache missing.
+def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
+    """_get_eom_callables should fall back to _derive_symbolic if cache missing.
 
     Create a temp directory without the .srepr file and verify fallback works.
     """
@@ -176,10 +176,10 @@ def test_load_or_derive_fallback_on_missing_cache(tmp_path, monkeypatch):
         mp.setattr(lagrange_model, "_SREPR_PATH", temp_cache)
 
         # Clear cache so it re-evaluates
-        lagrange_model._load_or_derive.cache_clear()
+        lagrange_model._get_eom_callables.cache_clear()
 
         # Should fall back to _derive_symbolic and work
-        _raw_M, _raw_F, args = lagrange_model._load_or_derive()
+        _raw_M, _raw_F, args = lagrange_model._get_eom_callables()
 
         assert callable(_raw_M), "_raw_M should be callable (fallback)"
         assert callable(_raw_F), "_raw_F should be callable (fallback)"

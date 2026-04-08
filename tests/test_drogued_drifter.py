@@ -179,10 +179,15 @@ def test_batch_matches_scalar():
     t_span = (0.0, 120.0)
     theta0 = 0.999 * np.pi
 
+    # Build y0 in public format: (x, y, theta, phi, xd, yd, thetad, phid)
+    y0_batch = np.zeros((N, 8))
+    y0_batch[:, 2] = theta0  # theta column
+    # phi, xd, yd, thetad, phid all zero
+
     # --- batch path ---
     dd_batch = DroguedDrifter()
     xd_batch, yd_batch, theta_batch, _ = dd_batch.get_final_drift_batch(
-        sample_uv=_step_sampler(U_b, V_b, U_d, V_d), t_span=t_span, theta0=theta0,
+        sample_uv=_step_sampler(U_b, V_b, U_d, V_d), t_span=t_span, y0=y0_batch,
     )
 
     # --- scalar path (one call per particle) ---
@@ -428,7 +433,7 @@ def test_save_eom_cache_exists():
 
 
 def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
-    """Test round-trip: save EOM cache and reload via _load_or_derive.
+    """Test round-trip: save EOM cache and reload via _get_eom_callables.
 
     Uses mocked _derive_symbolic to avoid expensive computation.
     Verifies that M_func/F_func can be called with scalar input and return
@@ -440,7 +445,7 @@ def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
     import sympy as sp
     from drogued_drifters.lagrange_model import (
         _save_eom_cache,
-        _load_or_derive,
+        _get_eom_callables,
         M_func,
         F_func,
         LagrangeParams,
@@ -464,14 +469,14 @@ def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
         # Verify file was created
         assert cache_file.exists(), f"Cache file not created at {cache_file}"
 
-        # Patch _load_or_derive to use our temp cache instead of default location
+        # Patch _get_eom_callables to use our temp cache instead of default location
         with patch("drogued_drifters.lagrange_model._SREPR_PATH", cache_file):
-            # Clear the cache on _load_or_derive so it re-reads
+            # Clear the cache on _get_eom_callables so it re-reads
             from drogued_drifters import lagrange_model
-            lagrange_model._load_or_derive.cache_clear()
+            lagrange_model._get_eom_callables.cache_clear()
 
-            # Load back using _load_or_derive
-            _raw_M, _raw_F, arg_symbols = _load_or_derive()
+            # Load back using _get_eom_callables
+            _raw_M, _raw_F, arg_symbols = _get_eom_callables()
 
             # Verify we got callable functions
             assert callable(_raw_M), "_raw_M should be callable"
@@ -520,10 +525,10 @@ def test_save_eom_cache_format_has_separator(tmp_path, monkeypatch):
         )
 
 
-def test_load_or_derive_raises_on_malformed_file(tmp_path, monkeypatch):
-    """Test that _load_or_derive raises clear error for malformed .srepr file."""
+def test_get_eom_callables_raises_on_malformed_file(tmp_path, monkeypatch):
+    """Test that _get_eom_callables raises clear error for malformed .srepr file."""
     from pathlib import Path
-    from drogued_drifters.lagrange_model import _load_or_derive
+    from drogued_drifters.lagrange_model import _get_eom_callables
     from drogued_drifters import lagrange_model
 
     # Create a malformed .srepr file (missing separators)
@@ -535,11 +540,11 @@ def test_load_or_derive_raises_on_malformed_file(tmp_path, monkeypatch):
         mp.setattr(lagrange_model, "_SREPR_PATH", bad_file)
 
         # Clear the cache
-        lagrange_model._load_or_derive.cache_clear()
+        lagrange_model._get_eom_callables.cache_clear()
 
         # Should raise ValueError with clear message
         with pytest.raises(ValueError, match="Invalid .srepr format"):
-            _load_or_derive()
+            _get_eom_callables()
 
 
 def test_save_eom_cache_creates_parent_directories(tmp_path):
@@ -666,3 +671,52 @@ class TestHorizontalRename:
             )
 
 
+# ---------------------------------------------------------------------------
+# DW-B: State vector index round-trip test
+# ---------------------------------------------------------------------------
+
+
+def test_state_vector_round_trip():
+    """Construct a known state, convert public->internal->public, check each component.
+
+    Public format:   (x, y, theta, phi, xd, yd, thetad, phid)
+    Internal format: (x, y, u, v, xd, yd, ud, vd)
+    """
+    from drogued_drifters.lagrange_model import _spherical_to_uv, _uv_to_spherical
+    from drogued_drifters.drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
+
+    # Known public state
+    x0, y0 = 100.0, -50.0
+    theta0, phi0 = 2.8, 0.5
+    xd0, yd0 = 0.3, -0.2
+    thetad0, phid0 = 0.01, -0.005
+
+    # Public -> internal
+    u0, v0, ud0, vd0 = _spherical_to_uv(theta0, phi0, thetad0, phid0)
+    internal = np.array([x0, y0, u0, v0, xd0, yd0, ud0, vd0])
+
+    # Check that named indices access the right components
+    assert internal[IX] == x0
+    assert internal[IY] == y0
+    assert internal[IU] == u0
+    assert internal[IV] == v0
+    assert internal[IXD] == xd0
+    assert internal[IYD] == yd0
+    assert internal[IUD] == ud0
+    assert internal[IVD] == vd0
+
+    # Internal -> public (round trip on angular components)
+    theta_rt, phi_rt, thetad_rt, phid_rt = _uv_to_spherical(
+        internal[IU], internal[IV], internal[IUD], internal[IVD],
+    )
+
+    np.testing.assert_allclose(theta_rt, theta0, atol=1e-12)
+    np.testing.assert_allclose(phi_rt, phi0, atol=1e-12)
+    np.testing.assert_allclose(thetad_rt, thetad0, atol=1e-12)
+    np.testing.assert_allclose(phid_rt, phid0, atol=1e-12)
+
+    # Position and velocity pass through unchanged
+    assert internal[IX] == x0
+    assert internal[IY] == y0
+    assert internal[IXD] == xd0
+    assert internal[IYD] == yd0

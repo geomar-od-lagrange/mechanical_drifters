@@ -15,6 +15,7 @@ class LagrangeParams(NamedTuple):
     # TODO: Let's make sure argument order is not a hidden complection. THe docstring comment on field ordering is either misleading or it points at a problem we need to solve.
     Fields are ordered to match the symbolic derivation (lambdify order).
     """
+
     # TODO: The u and v may be standard, but they're still really misleading because they could also be mistakent for horizontal velocity components.
     u: float
     v: float
@@ -45,10 +46,14 @@ def _mag(vec):
 def _derive_symbolic():
     """Derive symbolic M and F in stereographic (u, v) coordinates.
 
-    # TODO: Here make sure to mention and briefly explain the nature of the singularity before referencing it.
-    The drogue position relative to the buoy is parameterized directly
-    via stereographic projection of the pole direction. This avoids the
-    phi singularity at theta=pi entirely, with no regularization needed.
+    In spherical coordinates (theta, phi), the azimuthal angle phi is
+    undefined at theta=pi: any rotation about the vertical axis represents
+    the same physical configuration (drogue hanging straight down).  This
+    makes the (theta, phi) equations of motion singular at equilibrium.
+
+    The drogue position relative to the buoy is therefore parameterized via
+    stereographic projection of the pole direction.  This avoids the phi
+    singularity at theta=pi entirely, with no regularization needed.
 
     Stereographic identities (projection from south pole onto plane at
     north pole, with s = u^2 + v^2):
@@ -61,9 +66,10 @@ def _derive_symbolic():
     where theta = pi.
 
     Returns:
-        Tuple ``(M_sub, F_sub, args)`` where M_sub is the 4x4 mass matrix
-        and F_sub the 4x1 force vector, both in static (non-dynamic) symbols,
-        and args is the ordered tuple of symbols for lambdification.
+        Tuple ``(M_static, F_static, args)`` where M_static is the 4x4 mass
+        matrix and F_static the 4x1 force vector, both with static (non-dynamic)
+        symbols substituted for the time-dependent ones, and args is the ordered
+        tuple of symbols for lambdification.
     """
     t = dynamicsymbols._t
 
@@ -78,7 +84,6 @@ def _derive_symbolic():
     U_b, V_b, U_d, V_d = sp.symbols("U_b V_b U_d V_d", real=True)
 
     # Stereographic identities — smooth at the origin
-    # TODO: run black
     s = u_st**2 + v_st**2
     denom = s + 4
     sin_theta_cos_phi = 4 * u_st / denom
@@ -137,47 +142,54 @@ def _derive_symbolic():
     xd, yd = x.diff(t), y.diff(t)
     ud, vd = u_st.diff(t), v_st.diff(t)
 
-    # TODO: Brief comment explaining the symbols. Do we need the static symbols? Test this without the substitution on a simple application.
+    # Static (non-dynamic) replacements: sympy's dynamicsymbols carry
+    # implicit time dependence which prevents lambdify from generating
+    # simple positional-arg functions.  We substitute each dynamic symbol
+    # with a plain Symbol so the resulting expressions are lambdify-friendly.
     u_s, v_s = sp.symbols("u_s v_s", real=True)
     ud_s, vd_s = sp.symbols("ud_s vd_s", real=True)
     x_s, y_s = sp.symbols("x_s y_s", real=True)
     xd_s, yd_s = sp.symbols("xd_s yd_s", real=True)
 
     subs = {
-        x: x_s, y: y_s, u_st: u_s, v_st: v_s,
-        xd: xd_s, yd: yd_s, ud: ud_s, vd: vd_s,
+        x: x_s,
+        y: y_s,
+        u_st: u_s,
+        v_st: v_s,
+        xd: xd_s,
+        yd: yd_s,
+        ud: ud_s,
+        vd: vd_s,
     }
-    M_sub = M.subs(subs)
-    F_sub = F.subs(subs)
+    M_static = M.subs(subs)
+    F_static = F.subs(subs)
 
-    # TODO: This feels really hacky. Is there no other way? Can we make sympy lambdifies accept kwargs?
     # Derive args tuple from LagrangeParams field names, mapping to symbolic values.
     # This ensures the args tuple always matches the NamedTuple definition.
     symbol_map = {
-        'u': u_s,
-        'v': v_s,
-        'xd': xd_s,
-        'yd': yd_s,
-        'ud': ud_s,
-        'vd': vd_s,
-        'm_b': m_b,
-        'm_d': m_d,
-        'm_hat_d': m_hat_d,
-        'm_tilde_d': m_tilde_d,
-        'm_tilde_b': m_tilde_b,
-        'l': l,
-        'g': g,
-        'k_b': k_b,
-        'k_d': k_d,
-        'U_b': U_b,
-        'V_b': V_b,
-        'U_d': U_d,
-        'V_d': V_d,
+        "u": u_s,
+        "v": v_s,
+        "xd": xd_s,
+        "yd": yd_s,
+        "ud": ud_s,
+        "vd": vd_s,
+        "m_b": m_b,
+        "m_d": m_d,
+        "m_hat_d": m_hat_d,
+        "m_tilde_d": m_tilde_d,
+        "m_tilde_b": m_tilde_b,
+        "l": l,
+        "g": g,
+        "k_b": k_b,
+        "k_d": k_d,
+        "U_b": U_b,
+        "V_b": V_b,
+        "U_d": U_d,
+        "V_d": V_d,
     }
     args = tuple(symbol_map[field] for field in LagrangeParams._fields)
 
-    # TODO: Why call these _sub?
-    return M_sub, F_sub, args
+    return M_static, F_static, args
 
 
 _SREPR_PATH = Path(__file__).resolve().parent / "data" / "symbolic_eom.srepr"
@@ -193,19 +205,17 @@ def _save_eom_cache(path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    M_sub, F_sub, args = _derive_symbolic()
+    M_static, F_static, args = _derive_symbolic()
 
-    arg_names = ','.join(str(s) for s in args)
-    # TODO: the --- split feels awkward. Is there a proper way to do this?
-    content = f"{sp.srepr(M_sub)}\n---\n{sp.srepr(F_sub)}\n---\n{arg_names}\n"
+    arg_names = ",".join(str(s) for s in args)
+    content = f"{sp.srepr(M_static)}\n---\n{sp.srepr(F_static)}\n---\n{arg_names}\n"
 
     path.write_text(content)
 
 
-# TODO: use more meaningful function name here.
 @functools.lru_cache()
-def _load_or_derive():
-    """Load or derive M_sub, F_sub, args; apply CSE; return raw lambdified callables.
+def _get_eom_callables():
+    """Load or derive M_static, F_static, args; apply CSE; return raw lambdified callables.
 
     Attempts to load the `.srepr` file from `data/symbolic_eom.srepr`. If not found,
     falls back to symbolic derivation. In either case, applies CSE and Approach B exec
@@ -222,33 +232,36 @@ def _load_or_derive():
         parts = content.split("---")
         if len(parts) == 3:
             M_srepr, F_srepr, arg_names_csv = parts
-            M_sub = sp.sympify(M_srepr)
-            F_sub = sp.sympify(F_srepr)
+            M_static = sp.sympify(M_srepr)
+            F_static = sp.sympify(F_srepr)
             arg_names = arg_names_csv.split(",")
-            arg_symbols = tuple(sp.Symbol(name, real=True) if '(' not in name
-                               else sp.sympify(name) for name in arg_names)
+            arg_symbols = tuple(
+                sp.Symbol(name, real=True) if "(" not in name else sp.sympify(name)
+                for name in arg_names
+            )
         else:
             raise ValueError(f"Invalid .srepr format in {_SREPR_PATH}")
     else:
         # Fallback: derive symbolically
-        M_sub, F_sub, arg_symbols = _derive_symbolic()
+        M_static, F_static, arg_symbols = _derive_symbolic()
 
     # Apply CSE and build raw lambdified functions via Approach B
-    return _apply_cse_and_lambdify(M_sub, F_sub, arg_symbols)
+    return _apply_cse_and_lambdify(M_static, F_static, arg_symbols)
 
 
-def _apply_cse_and_lambdify(M_sub, F_sub, args):
+def _apply_cse_and_lambdify(M_static, F_static, args):
     """Apply CSE to M and F; build raw lambdified functions via exec.
 
-    # TODO: Awkward comment. Explain what's done. Not where we read it.
-    This is Approach B from test_cse_lambdify.py:
-    Generate Python function string, exec it, return the functions.
-
-    # TODO: This solution needs more explanation. How's the CSE logic lambdified exactly?
+    Performs common-subexpression elimination (CSE) on the combined set of
+    M and F matrix elements, then generates Python source code for two
+    functions (_raw_M and _raw_F) that evaluate them using NumPy.  The
+    generated source is exec'd into callable objects.  This avoids the
+    overhead of repeated symbolic evaluation while sharing subexpressions
+    between M and F.
 
     Args:
-        M_sub: 4x4 sympy matrix
-        F_sub: 4x1 sympy matrix
+        M_static: 4x4 sympy matrix (static symbols)
+        F_static: 4x1 sympy matrix (static symbols)
         args: tuple of sympy symbols in lambdify order
 
     Returns:
@@ -262,10 +275,10 @@ def _apply_cse_and_lambdify(M_sub, F_sub, args):
     m_labels = []
     for i in range(4):
         for j in range(i, 4):  # Upper triangle only (symmetric)
-            m_exprs.append(M_sub[i, j])
+            m_exprs.append(M_static[i, j])
             m_labels.append((i, j))
 
-    f_exprs = [F_sub[i] for i in range(4)]
+    f_exprs = [F_static[i] for i in range(4)]
 
     all_exprs = m_exprs + f_exprs
 
@@ -280,7 +293,7 @@ def _apply_cse_and_lambdify(M_sub, F_sub, args):
     lines_M = [f"def _raw_M({', '.join(arg_names)}):"]
     for sym, expr in replacements:
         lines_M.append(f"    {sym} = {printer.doprint(expr)}")
-    for expr, (i, j) in zip(reduced[:len(m_exprs)], m_labels):
+    for expr, (i, j) in zip(reduced[: len(m_exprs)], m_labels):
         lines_M.append(f"    M_{i}{j} = {printer.doprint(expr)}")
     ret_names_M = ", ".join(f"M_{i}{j}" for i, j in m_labels)
     lines_M.append(f"    return {ret_names_M}")
@@ -289,7 +302,7 @@ def _apply_cse_and_lambdify(M_sub, F_sub, args):
     lines_F = [f"def _raw_F({', '.join(arg_names)}):"]
     for sym, expr in replacements:
         lines_F.append(f"    {sym} = {printer.doprint(expr)}")
-    for idx, expr in enumerate(reduced[len(m_exprs):]):
+    for idx, expr in enumerate(reduced[len(m_exprs) :]):
         lines_F.append(f"    F_{idx} = {printer.doprint(expr)}")
     ret_names_F = ", ".join(f"F_{idx}" for idx in range(len(f_exprs)))
     lines_F.append(f"    return {ret_names_F}")
@@ -308,7 +321,6 @@ def _apply_cse_and_lambdify(M_sub, F_sub, args):
     return _raw_M, _raw_F, args
 
 
-# TODO: Make sure we use the NamedTuple.
 def M_func(
     *,
     u,
@@ -333,7 +345,7 @@ def M_func(
 ):
     """Numerically evaluate the mass matrix M in stereographic coordinates.
 
-    Wraps the raw lambdified callable from _load_or_derive().
+    Wraps the raw lambdified callable from _get_eom_callables().
     Detects scalar vs batch input and returns shaped output.
 
     Args:
@@ -362,13 +374,27 @@ def M_func(
         - Scalar input: (4,4) array
         - Batch input: (N,4,4) array
     """
-    _raw_M, _, arg_symbols = _load_or_derive()
+    _raw_M, _, arg_symbols = _get_eom_callables()
     params = LagrangeParams(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-        m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
-        m_tilde_d=m_tilde_d, m_tilde_b=m_tilde_b,
-        l=l, g=g, k_b=k_b, k_d=k_d,
-        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+        u=u,
+        v=v,
+        xd=xd,
+        yd=yd,
+        ud=ud,
+        vd=vd,
+        m_b=m_b,
+        m_d=m_d,
+        m_hat_d=m_hat_d,
+        m_tilde_d=m_tilde_d,
+        m_tilde_b=m_tilde_b,
+        l=l,
+        g=g,
+        k_b=k_b,
+        k_d=k_d,
+        U_b=U_b,
+        V_b=V_b,
+        U_d=U_d,
+        V_d=V_d,
     )
 
     # Detect batch size from first dynamic argument
@@ -381,17 +407,31 @@ def M_func(
     if batch_ndim == 0:
         # Scalar: assemble (4,4)
         M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems
-        M = np.array([
-            [M00, M01, M02, M03],
-            [M01, M11, M12, M13],
-            [M02, M12, M22, M23],
-            [M03, M13, M23, M33],
-        ], dtype=float)
+        M = np.array(
+            [
+                [M00, M01, M02, M03],
+                [M01, M11, M12, M13],
+                [M02, M12, M22, M23],
+                [M03, M13, M23, M33],
+            ],
+            dtype=float,
+        )
     else:
         # Batch: assemble (N, 4, 4)
         N = u_arr.shape[0]
         M = np.zeros((N, 4, 4))
-        labels = [(0, 0), (0, 1), (0, 2), (0, 3), (1, 1), (1, 2), (1, 3), (2, 2), (2, 3), (3, 3)]
+        labels = [
+            (0, 0),
+            (0, 1),
+            (0, 2),
+            (0, 3),
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (2, 2),
+            (2, 3),
+            (3, 3),
+        ]
         for k, (i, j) in enumerate(labels):
             M[:, i, j] = M[:, j, i] = np.broadcast_to(M_elems[k], N)
 
@@ -422,7 +462,7 @@ def F_func(
 ):
     """Numerically evaluate the force vector F in stereographic coordinates.
 
-    Wraps the raw lambdified callable from _load_or_derive().
+    Wraps the raw lambdified callable from _get_eom_callables().
     Detects scalar vs batch input and returns shaped output.
 
     Args:
@@ -433,13 +473,27 @@ def F_func(
         - Scalar input: (4,) array
         - Batch input: (N,4) array
     """
-    _, _raw_F, arg_symbols = _load_or_derive()
+    _, _raw_F, arg_symbols = _get_eom_callables()
     params = LagrangeParams(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-        m_b=m_b, m_d=m_d, m_hat_d=m_hat_d,
-        m_tilde_d=m_tilde_d, m_tilde_b=m_tilde_b,
-        l=l, g=g, k_b=k_b, k_d=k_d,
-        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+        u=u,
+        v=v,
+        xd=xd,
+        yd=yd,
+        ud=ud,
+        vd=vd,
+        m_b=m_b,
+        m_d=m_d,
+        m_hat_d=m_hat_d,
+        m_tilde_d=m_tilde_d,
+        m_tilde_b=m_tilde_b,
+        l=l,
+        g=g,
+        k_b=k_b,
+        k_d=k_d,
+        U_b=U_b,
+        V_b=V_b,
+        U_d=U_d,
+        V_d=V_d,
     )
 
     # Detect batch size
@@ -485,18 +539,28 @@ def _uv_to_spherical(u, v, ud, vd):
         (theta, phi, thetad, phid) tuple.
     """
     u, v, ud, vd = (
-        np.asarray(u, float), np.asarray(v, float),
-        np.asarray(ud, float), np.asarray(vd, float),
+        np.asarray(u, float),
+        np.asarray(v, float),
+        np.asarray(ud, float),
+        np.asarray(vd, float),
     )
     r = np.sqrt(u**2 + v**2)
     theta = _uv_to_theta(u, v)
     phi = np.arctan2(v, u)
 
-    # TODO: explain in comment!
+    # Chain rule for the stereographic -> spherical conversion:
+    #   theta = pi - 2*arctan(r/2),  so  d(theta)/dr = -4/(r^2 + 4).
+    #   phi   = arctan2(v, u),       so  d(phi)/du   = -v/r^2,
+    #                                     d(phi)/dv   =  u/r^2.
+    # Then:
+    #   thetad = d(theta)/dr * dr/dt = d(theta)/dr * (u*ud + v*vd) / r
+    #   phid   = (u*vd - v*ud) / r^2
+    #
+    # The `safe` guard prevents division by zero at r=0 (the equilibrium
+    # point u=v=0 where theta=pi).  There, the angular direction is
+    # undefined; we use the speed magnitude for thetad and zero for phid.
     safe = r > 1e-14
-    # d(theta)/dr = -4/(r^2+4); d(theta)/du = d(theta)/dr * u/r; etc.
     dtdr = np.where(safe, -4.0 / (r**2 + 4), -1.0)
-    # At r=0, direction is ambiguous; use magnitude as a reasonable fallback.
     thetad = np.where(safe, dtdr * (u * ud + v * vd) / r, -np.sqrt(ud**2 + vd**2))
     phid = np.where(safe, (u * vd - v * ud) / r**2, 0.0)
 
@@ -522,7 +586,7 @@ def _spherical_to_uv(theta, phi, thetad, phid):
     u = 2 * tan_hd * np.cos(phi)
     v = 2 * tan_hd * np.sin(phi)
 
-    sec2 = 1.0 / np.cos(half_delta)**2
+    sec2 = 1.0 / np.cos(half_delta) ** 2
     ud = -sec2 * np.cos(phi) * thetad - 2 * tan_hd * np.sin(phi) * phid
     vd = -sec2 * np.sin(phi) * thetad + 2 * tan_hd * np.cos(phi) * phid
 

@@ -9,17 +9,20 @@ from drogued_drifters.lagrange_model import (
     _uv_to_theta,
 )
 
+# Internal state vector layout: [x, y, u, v, xd, yd, ud, vd].
+# These indices are used throughout `rhs`, `_rhs_batch`, and
+# `get_final_drift_batch` to unpack and repack state arrays.
+IX, IY, IU, IV, IXD, IYD, IUD, IVD = range(8)
 
-# TODO: Put the parcels-related functions into a parcels_v4.py
-# TODO: Let's make sure we understand how FieldSet leverages Xarray and grids. Let's try making these profile samplers and interpolators as compatible to existing parcels v4 mechanisms as possible. Currently, if we swap grid type, we'd need to write new sampler. How to avoid?
+
 # depth_levels must be sorted ascending (z-up, e.g. [-20, -10, 0]); the Parcels bridge handles the conversion.
 def make_profile_sampler(depth_levels, U_profiles, V_profiles):
-    """Build a fast ``sample_uv(z)`` from pre-sampled velocity profiles.
+    """Build a fast ``sample_uv(z)`` interpolator from pre-sampled velocity profiles.
 
-    # TODO: Mentions FieldSet but doesn't use any?
-    Sample the FieldSet at all depth levels once per Parcels timestep,
-    then use linear interpolation in z during the ODE integration.
-    This avoids repeated (expensive) FieldSet queries.
+    Takes velocity profiles that have already been sampled at fixed depth
+    levels (e.g. once per Parcels timestep) and returns a callable that
+    performs linear interpolation in z.  This avoids repeated expensive
+    queries to the original data source during ODE integration.
 
     Args:
         depth_levels: 1-D array of vertical positions [m], positive upward
@@ -95,7 +98,6 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
         a private Parcels API that may change without notice in future releases.
     """
     import xarray as xr
-    # TODO: Again, can we just let Parcels retrieve the profile in a grid agnostic way for us? If done right, this could bring down this code to a few, DroguedDrifter specific lines.
     from parcels.interpolators._xinterpolators import _get_corner_data_Agrid
 
     if warm_state is None:
@@ -128,10 +130,25 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
             zi_arr = np.full(N, iz, dtype=np.int32)
             # Get corner data at this z level (lenZ=1 since we fix z)
             corner_U = _get_corner_data_Agrid(
-                field_U.data, ti, zi_arr, yi, xi, lenT, 1, N, axis_dim,
+                field_U.data,
+                ti,
+                zi_arr,
+                yi,
+                xi,
+                lenT,
+                1,
+                N,
+                axis_dim,
             )  # (lenT, 1, 2, 2, N)
             corner_V = _get_corner_data_Agrid(
-                field_V.data, ti, zi_arr, yi, xi, lenT, 1, N,
+                field_V.data,
+                ti,
+                zi_arr,
+                yi,
+                xi,
+                lenT,
+                1,
+                N,
                 field_V.grid.get_axis_dim_mapping(field_V.data.dims),
             )
 
@@ -180,7 +197,8 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
         # same value with different particles, stale state may be reused silently.
         y0_warm = warm_state.get("Y") if warm_state.get("n") == N else None
         xd_ms, yd_ms, theta, Y_final = dd.get_final_drift_batch(
-            sample_uv=sample_uv, y0=y0_warm,
+            sample_uv=sample_uv,
+            y0=y0_warm,
         )
         warm_state["Y"] = Y_final
         warm_state["n"] = N
@@ -282,7 +300,13 @@ class DroguedDrifter:
     where ``(x, y)`` is the buoy position and ``(u, v)`` are stereographic
     coordinates for the pole direction (equilibrium at origin).
 
-    Default parameters are for Callies et al. drifter geometry.
+    Default parameters are for the Callies et al. drifter geometry
+    (rho = 1025 kg/m^3)::
+
+        m_tilde_d = drogue_horizontal_added_mass(rho=1025, w_d=0.5, h_d=0.5)  ~ 101.0 kg
+        m_tilde_b = buoy_horizontal_added_mass(rho=1025, d_b=0.1, h_b=0.24)   ~   1.9 kg
+        k_d       = drogue_horizontal_drag_coeff(rho=1025, w_d=0.5, h_d=0.5)  ~ 154.0 kg/m
+        k_b       = buoy_horizontal_drag_coeff(rho=1025, d_b=0.1, h_b=0.24)   ~  12.0 kg/m
 
     Args:
         m_b: Buoy dry mass [kg].
@@ -304,12 +328,6 @@ class DroguedDrifter:
             dataset) before passing it here.
     """
 
-    # TODO: turn into a docstring?
-    # Default values for the Callies et al. drifter geometry (rho=1025 kg/m^3):
-    #   m_tilde_d = drogue_horizontal_added_mass(rho=1025, w_d=0.5, h_d=0.5)   ≈ 101.0 kg
-    #   m_tilde_b = buoy_horizontal_added_mass(rho=1025, d_b=0.1, h_b=0.24)    ≈   1.9 kg
-    #   k_d       = drogue_horizontal_drag_coeff(rho=1025, w_d=0.5, h_d=0.5)   ≈ 154.0 kg/m
-    #   k_b       = buoy_horizontal_drag_coeff(rho=1025, d_b=0.1, h_b=0.24)    ≈  12.0 kg/m
     def __init__(
         self,
         *,
@@ -355,7 +373,6 @@ class DroguedDrifter:
             return 1.0, 1.0
         return -1.0, -1.0
 
-    # TODO: Consolidate with named-tuple approach in lagrange model? Consider together with the thinking about the use of the param named-tuple in the other submodule.
     def _params(self):
         """Return the physical parameter dict for M_func / F_func."""
         return dict(
@@ -373,18 +390,35 @@ class DroguedDrifter:
     def _eval_M_F(self, t, x, y, u, v, xd, yd, ud, vd, currents):
         """Evaluate mass matrix and force vector numerically (scalar)."""
         U_b, V_b, U_d, V_d = currents
-        # TODO: This feels like there should be a more straightforward way to pass around parameters. Maybe we just inline the _eval_M_F part into rhs and use LagrangParmeters namedtuple there? Could save a lot of boilerplate here.
         p = self._params()
 
         # Call M_func/F_func directly — they handle shaping
         M = M_func(
-            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+            u=u,
+            v=v,
+            xd=xd,
+            yd=yd,
+            ud=ud,
+            vd=vd,
+            **p,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
         )  # Returns (4,4)
 
         F = F_func(
-            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+            u=u,
+            v=v,
+            xd=xd,
+            yd=yd,
+            ud=ud,
+            vd=vd,
+            **p,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
         )  # Returns (4,)
 
         return M, F
@@ -400,7 +434,14 @@ class DroguedDrifter:
         Returns:
             Time derivatives of the state vector (length 8).
         """
-        x_b, y_b, u, v, xd, yd, ud, vd = y
+        x_b = y[IX]
+        y_b = y[IY]
+        u = y[IU]
+        v = y[IV]
+        xd = y[IXD]
+        yd = y[IYD]
+        ud = y[IUD]
+        vd = y[IVD]
 
         theta = _uv_to_theta(u, v)
         # z-up: at equilibrium (theta=pi), cos(pi)=-1 so z_d = l*(-1) = -l.
@@ -411,9 +452,7 @@ class DroguedDrifter:
         U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
         currents = U_b, V_b, U_d, V_d
 
-        M, F = self._eval_M_F(
-            t, x_b, y_b, u, v, xd, yd, ud, vd, currents
-        )
+        M, F = self._eval_M_F(t, x_b, y_b, u, v, xd, yd, ud, vd, currents)
 
         qdd = np.linalg.solve(M, F)
 
@@ -429,9 +468,14 @@ class DroguedDrifter:
         """
         s = u**2 + v**2
         cos_theta = (s - 4) / (s + 4)
-        # TODO: Clamp necessary? It doesn't make sense to have zeff > 0. But just clamping here without raiding anything is worse than letting unphysical configs emerge.
         # At equilibrium cos_theta = -1, so l * cos_theta = -l (below surface).
-        # min clamp ensures z_eff <= 0 (drogue cannot be above water).
+        # The clamp to z_eff <= 0 is a safety net: with extreme initial
+        # conditions (e.g. very large lateral velocity relative to water) the
+        # pole could theoretically swing past horizontal (theta < pi/2),
+        # placing the drogue above the surface.  This is outside the physical
+        # operating regime of the model, and the uv callback will likely fail
+        # on positive z anyway.  We accept this edge case and clamp silently
+        # rather than adding per-call warnings on this hot path.
         return np.minimum(0.0, self.l * cos_theta)
 
     def _rhs_batch(self, Y, sample_uv):
@@ -449,14 +493,13 @@ class DroguedDrifter:
         Returns:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
         """
-        # TODO: Where is the order of these determined? What if we change it there. Would we notice? 
         N = Y.shape[0]
-        u = Y[:, 2]
-        v = Y[:, 3]
-        xd = Y[:, 4]
-        yd = Y[:, 5]
-        ud = Y[:, 6]
-        vd = Y[:, 7]
+        u = Y[:, IU]
+        v = Y[:, IV]
+        xd = Y[:, IXD]
+        yd = Y[:, IYD]
+        ud = Y[:, IUD]
+        vd = Y[:, IVD]
 
         # Sample velocity at buoy (z=0) and drogue (z=z_eff)
         U_b, V_b = sample_uv(np.zeros(N))
@@ -467,13 +510,31 @@ class DroguedDrifter:
 
         # Call M_func/F_func with batch arrays
         M = M_func(
-            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+            u=u,
+            v=v,
+            xd=xd,
+            yd=yd,
+            ud=ud,
+            vd=vd,
+            **p,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
         )  # Returns (N, 4, 4)
 
         F = F_func(
-            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-            **p, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+            u=u,
+            v=v,
+            xd=xd,
+            yd=yd,
+            ud=ud,
+            vd=vd,
+            **p,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
         )  # Returns (N, 4)
 
         # Handle NaN/inf (overflow in expressions)
@@ -486,11 +547,11 @@ class DroguedDrifter:
         qdd = np.linalg.solve(M, F[:, :, np.newaxis])[:, :, 0]
 
         dY = np.empty_like(Y)
-        dY[:, 0] = xd
-        dY[:, 1] = yd
-        dY[:, 2] = ud
-        dY[:, 3] = vd
-        dY[:, 4:] = qdd
+        dY[:, IX] = xd
+        dY[:, IY] = yd
+        dY[:, IU] = ud
+        dY[:, IV] = vd
+        dY[:, IXD:] = qdd
 
         return dY
 
@@ -500,8 +561,7 @@ class DroguedDrifter:
         sample_uv,
         t_span=(0, 120),
         y0=None,
-        theta0=np.pi,
-        conv_tol=1e-4,  # TODO: rename to more explaining name
+        drift_accel_tol=1e-4,
         atol=1e-3,
         rtol=1e-3,
     ):
@@ -522,21 +582,21 @@ class DroguedDrifter:
             def sample_uv(z):
                 return (U_b, V_b) if np.all(z == 0) else (U_d, V_d)
 
-        Integration terminates early when the maximum acceleration across all
-        particles drops below ``conv_tol`` (global convergence detection).
+        Integration terminates early when the maximum *drift* acceleration
+        (i.e. ``max(|xdd|, |ydd|)``) across all particles drops below
+        ``drift_accel_tol`` (global convergence detection).
 
         Args:
             sample_uv: Velocity profile sampler (see above).
             t_span: Integration window ``(t_start, t_end)`` in seconds.
             y0: Initial state array of shape ``(N, 8)`` in public format
                 ``(x, y, theta, phi, xd, yd, thetad, phid)``.  If ``None``,
-                starts from rest with ``theta=theta0`` (converted to (u, v)).
-            # TODO: It doesn't make any sense to pass a (meaningless w/o phi) theta0 alone. Just drop it and set if y0 is None.
-            theta0: Initial pole angle [rad] (used only when ``y0`` is None).
-            conv_tol: Stop when ``max(|xdd|, |ydd|) < conv_tol`` [m/s²]
-                across all particles.  With ``t_span=(0, 120)`` s this
-                corresponds to a velocity convergence of ~0.012 m/s — adequate
-                for typical drift velocities of 0.1–1.0 m/s.
+                starts from rest at equilibrium ``(u_stereo, v_stereo) = (0, 0)``
+                i.e. ``theta=pi, phi=0``.
+            drift_accel_tol: Stop when ``max(|xdd|, |ydd|) < drift_accel_tol``
+                [m/s^2] across all particles.  With ``t_span=(0, 120)`` s this
+                corresponds to a velocity convergence of ~0.012 m/s -- adequate
+                for typical drift velocities of 0.1-1.0 m/s.
             atol: Absolute tolerance for the ODE solver.
             rtol: Relative tolerance for the ODE solver.
 
@@ -554,30 +614,35 @@ class DroguedDrifter:
             probe = sample_uv(np.array([0.0]))
             N = len(probe[0])
 
-        # TODO: explain rational behind _flat naming
+        # _flat: the (N, 8) state array raveled to a (8*N,) vector for
+        # solve_ivp's 1-D interface.
         if y0 is not None:
             y0_arr = np.asarray(y0, dtype=float).reshape(N, 8)
             # y0 is in public (x, y, theta, phi, xd, yd, thetad, phid).
             # Convert to internal (x, y, u, v, xd, yd, ud, vd).
             u0, v0, ud0, vd0 = _spherical_to_uv(
-                y0_arr[:, 2], y0_arr[:, 3], y0_arr[:, 6], y0_arr[:, 7],
+                y0_arr[:, 2],
+                y0_arr[:, 3],
+                y0_arr[:, 6],
+                y0_arr[:, 7],
             )
-            y0_internal = np.column_stack([
-                y0_arr[:, 0], y0_arr[:, 1],  # x, y
-                u0, v0,
-                y0_arr[:, 4], y0_arr[:, 5],  # xd, yd
-                ud0, vd0,
-            ])
+            y0_internal = np.column_stack(
+                [
+                    y0_arr[:, 0],
+                    y0_arr[:, 1],  # x, y
+                    u0,
+                    v0,
+                    y0_arr[:, 4],
+                    y0_arr[:, 5],  # xd, yd
+                    ud0,
+                    vd0,
+                ]
+            )
             y0_flat = y0_internal.ravel()
         else:
+            # Default: start at rest with drogue hanging straight down,
+            # i.e. (u_stereo, v_stereo) = (0, 0) which is theta=pi, phi=0.
             y0_flat = np.zeros(N * 8)
-            # Convert theta0 to stereographic (u, v).
-            # For default theta0 ~ pi, delta ~ 0, so u ~ v ~ 0.
-            # u = 2*tan((pi-theta)/2)*cos(phi), with phi=0 -> v=0
-            delta0 = np.pi - theta0
-            u0 = 2 * np.tan(delta0 / 2)  # phi=0, so cos(phi)=1, sin(phi)=0
-            y0_flat[2::8] = u0
-            # v0 = 0 (already zero)
 
         def rhs_flat(t, y_flat):
             Y = y_flat.reshape(N, 8)
@@ -588,40 +653,55 @@ class DroguedDrifter:
         def converged(t, y_flat):
             Y = y_flat.reshape(N, 8)
             dY = self._rhs_batch(Y, sample_uv)
-            # xdd = dY[:,4], ydd = dY[:,5]
-            max_drift_accel = np.max(np.abs(dY[:, 4:6]))
-            return max_drift_accel - conv_tol
+            # xdd = dY[:, IXD], ydd = dY[:, IYD]
+            max_drift_accel = np.max(np.abs(dY[:, IXD : IYD + 1]))
+            return max_drift_accel - drift_accel_tol
 
-        # TODO: Explain! This likely uses some solve_ivp details. Don't just assume reader knows.
+        # solve_ivp event protocol: the solver evaluates `converged(t, y)` at
+        # each step.  `.terminal = True` tells solve_ivp to stop integration
+        # when the event function crosses zero.  `.direction = -1` restricts
+        # the trigger to downward zero-crossings only (acceleration dropping
+        # below the tolerance threshold).
         converged.terminal = True
         converged.direction = -1
 
         sol = solve_ivp(
-            rhs_flat, t_span, y0_flat,
-            atol=atol, rtol=rtol, events=converged,
+            rhs_flat,
+            t_span,
+            y0_flat,
+            atol=atol,
+            rtol=rtol,
+            events=converged,
         )
         Y_internal = sol.y[:, -1].reshape(N, 8)
 
         # Convert internal (u, v, ud, vd) state to public (theta, phi, thetad, phid)
-        # TODO: Again: Order of args. Just assuming [3] is v is a huge footgun.
-        u_final = Y_internal[:, 2]
-        v_final = Y_internal[:, 3]
-        ud_final = Y_internal[:, 6]
-        vd_final = Y_internal[:, 7]
+        u_final = Y_internal[:, IU]
+        v_final = Y_internal[:, IV]
+        ud_final = Y_internal[:, IUD]
+        vd_final = Y_internal[:, IVD]
         theta_final, phi_final, thetad_final, phid_final = _uv_to_spherical(
-            u_final, v_final, ud_final, vd_final,
+            u_final,
+            v_final,
+            ud_final,
+            vd_final,
         )
 
-        Y_final = np.column_stack([
-            Y_internal[:, 0], Y_internal[:, 1],  # x, y
-            theta_final, phi_final,
-            Y_internal[:, 4], Y_internal[:, 5],  # xd, yd
-            thetad_final, phid_final,
-        ])
+        Y_final = np.column_stack(
+            [
+                Y_internal[:, IX],
+                Y_internal[:, IY],  # x, y
+                theta_final,
+                phi_final,
+                Y_internal[:, IXD],
+                Y_internal[:, IYD],  # xd, yd
+                thetad_final,
+                phid_final,
+            ]
+        )
 
-        return Y_final[:, 4], Y_final[:, 5], theta_final, Y_final
+        return Y_final[:, IXD], Y_final[:, IYD], theta_final, Y_final
 
-    # TODO: There's breaks in signature and return types here and there's likely a lot of room for cleanup. Let's review all the different ways to get drift velocity (converged, final after given span, whole solution, single drifter, batched) and think about which in/out signatures we really need for which applications.
     def _get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
         """Integrate the equations of motion (raw interface).
 
@@ -683,21 +763,25 @@ class DroguedDrifter:
 
         u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
         y0_internal = [x, y, u0, v0, xd, yd, ud0, vd0]
-        sol = self._get_full_solution(t_span, y0_internal, t_eval=t_eval,
-                                       atol=atol, rtol=rtol)
+        sol = self._get_full_solution(
+            t_span, y0_internal, t_eval=t_eval, atol=atol, rtol=rtol
+        )
 
         theta_arr, phi_arr, thetad_arr, phid_arr = _uv_to_spherical(
-            sol.y[2], sol.y[3], sol.y[6], sol.y[7],
+            sol.y[IU],
+            sol.y[IV],
+            sol.y[IUD],
+            sol.y[IVD],
         )
 
         return xr.Dataset(
             {
-                "x": ("time", sol.y[0]),
-                "y": ("time", sol.y[1]),
+                "x": ("time", sol.y[IX]),
+                "y": ("time", sol.y[IY]),
                 "theta": ("time", theta_arr),
                 "phi": ("time", phi_arr),
-                "xd": ("time", sol.y[4]),
-                "yd": ("time", sol.y[5]),
+                "xd": ("time", sol.y[IXD]),
+                "yd": ("time", sol.y[IYD]),
                 "thetad": ("time", thetad_arr),
                 "phid": ("time", phid_arr),
             },

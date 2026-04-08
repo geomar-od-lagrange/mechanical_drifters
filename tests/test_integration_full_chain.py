@@ -206,10 +206,13 @@ def test_full_chain_multiple_particles_independence():
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
     dd = DroguedDrifter()
+    # Build y0 in public format with theta close to pi
+    y0 = np.zeros((N, 8))
+    y0[:, 2] = 0.999 * np.pi  # theta column
     xd, yd, theta, _ = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
-        theta0=0.999 * np.pi,
+        y0=y0,
     )
 
     # Particle 0 should have stronger drift

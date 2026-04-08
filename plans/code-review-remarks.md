@@ -16,79 +16,24 @@ Remarks from WR's review of `src/` on branch `wr/go-for-real-application`.
 
 ---
 
-## Immediate fixes
+## Immediate fixes — DONE
 
-Small, unambiguous changes. No design decisions needed.
+All completed and tested (94 tests pass).
 
-### IF-1: Docstring mentions FieldSet but function doesn't use it
-- **File:** `drifter.py`, `make_profile_sampler` docstring
-- **Remark:** `# TODO: Mentions FieldSet but doesn't use any?`
-- **Fix:** Rewrite the docstring to describe what the function actually does (build a z-interpolator from pre-sampled arrays). Remove the FieldSet reference.
-
-### IF-2: Default-param comment -> docstring
-- **File:** `drifter.py`, `DroguedDrifter` class body
-- **Remark:** `# TODO: turn into a docstring?`
-- **Fix:** Move the Callies geometry comment block into the class or `__init__` docstring.
-
-### IF-3: `conv_tol` -> more descriptive name
-- **File:** `drifter.py`, `get_final_drift_batch`
-- **Remark:** `# TODO: rename to more explaining name`
-- **Fix:** Rename to `drift_accel_tol`. The convergence check is on `max(|xdd|, |ydd|)` — specifically the *drift* acceleration, not total. Update docstring accordingly.
-
-### IF-4: Drop `theta0` parameter
-- **File:** `drifter.py`, `get_final_drift_batch`
-- **Remark:** `# TODO: It doesn't make any sense to pass a (meaningless w/o phi) theta0 alone.`
-- **Fix:** Remove `theta0`. When `y0 is None`, start at equilibrium `(u_stereo, v_stereo) = (0, 0)` which is `theta = pi, phi = 0`. If a caller needs a non-equilibrium start, they pass `y0`.
-
-### IF-5: Explain `_flat` naming
-- **File:** `drifter.py`, `get_final_drift_batch`
-- **Remark:** `# TODO: explain rational behind _flat naming`
-- **Fix:** Add comment: `# _flat: (N, 8) state raveled to (8*N,) vector for solve_ivp's 1-D interface`.
-
-### IF-6: Explain `converged.terminal` / `.direction`
-- **File:** `drifter.py`, `get_final_drift_batch`
-- **Remark:** `# TODO: Explain! This likely uses some solve_ivp details.`
-- **Fix:** Add comment explaining that `solve_ivp` calls events at each step; `.terminal = True` stops integration when the event function crosses zero; `.direction = -1` means trigger only on downward zero-crossings (acceleration dropping below threshold).
-
-### IF-7: Run black
-- **File:** `lagrange_model.py`
-- **Remark:** `# TODO: run black`
-- **Fix:** `pixi run black src/`
-
-### IF-8: Rename `_sub` suffix
-- **File:** `lagrange_model.py`, `_derive_symbolic` return values
-- **Remark:** `# TODO: Why call these _sub?`
-- **Fix:** Rename `M_sub` / `F_sub` to `M_static` / `F_static` (they are the post-substitution forms with static symbols replacing dynamic ones).
-
-### IF-9: Rename `_load_or_derive`
-- **File:** `lagrange_model.py`
-- **Remark:** `# TODO: use more meaningful function name here.`
-- **Fix:** Rename to `_get_eom_callables`. **[Confirmed]**
-
-### IF-10: Explain `_uv_to_spherical` derivative
-- **File:** `lagrange_model.py`, `_uv_to_spherical`
-- **Remark:** `# TODO: explain in comment!`
-- **Fix:** Expand the comment to explain the chain rule: theta = f(r), phi = atan2(v, u), so thetad = d(theta)/dr * (u*ud + v*vd)/r, etc. Explain `safe` guards against division by zero at r=0.
-
-### IF-11: Explain singularity in `_derive_symbolic` docstring
-- **File:** `lagrange_model.py`, `_derive_symbolic`
-- **Remark:** `# TODO: Here make sure to mention and briefly explain the nature of the singularity before referencing it.`
-- **Fix:** Add a sentence before "This avoids the phi singularity" explaining: at theta=pi the azimuthal angle phi is undefined (any rotation around the vertical axis is the same physical configuration), which makes the (theta, phi) EOM singular there. The stereographic projection maps this point to the origin (u, v) = (0, 0) where everything is smooth.
-
-### IF-12: Cite Liu et al. and Breivik
-- **File:** `stokes.py`
-- **Remark:** `# TODO: Cite Liu et al!?`
-- **Fix:** Add Liu et al. reference. Also look up and include Breivik DOI for the exponential Stokes profile.
-
-### IF-13: Define "shallow" with computed numbers
-- **File:** `stokes.py`
-- **Remark:** `# TODO: Give definition of shallow.`
-- **Fix:** Add: shallow water means depth < half the deep-water wavelength (h < g*T_p^2 / (8*pi)). Compute actual depth thresholds with Python for both long swell (~10 s period) and short wind waves (~3-5 s period) and include both numbers.
-
-### IF-14: Drop or hide `g` parameter
-- **File:** `stokes.py`
-- **Remark:** `# TODO: Parameter g really necessary?`
-- **Fix:** Remove from the signature; use `g = 9.81` as a module-level constant. Nobody calls this with a different g.
+- [x] **IF-1:** Rewrote `make_profile_sampler` docstring, removed FieldSet reference.
+- [x] **IF-2:** Moved Callies geometry defaults into class docstring.
+- [x] **IF-3:** Renamed `conv_tol` to `drift_accel_tol`.
+- [x] **IF-4:** Removed `theta0`; defaults to equilibrium `(u_stereo, v_stereo) = (0, 0)`.
+- [x] **IF-5:** Added `_flat` naming explanation comment.
+- [x] **IF-6:** Added `converged.terminal` / `.direction` explanation.
+- [x] **IF-7:** Ran black.
+- [x] **IF-8:** Renamed `M_sub`/`F_sub` to `M_static`/`F_static`.
+- [x] **IF-9:** Renamed `_load_or_derive` to `_get_eom_callables`.
+- [x] **IF-10:** Expanded `_uv_to_spherical` chain rule comment.
+- [x] **IF-11:** Explained phi singularity in `_derive_symbolic` docstring.
+- [x] **IF-12:** Added Liu et al. (2021) JAMES and Breivik et al. (2016) Ocean Modelling citations.
+- [x] **IF-13:** Defined "shallow" with computed thresholds (39 m for 10 s swell, 6 m for 4 s wind waves).
+- [x] **IF-14:** Removed `g` param; module-level `_G = 9.81`.
 
 ---
 
@@ -111,21 +56,9 @@ Design decisions are needed, but the scope is bounded.
 
 **Depends on:** IF-8 (rename `_sub`), and resolving DW-B (state vector layout) since `LagrangeParams` currently includes state variables alongside physical parameters.
 
-### DW-B: State vector layout as a first-class definition
+### DW-B: State vector layout as a first-class definition — DONE
 
-**Remarks:**
-- `# TODO: Where is the order of these determined? What if we change it there. Would we notice?`
-- `# TODO: Again: Order of args. Just assuming [3] is v is a huge footgun.`
-
-**Problem:** The 8-element state vector `[x, y, u, v, xd, yd, ud, vd]` is defined only implicitly by array indexing scattered across `rhs`, `_rhs_batch`, `get_final_drift_batch`, and the conversion functions. If the order ever changes in one place, the rest silently breaks.
-
-**Direction:** Define indices once:
-```python
-IX, IY, IU, IV, IXD, IYD, IUD, IVD = range(8)
-```
-Use symbolic names everywhere: `Y[:, IU]` instead of `Y[:, 2]`. Consider whether this should be an IntEnum or just module-level constants.
-
-**Additionally:** Write tests that enforce consistency. E.g. a test that constructs a known state, runs it through the public->internal->public round trip, and checks that each component ends up in the right slot. This catches ordering bugs even without named indices.
+Defined `IX, IY, IU, IV, IXD, IYD, IUD, IVD = range(8)` as module-level constants in `drifter.py`. All magic-number indexing replaced with named constants. Round-trip test (`test_state_vector_round_trip`) added.
 
 ### DW-C: Document and simplify the CSE/lambdify pipeline
 
@@ -155,15 +88,9 @@ Use symbolic names everywhere: `Y[:, IU]` instead of `Y[:, 2]`. Consider whether
 
 **Depends on:** DW-A.
 
-### DW-E: `z_eff` clamp — keep it, don't warn at runtime
+### DW-E: `z_eff` clamp — DONE
 
-**Remark:** `# TODO: Clamp necessary? It doesn't make sense to have zeff > 0. But just clamping here without raising anything is worse than letting unphysical configs emerge.`
-
-**Problem:** `np.minimum(0.0, self.l * cos_theta)` silently clamps the drogue to z <= 0. If the pole tilts past horizontal (theta < pi/2), the drogue would be above the surface, which is unphysical.
-
-**Resolution:** Keep the clamp as a safety net. No per-call warnings — this is a hot path. If the drogue somehow swings above the surface, the uv callback will likely error on positive z anyway. With extreme initial conditions (e.g. theta=pi but huge lateral speed relative to water) the drogue could theoretically flip up — we accept this as outside the physical operating regime.
-
-Add a comment documenting this decision.
+Kept the clamp as a safety net. Added a comment documenting the decision: no per-call warnings on this hot path; extreme initial conditions that flip the drogue above the surface are outside the physical operating regime.
 
 ### DW-F: Rationalize the drift-velocity API
 

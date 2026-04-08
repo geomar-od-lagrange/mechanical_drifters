@@ -33,7 +33,7 @@ def test_stokes_single_partition_analytical():
     k_expected = omega**2 / g
 
     u_profile, v_profile = compute_stokes_profile(
-        surface_u, surface_v, peak_period, depth_levels, g=g
+        surface_u, surface_v, peak_period, depth_levels
     )
 
     # u_profile shape should be (4,) with decay at each depth
@@ -78,7 +78,7 @@ def test_stokes_both_components():
     g = 9.81
 
     u_profile, v_profile = compute_stokes_profile(
-        surface_u, surface_v, peak_period, depth_levels, g=g
+        surface_u, surface_v, peak_period, depth_levels
     )
 
     # Both should have same exponential decay with same k
@@ -113,7 +113,7 @@ def test_stokes_long_wavelength_shallow_decay():
     k = omega**2 / g
 
     u_profile, v_profile = compute_stokes_profile(
-        surface_u, surface_v, peak_period, depth_levels, g=g
+        surface_u, surface_v, peak_period, depth_levels
     )
 
     # Decay factor at z=-10: exp(2*k*(-10)) = exp(-2*k*10)
@@ -142,7 +142,7 @@ def test_stokes_short_wavelength_fast_decay():
     k = omega**2 / g
 
     u_profile, v_profile = compute_stokes_profile(
-        surface_u, surface_v, peak_period, depth_levels, g=g
+        surface_u, surface_v, peak_period, depth_levels
     )
 
     # Decay factor at z=-10: exp(2*k*(-10)) = exp(-2*k*10)
@@ -276,7 +276,7 @@ def test_stokes_very_large_depth():
     k = omega**2 / g
 
     u_profile, v_profile = compute_stokes_profile(
-        surface_u, surface_v, peak_period, depth_levels, g=g
+        surface_u, surface_v, peak_period, depth_levels
     )
 
     # At z=-500 (index 0), decay is exp(2*k*(-500)) = exp(-2*k*500) ~ 1e-30
