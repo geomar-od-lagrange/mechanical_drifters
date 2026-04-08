@@ -4,6 +4,7 @@ import numpy as np
 def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels, g=9.81):
     """Compute Stokes drift profile at given depth levels.
 
+    # TODO: Cite Liu et al!?
     Uses deep-water dispersion (k = omega² / g) and exponential decay
     (exp(2kz), z <= 0) to extrapolate from the surface Stokes drift to depth.
 
@@ -20,6 +21,7 @@ def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels, g=9.
         Deep-water dispersion overestimates k in shallow water, leading to
         faster decay with depth than the true value. Use with caution in
         shallow basins such as the Baltic Sea.
+        # TODO: Give definition of shallow.
 
     Args:
         surface_u: Surface Stokes drift eastward component, any shape ``(...)``.
@@ -28,6 +30,7 @@ def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels, g=9.
         depth_levels: Vertical positions [m], positive upward (0 = surface,
             negative = below MSL), shape ``(D,)``.  Must be sorted ascending
             (deepest first, e.g. ``[-20, -10, -5, 0]``).
+        # TODO: Parameter g really necessary?
         g: Gravitational acceleration [m/s²].
 
     Returns:

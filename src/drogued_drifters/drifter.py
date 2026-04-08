@@ -10,10 +10,13 @@ from drogued_drifters.lagrange_model import (
 )
 
 
+# TODO: Put the parcels-related functions into a parcels_v4.py
+# TODO: Let's make sure we understand how FieldSet leverages Xarray and grids. Let's try making these profile samplers and interpolators as compatible to existing parcels v4 mechanisms as possible. Currently, if we swap grid type, we'd need to write new sampler. How to avoid?
 # depth_levels must be sorted ascending (z-up, e.g. [-20, -10, 0]); the Parcels bridge handles the conversion.
 def make_profile_sampler(depth_levels, U_profiles, V_profiles):
     """Build a fast ``sample_uv(z)`` from pre-sampled velocity profiles.
 
+    # TODO: Mentions FieldSet but doesn't use any?
     Sample the FieldSet at all depth levels once per Parcels timestep,
     then use linear interpolation in z during the ODE integration.
     This avoids repeated (expensive) FieldSet queries.
@@ -92,6 +95,7 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
         a private Parcels API that may change without notice in future releases.
     """
     import xarray as xr
+    # TODO: Again, can we just let Parcels retrieve the profile in a grid agnostic way for us? If done right, this could bring down this code to a few, DroguedDrifter specific lines.
     from parcels.interpolators._xinterpolators import _get_corner_data_Agrid
 
     if warm_state is None:
@@ -300,6 +304,7 @@ class DroguedDrifter:
             dataset) before passing it here.
     """
 
+    # TODO: turn into a docstring?
     # Default values for the Callies et al. drifter geometry (rho=1025 kg/m^3):
     #   m_tilde_d = drogue_horizontal_added_mass(rho=1025, w_d=0.5, h_d=0.5)   ≈ 101.0 kg
     #   m_tilde_b = buoy_horizontal_added_mass(rho=1025, d_b=0.1, h_b=0.24)    ≈   1.9 kg
@@ -350,6 +355,7 @@ class DroguedDrifter:
             return 1.0, 1.0
         return -1.0, -1.0
 
+    # TODO: Consolidate with named-tuple approach in lagrange model? Consider together with the thinking about the use of the param named-tuple in the other submodule.
     def _params(self):
         """Return the physical parameter dict for M_func / F_func."""
         return dict(
@@ -367,6 +373,7 @@ class DroguedDrifter:
     def _eval_M_F(self, t, x, y, u, v, xd, yd, ud, vd, currents):
         """Evaluate mass matrix and force vector numerically (scalar)."""
         U_b, V_b, U_d, V_d = currents
+        # TODO: This feels like there should be a more straightforward way to pass around parameters. Maybe we just inline the _eval_M_F part into rhs and use LagrangParmeters namedtuple there? Could save a lot of boilerplate here.
         p = self._params()
 
         # Call M_func/F_func directly — they handle shaping
@@ -422,6 +429,7 @@ class DroguedDrifter:
         """
         s = u**2 + v**2
         cos_theta = (s - 4) / (s + 4)
+        # TODO: Clamp necessary? It doesn't make sense to have zeff > 0. But just clamping here without raiding anything is worse than letting unphysical configs emerge.
         # At equilibrium cos_theta = -1, so l * cos_theta = -l (below surface).
         # min clamp ensures z_eff <= 0 (drogue cannot be above water).
         return np.minimum(0.0, self.l * cos_theta)
@@ -441,6 +449,7 @@ class DroguedDrifter:
         Returns:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
         """
+        # TODO: Where is the order of these determined? What if we change it there. Would we notice? 
         N = Y.shape[0]
         u = Y[:, 2]
         v = Y[:, 3]
@@ -492,7 +501,7 @@ class DroguedDrifter:
         t_span=(0, 120),
         y0=None,
         theta0=np.pi,
-        conv_tol=1e-4,
+        conv_tol=1e-4,  # TODO: rename to more explaining name
         atol=1e-3,
         rtol=1e-3,
     ):
@@ -522,6 +531,7 @@ class DroguedDrifter:
             y0: Initial state array of shape ``(N, 8)`` in public format
                 ``(x, y, theta, phi, xd, yd, thetad, phid)``.  If ``None``,
                 starts from rest with ``theta=theta0`` (converted to (u, v)).
+            # TODO: It doesn't make any sense to pass a (meaningless w/o phi) theta0 alone. Just drop it and set if y0 is None.
             theta0: Initial pole angle [rad] (used only when ``y0`` is None).
             conv_tol: Stop when ``max(|xdd|, |ydd|) < conv_tol`` [m/s²]
                 across all particles.  With ``t_span=(0, 120)`` s this
@@ -544,6 +554,7 @@ class DroguedDrifter:
             probe = sample_uv(np.array([0.0]))
             N = len(probe[0])
 
+        # TODO: explain rational behind _flat naming
         if y0 is not None:
             y0_arr = np.asarray(y0, dtype=float).reshape(N, 8)
             # y0 is in public (x, y, theta, phi, xd, yd, thetad, phid).
@@ -581,6 +592,7 @@ class DroguedDrifter:
             max_drift_accel = np.max(np.abs(dY[:, 4:6]))
             return max_drift_accel - conv_tol
 
+        # TODO: Explain! This likely uses some solve_ivp details. Don't just assume reader knows.
         converged.terminal = True
         converged.direction = -1
 
@@ -591,6 +603,7 @@ class DroguedDrifter:
         Y_internal = sol.y[:, -1].reshape(N, 8)
 
         # Convert internal (u, v, ud, vd) state to public (theta, phi, thetad, phid)
+        # TODO: Again: Order of args. Just assuming [3] is v is a huge footgun.
         u_final = Y_internal[:, 2]
         v_final = Y_internal[:, 3]
         ud_final = Y_internal[:, 6]
@@ -608,6 +621,7 @@ class DroguedDrifter:
 
         return Y_final[:, 4], Y_final[:, 5], theta_final, Y_final
 
+    # TODO: There's breaks in signature and return types here and there's likely a lot of room for cleanup. Let's review all the different ways to get drift velocity (converged, final after given span, whole solution, single drifter, batched) and think about which in/out signatures we really need for which applications.
     def _get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
         """Integrate the equations of motion (raw interface).
 

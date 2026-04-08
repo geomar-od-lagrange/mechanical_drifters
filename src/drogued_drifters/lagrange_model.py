@@ -8,11 +8,14 @@ from sympy.physics.mechanics import dynamicsymbols
 from sympy.printing.numpy import NumPyPrinter
 
 
+# TODO: These LagrangeParams are only used internally, right? External API of the package is pure theta / phi in spherical coords. Any renaming of the class warranted then?
 class LagrangeParams(NamedTuple):
     """19-parameter tuple for Lagrange model M and F functions.
 
+    # TODO: Let's make sure argument order is not a hidden complection. THe docstring comment on field ordering is either misleading or it points at a problem we need to solve.
     Fields are ordered to match the symbolic derivation (lambdify order).
     """
+    # TODO: The u and v may be standard, but they're still really misleading because they could also be mistakent for horizontal velocity components.
     u: float
     v: float
     xd: float
@@ -42,6 +45,7 @@ def _mag(vec):
 def _derive_symbolic():
     """Derive symbolic M and F in stereographic (u, v) coordinates.
 
+    # TODO: Here make sure to mention and briefly explain the nature of the singularity before referencing it.
     The drogue position relative to the buoy is parameterized directly
     via stereographic projection of the pole direction. This avoids the
     phi singularity at theta=pi entirely, with no regularization needed.
@@ -74,6 +78,7 @@ def _derive_symbolic():
     U_b, V_b, U_d, V_d = sp.symbols("U_b V_b U_d V_d", real=True)
 
     # Stereographic identities — smooth at the origin
+    # TODO: run black
     s = u_st**2 + v_st**2
     denom = s + 4
     sin_theta_cos_phi = 4 * u_st / denom
@@ -125,12 +130,14 @@ def _derive_symbolic():
     )
     eoms = sp.simplify(eoms)
 
+    # In generalized mass form
     M, F = sp.simplify(sp.linear_eq_to_matrix(eoms, list(qdd)))
 
     # Substitute dynamic symbols with static ones for lambdify / codegen
     xd, yd = x.diff(t), y.diff(t)
     ud, vd = u_st.diff(t), v_st.diff(t)
 
+    # TODO: Brief comment explaining the symbols. Do we need the static symbols? Test this without the substitution on a simple application.
     u_s, v_s = sp.symbols("u_s v_s", real=True)
     ud_s, vd_s = sp.symbols("ud_s vd_s", real=True)
     x_s, y_s = sp.symbols("x_s y_s", real=True)
@@ -143,6 +150,7 @@ def _derive_symbolic():
     M_sub = M.subs(subs)
     F_sub = F.subs(subs)
 
+    # TODO: This feels really hacky. Is there no other way? Can we make sympy lambdifies accept kwargs?
     # Derive args tuple from LagrangeParams field names, mapping to symbolic values.
     # This ensures the args tuple always matches the NamedTuple definition.
     symbol_map = {
@@ -168,6 +176,7 @@ def _derive_symbolic():
     }
     args = tuple(symbol_map[field] for field in LagrangeParams._fields)
 
+    # TODO: Why call these _sub?
     return M_sub, F_sub, args
 
 
@@ -187,11 +196,13 @@ def _save_eom_cache(path):
     M_sub, F_sub, args = _derive_symbolic()
 
     arg_names = ','.join(str(s) for s in args)
+    # TODO: the --- split feels awkward. Is there a proper way to do this?
     content = f"{sp.srepr(M_sub)}\n---\n{sp.srepr(F_sub)}\n---\n{arg_names}\n"
 
     path.write_text(content)
 
 
+# TODO: use more meaningful function name here.
 @functools.lru_cache()
 def _load_or_derive():
     """Load or derive M_sub, F_sub, args; apply CSE; return raw lambdified callables.
@@ -229,8 +240,11 @@ def _load_or_derive():
 def _apply_cse_and_lambdify(M_sub, F_sub, args):
     """Apply CSE to M and F; build raw lambdified functions via exec.
 
+    # TODO: Awkward comment. Explain what's done. Not where we read it.
     This is Approach B from test_cse_lambdify.py:
     Generate Python function string, exec it, return the functions.
+
+    # TODO: This solution needs more explanation. How's the CSE logic lambdified exactly?
 
     Args:
         M_sub: 4x4 sympy matrix
@@ -294,6 +308,7 @@ def _apply_cse_and_lambdify(M_sub, F_sub, args):
     return _raw_M, _raw_F, args
 
 
+# TODO: Make sure we use the NamedTuple.
 def M_func(
     *,
     u,
@@ -477,6 +492,7 @@ def _uv_to_spherical(u, v, ud, vd):
     theta = _uv_to_theta(u, v)
     phi = np.arctan2(v, u)
 
+    # TODO: explain in comment!
     safe = r > 1e-14
     # d(theta)/dr = -4/(r^2+4); d(theta)/du = d(theta)/dr * u/r; etc.
     dtdr = np.where(safe, -4.0 / (r**2 + 4), -1.0)
