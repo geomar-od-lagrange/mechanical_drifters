@@ -1,7 +1,7 @@
 # Code review remarks — April 2026
 
 Remarks from WR's review of `src/` on branch `wr/go-for-real-application`.
-32 TODOs across `drifter.py`, `lagrange_model.py`, `stokes.py`.
+31 TODOs across `drifter.py`, `lagrange_model.py`, `stokes.py`.
 
 ---
 
@@ -33,17 +33,17 @@ Small, unambiguous changes. No design decisions needed.
 ### IF-3: `conv_tol` -> more descriptive name
 - **File:** `drifter.py`, `get_final_drift_batch`
 - **Remark:** `# TODO: rename to more explaining name`
-- **Fix:** Rename to `max_accel_tol` (or `accel_tol`). Update docstring accordingly.
+- **Fix:** Rename to `drift_accel_tol`. The convergence check is on `max(|xdd|, |ydd|)` — specifically the *drift* acceleration, not total. Update docstring accordingly.
 
 ### IF-4: Drop `theta0` parameter
 - **File:** `drifter.py`, `get_final_drift_batch`
 - **Remark:** `# TODO: It doesn't make any sense to pass a (meaningless w/o phi) theta0 alone.`
-- **Fix:** Remove `theta0`. When `y0 is None`, start at equilibrium `(u, v) = (0, 0)` which is `theta = pi`. If a caller needs a non-equilibrium start, they pass `y0`.
+- **Fix:** Remove `theta0`. When `y0 is None`, start at equilibrium `(u_stereo, v_stereo) = (0, 0)` which is `theta = pi, phi = 0`. If a caller needs a non-equilibrium start, they pass `y0`.
 
 ### IF-5: Explain `_flat` naming
 - **File:** `drifter.py`, `get_final_drift_batch`
 - **Remark:** `# TODO: explain rational behind _flat naming`
-- **Fix:** Add comment: `# _flat: (N, 8) state raveled to (8N,) vector for solve_ivp's 1-D interface`.
+- **Fix:** Add comment: `# _flat: (N, 8) state raveled to (8*N,) vector for solve_ivp's 1-D interface`.
 
 ### IF-6: Explain `converged.terminal` / `.direction`
 - **File:** `drifter.py`, `get_final_drift_batch`
@@ -142,7 +142,7 @@ Use symbolic names everywhere: `Y[:, IU]` instead of `Y[:, 2]`. Consider whether
 1. Document the pipeline in a top-of-module comment: derive -> substitute static symbols -> CSE -> codegen -> exec -> wrap.
 2. Replace `---`-delimited srepr with a proper format (e.g. a dict serialized via `pickle` or a `.py` file with the generated functions directly).
 3. Test whether `sp.lambdify` with `cse=True` (added in sympy 1.12) can replace the manual CSE + exec. If so, the entire `_apply_cse_and_lambdify` function collapses to a few lines.
-4. Check if the static-symbol substitution is still necessary with modern sympy's lambdify. **Note:** Git SHA `38d7c31` may already skip the static substitution — verify before assuming it's needed.
+4. Check if the static-symbol substitution is still necessary with modern sympy's lambdify. **Context:** At `38d7c31` (the pre-stereographic version on this branch), `_derive_and_lambdify` lambdifies dynamic symbols directly with no static substitution and it works. The substitution was introduced later alongside the stereographic reparameterization — check whether it was actually needed or just cargo-culted in.
 
 ### DW-D: Inline `_eval_M_F` / simplify parameter flow
 
@@ -161,7 +161,9 @@ Use symbolic names everywhere: `Y[:, IU]` instead of `Y[:, 2]`. Consider whether
 
 **Problem:** `np.minimum(0.0, self.l * cos_theta)` silently clamps the drogue to z <= 0. If the pole tilts past horizontal (theta < pi/2), the drogue would be above the surface, which is unphysical.
 
-**Resolution:** Keep the clamp as a safety net, don't add warnings in this hot path (performance-critical). If the drogue somehow swings above the surface, the uv callback will likely error on positive z anyway. With extreme initial conditions (e.g. theta=pi but huge lateral speed relative to water) the drogue could theoretically flip up — we accept this as outside the physical operating regime. Add a comment documenting this decision.
+**Resolution:** Keep the clamp as a safety net. No per-call warnings — this is a hot path. If the drogue somehow swings above the surface, the uv callback will likely error on positive z anyway. With extreme initial conditions (e.g. theta=pi but huge lateral speed relative to water) the drogue could theoretically flip up — we accept this as outside the physical operating regime.
+
+Add a comment documenting this decision.
 
 ### DW-F: Rationalize the drift-velocity API
 
@@ -196,7 +198,7 @@ These were open questions. WR's feedback gives clear direction on each.
 - `# TODO: Let's make sure we understand how FieldSet leverages Xarray and grids.`
 - `# TODO: Again, can we just let Parcels retrieve the profile in a grid agnostic way for us?`
 
-**Decision:** Go the slow (grid-agnostic) way.
+**Decision:** Go the slow (grid-agnostic) way. Also tackle the warm_state cache validation issue (existing TODO in `make_dd_velocity_interpolator`: cache only checks particle count, so stale state can be silently reused when particles are deleted OOB) as part of this refactor.
 
 1. **Isolate now:** Move all Parcels-related code into `parcels_v4.py`.
 2. **Grid-agnostic sampling:** Call Parcels' existing single-point interpolation D times (once per depth level) instead of reaching into `_get_corner_data_Agrid`. Make the z-level lookups parameters. This is slower but works with any grid type. If necessary, build something that is at least vertical-grid agnostic by iterating fieldset.UV calls at each z level.
@@ -210,4 +212,4 @@ Split into physical constants (fixed per drifter) and state+forcing (changes eve
 
 ### D-III: `u`/`v` naming ambiguity
 
-**Decision:** Use `u_stereo`/`v_stereo` in Python variable names, `u_s`/`v_s` in sympy symbols. Note: the `_st` suffix in the current sympy code (`u_st`, `v_st`) stands for "static" (as in static vs. dynamic symbols), not "stereographic" — so there's no conflict with using `u_s`/`v_s` for the stereographic meaning in the symbol layer.
+**Decision:** Use `u_stereo`/`v_stereo` in Python variable names, `u_st`/`v_st` in sympy symbols (both dynamic and static forms). Note: `u_s`/`v_s` already exist in `lagrange_model.py` as the static replacement symbols (`sp.symbols("u_s v_s", real=True)`), so those names are taken. Use `u_st`/`v_st` for sympy to avoid the collision — the `_st` suffix then does double duty (static + stereographic), which is fine since the static symbols *are* the stereographic coordinates.
