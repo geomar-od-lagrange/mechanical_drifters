@@ -14,7 +14,8 @@ Three wins in one:
 
 3. **Replace .srepr cache with hash-keyed pickle.** Drop the custom `---`-delimited
    `.srepr` format, `_save_eom_cache`, and all parsing code. Use a pickle file keyed
-   by a hash of `_derive_symbolic`'s source code. Stale cache auto-invalidates.
+   by a hash of `_derive_symbolic`'s source code + sympy version. Stale cache
+   auto-invalidates.
 
 ## Measured numbers
 
@@ -60,10 +61,14 @@ Numerical agreement: max diff < 7e-15 (machine epsilon).
 _load_or_derive()           → M, F, qdd_exprs, args        (pickle cache, hash-keyed)
        |                      135s derive on miss, 70ms on hit
        v
-_get_eom_callables()        → qdd_func, pack_eom_args      (lambdify + _build_packer)
-       |                      + M_func_raw, F_func_raw      (for public API / tests)
+_get_eom_callables()        → qdd_raw, M_raw, F_raw,       (lambdify + _build_packer)
+       |                      pack_eom_args                  (all lru_cached)
        v
-rhs() / _rhs_batch()        → qdd = qdd_func(*pack(...))   (one call, no solve)
+_qdd_func(physics, state)   → (4,) or (N,4) array          (hot-path entry point)
+M_func(physics, state)      → (4,4) or (N,4,4) array       (public API, off hot path)
+F_func(physics, state)      → (4,) or (N,4) array          (public API, off hot path)
+       v
+rhs() / _rhs_batch()        → qdd = _qdd_func(physics, state)  (one call, no solve)
 ```
 
 ## Caching strategy
@@ -72,10 +77,22 @@ rhs() / _rhs_batch()        → qdd = qdd_func(*pack(...))   (one call, no solve
 only, not lambdified callables (those can't be pickled).
 
 **Where:** `data/eom_cache.pkl` next to the package (same location as current `.srepr`).
+Committed to git (like the current `.srepr`), so fresh clones don't trigger 135s
+derivation on first import.
 
-**Invalidation:** Hash of `_derive_symbolic`'s source code (via `inspect.getsource`).
-Stored inside the pickle alongside the expressions. On load, recompute hash and compare.
-Mismatch → re-derive (135s), re-save. Match → load + lambdify (70ms).
+**Invalidation:** Hash of `_derive_symbolic`'s source code + `sympy.__version__`
+(via `inspect.getsource`). Stored inside the pickle. On load, recompute hash and
+compare. Mismatch → re-derive (135s), re-save. Match → load + lambdify (70ms).
+
+Note: formatting changes or comment edits in `_derive_symbolic` will invalidate
+the cache (false positive). This is acceptable — it's a one-time 135s cost after
+editing the derivation, and the alternative (not invalidating) risks silent bugs.
+
+**Atomic writes:** Write to a temp file, then `os.replace` (atomic on POSIX).
+Prevents corrupt pickle if two processes import simultaneously.
+
+**Write failures:** Catch `OSError` on write and skip silently. For read-only installs,
+the cache simply won't be written — derive every time. Slow but functional.
 
 **Second safety net:** `_build_packer` inspects the lambdified function's signature
 and raises `KeyError` if any parameter doesn't map to a struct field. A stale cache
@@ -83,22 +100,68 @@ with wrong symbol names fails loudly at first call.
 
 ```python
 def _cache_key():
-    return hashlib.sha256(inspect.getsource(_derive_symbolic).encode()).hexdigest()[:16]
+    source = inspect.getsource(_derive_symbolic)
+    return hashlib.sha256((source + sp.__version__).encode()).hexdigest()[:16]
 
 def _load_or_derive():
     cache_path = Path(__file__).parent / "data" / "eom_cache.pkl"
     if cache_path.exists():
-        cached = pickle.loads(cache_path.read_bytes())
-        if cached.get("key") == _cache_key():
-            return cached["M"], cached["F"], cached["qdd"], cached["args"]
-    # Miss or stale — re-derive
+        try:
+            cached = pickle.loads(cache_path.read_bytes())
+            if cached.get("key") == _cache_key():
+                return cached["M"], cached["F"], cached["qdd"], cached["args"]
+        except Exception:
+            pass  # corrupt or incompatible pickle — re-derive
+    # Miss or stale — re-derive (slow, ~2 min)
+    import warnings
+    warnings.warn(
+        "EOM cache miss — running symbolic derivation (~2 min). "
+        "This happens once after code or sympy version changes.",
+        stacklevel=2,
+    )
     M, F, args = _derive_symbolic()
     qdd = tuple(M.LUsolve(F)[i] for i in range(4))
     data = {"key": _cache_key(), "M": M, "F": F, "qdd": qdd, "args": args}
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_bytes(pickle.dumps(data))
+    try:
+        tmp = cache_path.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(data))
+        os.replace(tmp, cache_path)
+    except OSError:
+        pass  # read-only install — skip cache write
     return M, F, qdd, args
 ```
+
+## Lambdify output shapes
+
+`sp.lambdify(args, tuple_of_exprs, modules='numpy', cse=True)` returns a
+**tuple of values**, not an array. The wrappers must convert:
+
+- **`_qdd_func`:** raw returns `(val0, val1, val2, val3)` where each is scalar
+  or `(N,)`. Wrapper does `np.array(qdd_raw(...))` for scalar (→ (4,)) or
+  `np.column_stack(qdd_raw(...))` for batch (→ (N,4)).
+
+- **`M_func`:** raw returns tuple of 10 upper-triangle elements. Wrapper
+  assembles into (4,4) or (N,4,4) — same logic as current code.
+
+- **`F_func`:** raw returns tuple of 4 elements. Wrapper does same as `_qdd_func`.
+
+Note: `sp.lambdify(args, sp.Matrix(...), ...)` returns an ndarray directly, but
+we lambdify tuples of scalar expressions (for CSE compatibility), so we get tuples.
+
+## NaN/inf handling
+
+**Mass matrix M is positive definite** by construction (it's the kinetic energy
+matrix of a mechanical system — T > 0 for any nonzero velocity). The symbolic
+inverse `M.LUsolve(F)` is well-defined. In practice, extreme parameter values
+(e.g. near-zero masses) or numerical overflow can produce non-finite qdd.
+
+- **`_rhs_batch`:** guard qdd output with `~np.isfinite(qdd).all(axis=1)`,
+  replace bad rows with zeros. Same end result as current M/F guard.
+- **`rhs` (scalar):** no explicit guard. `solve_ivp` handles non-finite RHS
+  values gracefully (reduces step size or reports failure). This matches the
+  current behavior — `np.linalg.solve` on a well-conditioned M doesn't fail
+  either; only extreme numerics produce inf/nan, which solve_ivp catches.
 
 ## What stays
 
@@ -113,23 +176,26 @@ def _load_or_derive():
 
 - **`_apply_cse_and_lambdify`** (70 lines) — replaced by `sp.lambdify(..., cse=True)`.
 - **`_save_eom_cache`** — replaced by `_load_or_derive` with pickle.
+- **`cli.py`** — delete. The `save-eom-cache` CLI command is no longer needed
+  (cache is auto-generated). Remove the `[project.scripts]` entry from `pyproject.toml`
+  and the `click` dependency.
 - **`.srepr` file and all parsing code** — replaced by pickle.
 - **`NumPyPrinter` import** — no longer needed.
-- **`_eval_M_F`** in `drifter.py` — replaced by direct `qdd_func` call (completes DW-D).
-- **`np.linalg.solve` in `rhs` and `_rhs_batch`** — replaced by direct `qdd_func`.
+- **`_eval_M_F`** in `drifter.py` — replaced by direct `_qdd_func` call (completes DW-D).
+- **`np.linalg.solve` in `rhs` and `_rhs_batch`** — replaced by direct `_qdd_func`.
 - **Matrix assembly in `_rhs_batch`** — no (N,4,4) construction, no batch solve.
-- **NaN/inf guard** in `_rhs_batch` — moves to guard qdd output directly.
 
 ## Changes
 
 ### 1. `lagrange_model.py`
 
 **Add:**
-- `_cache_key()` — hash of `_derive_symbolic` source.
-- `_load_or_derive()` — pickle-based cache with hash validation. Returns
-  `(M_static, F_static, qdd_exprs, args)`.
-- `qdd_func(physics, state)` — public wrapper. Returns (4,) or (N,4) array.
-  The new hot-path entry point.
+- `import pickle, hashlib, os`
+- `_cache_key()` — hash of `_derive_symbolic` source + `sp.__version__`.
+- `_load_or_derive()` — pickle-based cache with hash validation, atomic writes,
+  OSError handling. Returns `(M_static, F_static, qdd_exprs, args)`.
+- `_qdd_func(physics, state)` — internal wrapper (not exported). Calls
+  `qdd_raw(*pack(physics, state))`, converts tuple to (4,) or (N,4) array.
 
 **Simplify:**
 - `_get_eom_callables()` — calls `_load_or_derive()`, then:
@@ -137,9 +203,10 @@ def _load_or_derive():
   - `sp.lambdify(args, m_exprs, modules='numpy', cse=True)` for M (public API)
   - `sp.lambdify(args, f_exprs, modules='numpy', cse=True)` for F (public API)
   - `_build_packer` on any of the above (same signature)
-  All cached by `lru_cache`.
+  Returns `(qdd_raw, M_raw, F_raw, args, pack_eom_args)`. All cached by `lru_cache`.
 - `M_func`, `F_func` — unchanged signatures `(physics, state)`. Internal implementation
-  switches from exec'd code to `lambdify(cse=True)`. Still reshape outputs.
+  switches from exec'd code to `lambdify(cse=True)`. Reshape logic stays for M (tuple
+  of 10 → (4,4) or (N,4,4)). Simplifies for F (tuple of 4 → (4,) or (N,4)).
 
 **Delete:**
 - `_apply_cse_and_lambdify` (entire function, 70 lines).
@@ -155,7 +222,7 @@ def rhs(self, t, y):
     # unpack state, sample currents (unchanged)
     ...
     state = EOMState(u, v, xd, yd, ud, vd, U_b, V_b, U_d, V_d)
-    qdd = qdd_func(self.physics, state)
+    qdd = _qdd_func(self.physics, state)  # returns (4,)
     return np.array([xd, yd, ud, vd, *qdd])
 ```
 
@@ -165,7 +232,7 @@ def _rhs_batch(self, Y, sample_uv):
     # unpack, sample currents (unchanged)
     ...
     state = EOMState(u, v, xd, yd, ud, vd, U_b, V_b, U_d, V_d)
-    qdd = qdd_func(self.physics, state)  # returns (N, 4)
+    qdd = _qdd_func(self.physics, state)  # returns (N, 4)
 
     # Guard NaN/inf
     bad = ~np.isfinite(qdd).all(axis=1)
@@ -184,25 +251,44 @@ def _rhs_batch(self, Y, sample_uv):
 **Delete:**
 - `_eval_M_F` (completes DW-D).
 - Imports of `M_func`, `F_func` from drifter.py (no longer needed internally).
+- Import `_qdd_func` from `lagrange_model` instead.
 
 ### 3. `__init__.py`
 
-Add `qdd_func` to exports. Keep `M_func`, `F_func`, `DrifterPhysics`.
+Keep `M_func`, `F_func`, `DrifterPhysics`. Do NOT export `_qdd_func` (it takes
+`EOMState` which uses internal stereographic coordinates).
 
-### 4. File cleanup
+### 4. `cli.py` and `pyproject.toml`
+
+- Delete `src/drogued_drifters/cli.py`.
+- Remove `save-eom-cache = "drogued_drifters.cli:save_eom_cache"` from
+  `[project.scripts]` in `pyproject.toml`.
+- Remove `click` from `dependencies` in `pyproject.toml` (if no other code uses it).
+
+### 5. File cleanup
 
 - Delete `src/drogued_drifters/data/symbolic_eom.srepr`.
-- The new `eom_cache.pkl` is generated on first run (not checked into git).
-  Add `src/drogued_drifters/data/eom_cache.pkl` to `.gitignore`.
+- Commit the new `src/drogued_drifters/data/eom_cache.pkl` (generated by running
+  any test or importing the package).
 
-### 5. Tests
+### 6. Tests
 
+**Files that need updating:**
+- `tests/test_lagrange_physics.py` — `test_packer_covers_all_struct_fields` and
+  `test_packer_arg_order_matches_lambda` call `_get_eom_callables()` and unpack
+  its return value. Update for new return signature.
+- `tests/test_lagrange_symbolic_fallback.py` — cache fallback tests, references to
+  `_apply_cse_and_lambdify`. Rewrite for pickle-based caching.
+- `tests/test_drogued_drifter.py` — tests calling `_eval_M_F`. Update to test
+  through `rhs` or `_qdd_func`.
+- `tests/test_numerical_edge_cases.py` — may reference old internals.
+
+**Existing tests preserved:**
 - Tests that call `M_func`/`F_func` directly: unchanged (public API preserved).
-- Tests that call `_eval_M_F`: update to use `qdd_func` or test through `rhs`.
-- Tests that reference `_apply_cse_and_lambdify`: update to use new internals.
-- Add: `test_qdd_func_matches_M_F_solve` — verifies qdd_func agrees with
-  M_func + F_func + np.linalg.solve at several test points.
-- Update cache fallback tests to use pickle-based caching.
+
+**New tests:**
+- `test_qdd_func_matches_M_F_solve` — verifies `_qdd_func` agrees with
+  `M_func + F_func + np.linalg.solve` at several test points.
 
 **Broadcasting contract tests** (guards against sympy codegen changes):
 
@@ -221,23 +307,26 @@ handling), our batch path breaks silently. These tests pin that contract:
   state args are (N,) arrays. This is the actual calling pattern: DrifterPhysics
   is scalar, EOMState holds batch arrays. Verifies scalar-array mixed broadcasting.
 - `test_lambdify_cse_preserves_broadcasting` — compare `lambdify(cse=True)` vs
-  `lambdify(cse=False)` on batch input. If CSE breaks broadcasting (e.g. by
-  introducing intermediate scalars), this catches it.
+  `lambdify(cse=False)` on batch input. If CSE breaks broadcasting, this catches it.
+- `test_lambdify_batch_N1` — single-element (N=1) arrays. Common source of shape
+  bugs from numpy dimension squeezing.
 
-These tests run on the actual model expressions (qdd_func, M_func, F_func), not
-on toy examples. They are the canary for sympy/numpy version upgrades.
+These tests run on the actual model expressions (`_qdd_func`, `M_func`, `F_func`),
+not on toy examples. They are the canary for sympy/numpy version upgrades.
 
-### 6. Plan updates
+### 7. Plan updates
 
 Tick off DW-C and DW-D in `plans/code-review-remarks.md`.
 
 ## Order of operations
 
-1. Add `_cache_key`, `_load_or_derive`, `qdd_func` to `lagrange_model.py`.
+1. Add `_cache_key`, `_load_or_derive`, `_qdd_func` to `lagrange_model.py`.
 2. Replace `_apply_cse_and_lambdify` and `.srepr` code with `lambdify(cse=True)` + pickle.
-3. Update `drifter.py`: simplify `rhs` and `_rhs_batch`, delete `_eval_M_F`.
-4. Update `__init__.py` exports.
-5. Delete `.srepr` file, add `.pkl` to `.gitignore`.
-6. Update tests.
-7. Run full suite.
-8. Tick off DW-C and DW-D.
+3. Update `_get_eom_callables` return signature.
+4. Update `drifter.py`: simplify `rhs` and `_rhs_batch`, delete `_eval_M_F`.
+5. Do NOT update `__init__.py` exports (keep M_func, F_func, DrifterPhysics).
+6. Delete `cli.py`, update `pyproject.toml`.
+7. Delete `.srepr` file, generate and commit `.pkl`.
+8. Update all test files.
+9. Run full suite.
+10. Tick off DW-C and DW-D.
