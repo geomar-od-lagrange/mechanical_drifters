@@ -7,7 +7,6 @@ from drogued_drifters.lagrange_model import (
     _qdd_func,
     _spherical_to_uv,
     _uv_to_spherical,
-    _uv_to_theta,
 )
 
 # Internal state vector layout: [x, y, u, v, xd, yd, ud, vd].
@@ -197,7 +196,7 @@ def make_dd_velocity_interpolator(dd, *, warm_state=None, spherical=False):
         # If particles are deleted mid-simulation (OOB) and N returns to the
         # same value with different particles, stale state may be reused silently.
         y0_warm = warm_state.get("Y") if warm_state.get("n") == N else None
-        xd_ms, yd_ms, theta, Y_final = dd.get_final_drift_batch(
+        xd_ms, yd_ms, Y_final, max_accel = dd.get_final_drift_batch(
             sample_uv=sample_uv,
             y0=y0_warm,
         )
@@ -358,9 +357,9 @@ class DroguedDrifter:
         if get_uv is not None:
             self.get_uv = get_uv
         else:
-            self.get_uv = self.default_uv
+            self.get_uv = self._default_uv
 
-    def default_uv(self, *, t, x, y, z):
+    def _default_uv(self, *, t, x, y, z):
         """Default velocity callback for testing. Returns sheared currents.
 
         Args:
@@ -376,7 +375,7 @@ class DroguedDrifter:
             return 1.0, 1.0
         return -1.0, -1.0
 
-    def rhs(self, t, y):
+    def _rhs(self, t, y):
         """Right-hand side of the ODE system for ``solve_ivp``.
 
         Args:
@@ -396,10 +395,7 @@ class DroguedDrifter:
         ud = y[IUD]
         vd = y[IVD]
 
-        theta = _uv_to_theta(u, v)
-        # z-up: at equilibrium (theta=pi), cos(pi)=-1 so z_d = l*(-1) = -l.
-        # min clamp ensures z_d <= 0 (drogue cannot be above the surface).
-        z_d = float(min(0.0, self.physics.l * np.cos(theta)))
+        z_d = float(self._z_eff(np.array([u]), np.array([v]))[0])
 
         U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
         U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
@@ -409,7 +405,7 @@ class DroguedDrifter:
 
         return np.array([xd, yd, ud, vd, *qdd])
 
-    def _z_eff_batch(self, u, v):
+    def _z_eff(self, u, v):
         """Compute effective drogue vertical position from stereographic (u, v).
 
         Returns:
@@ -454,7 +450,7 @@ class DroguedDrifter:
 
         # Sample velocity at buoy (z=0) and drogue (z=z_eff)
         U_b, V_b = sample_uv(np.zeros(N))
-        z_eff = self._z_eff_batch(u, v)
+        z_eff = self._z_eff(u, v)
         U_d, V_d = sample_uv(z_eff)
 
         state = EOMState(
@@ -492,7 +488,6 @@ class DroguedDrifter:
         sample_uv,
         t_span=(0, 120),
         y0=None,
-        drift_accel_tol=1e-4,
         atol=1e-3,
         rtol=1e-3,
     ):
@@ -513,9 +508,9 @@ class DroguedDrifter:
             def sample_uv(z):
                 return (U_b, V_b) if np.all(z == 0) else (U_d, V_d)
 
-        Integration terminates early when the maximum *drift* acceleration
-        (i.e. ``max(|xdd|, |ydd|)``) across all particles drops below
-        ``drift_accel_tol`` (global convergence detection).
+        Integration runs for the full ``t_span``. After integration, ``max_accel``
+        is computed as the maximum drift acceleration at the final state, which
+        the caller can use to assess convergence.
 
         Args:
             sample_uv: Velocity profile sampler (see above).
@@ -524,18 +519,16 @@ class DroguedDrifter:
                 ``(x, y, theta, phi, xd, yd, thetad, phid)``.  If ``None``,
                 starts from rest at equilibrium ``(u_stereo, v_stereo) = (0, 0)``
                 i.e. ``theta=pi, phi=0``.
-            drift_accel_tol: Stop when ``max(|xdd|, |ydd|) < drift_accel_tol``
-                [m/s^2] across all particles.  With ``t_span=(0, 120)`` s this
-                corresponds to a velocity convergence of ~0.012 m/s -- adequate
-                for typical drift velocities of 0.1-1.0 m/s.
             atol: Absolute tolerance for the ODE solver.
             rtol: Relative tolerance for the ODE solver.
 
         Returns:
-            Tuple ``(xd_final, yd_final, theta_final, Y_final)`` where
-            the first three are ``(N,)`` arrays and ``Y_final`` is the full
-            ``(N, 8)`` state in public format (pass back as ``y0`` for
-            warm-starting).  Column layout of ``Y_final``:
+            Tuple ``(xd_final, yd_final, Y_final, max_accel)`` where
+            ``xd_final`` and ``yd_final`` are ``(N,)`` arrays, ``Y_final`` is the
+            full ``(N, 8)`` state in public format (pass back as ``y0`` for
+            warm-starting), and ``max_accel`` is the maximum drift acceleration
+            ``max(|xdd|, |ydd|)`` across all particles at the final state.
+            Column layout of ``Y_final``:
             ``[x, y, theta, phi, xd, yd, thetad, phid]``.
         """
         # Determine N from y0 or by probing the sampler
@@ -580,31 +573,18 @@ class DroguedDrifter:
             dY = self._rhs_batch(Y, sample_uv)
             return dY.ravel()
 
-        # Global convergence event: max velocity change rate across all particles.
-        def converged(t, y_flat):
-            Y = y_flat.reshape(N, 8)
-            dY = self._rhs_batch(Y, sample_uv)
-            # xdd = dY[:, IXD], ydd = dY[:, IYD]
-            max_drift_accel = np.max(np.abs(dY[:, IXD : IYD + 1]))
-            return max_drift_accel - drift_accel_tol
-
-        # solve_ivp event protocol: the solver evaluates `converged(t, y)` at
-        # each step.  `.terminal = True` tells solve_ivp to stop integration
-        # when the event function crosses zero.  `.direction = -1` restricts
-        # the trigger to downward zero-crossings only (acceleration dropping
-        # below the tolerance threshold).
-        converged.terminal = True
-        converged.direction = -1
-
         sol = solve_ivp(
             rhs_flat,
             t_span,
             y0_flat,
             atol=atol,
             rtol=rtol,
-            events=converged,
         )
         Y_internal = sol.y[:, -1].reshape(N, 8)
+
+        # Evaluate convergence diagnostic: max drift acceleration at final state
+        dY_final = self._rhs_batch(Y_internal, sample_uv)
+        max_accel = float(np.max(np.abs(dY_final[:, IXD : IYD + 1])))
 
         # Convert internal (u, v, ud, vd) state to public (theta, phi, thetad, phid)
         u_final = Y_internal[:, IU]
@@ -631,9 +611,9 @@ class DroguedDrifter:
             ]
         )
 
-        return Y_final[:, IXD], Y_final[:, IYD], theta_final, Y_final
+        return Y_final[:, IXD], Y_final[:, IYD], Y_final, max_accel
 
-    def _get_full_solution(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
+    def _solve(self, t_span, y0, t_eval=None, atol=1e-3, rtol=1e-3):
         """Integrate the equations of motion (raw interface).
 
         Args:
@@ -646,7 +626,7 @@ class DroguedDrifter:
         Returns:
             ``scipy.integrate.OdeResult`` with fields ``.t`` and ``.y``.
         """
-        return solve_ivp(self.rhs, t_span, y0, atol=atol, rtol=rtol, t_eval=t_eval)
+        return solve_ivp(self._rhs, t_span, y0, atol=atol, rtol=rtol, t_eval=t_eval)
 
     def get_full_solution(
         self,
@@ -694,9 +674,7 @@ class DroguedDrifter:
 
         u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
         y0_internal = [x, y, u0, v0, xd, yd, ud0, vd0]
-        sol = self._get_full_solution(
-            t_span, y0_internal, t_eval=t_eval, atol=atol, rtol=rtol
-        )
+        sol = self._solve(t_span, y0_internal, t_eval=t_eval, atol=atol, rtol=rtol)
 
         theta_arr, phi_arr, thetad_arr, phid_arr = _uv_to_spherical(
             sol.y[IU],
@@ -741,18 +719,18 @@ class DroguedDrifter:
                 (same as ``get_full_solution``).
 
         Returns:
-            Tuple ``(xd_final, yd_final)`` — the buoy drift velocity [m/s]
-            at the end of the integration.
+            Tuple ``(xd_final, yd_final, max_accel)`` — the buoy drift velocity
+            [m/s] at the end of the integration, and the maximum drift
+            acceleration ``max(|xdd|, |ydd|)`` at the final state (a convergence
+            diagnostic; smaller is better).
         """
-        ds = self.get_full_solution(
-            t_span=t_span,
-            x=x,
-            y=y,
-            theta=theta,
-            phi=phi,
-            xd=xd,
-            yd=yd,
-            thetad=thetad,
-            phid=phid,
-        )
-        return float(ds.xd.isel(time=-1)), float(ds.yd.isel(time=-1))
+        u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
+        y0 = [x, y, u0, v0, xd, yd, ud0, vd0]
+        sol = self._solve(t_span, y0)
+        y_final = sol.y[:, -1]
+
+        # Convergence diagnostic
+        dy_final = self._rhs(0.0, y_final)
+        max_accel = float(max(abs(dy_final[IXD]), abs(dy_final[IYD])))
+
+        return float(y_final[IXD]), float(y_final[IYD]), max_accel

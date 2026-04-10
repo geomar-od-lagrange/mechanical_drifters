@@ -47,7 +47,7 @@ def test_full_chain_stokes_to_drifter():
     dd = DroguedDrifter()
 
     # Step 4: Compute final drift
-    xd, yd, theta, Y_final = dd.get_final_drift_batch(
+    xd, yd, Y_final, max_accel = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
     )
@@ -83,7 +83,7 @@ def test_full_chain_multi_partition_stokes():
 
     # DroguedDrifter
     dd = DroguedDrifter()
-    xd, yd, theta, Y_final = dd.get_final_drift_batch(
+    xd, yd, Y_final, max_accel = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
     )
@@ -116,7 +116,7 @@ def test_full_chain_zero_stokes_zero_drift():
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
     dd = DroguedDrifter()
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
     )
@@ -137,10 +137,10 @@ def test_full_chain_shear_increases_drift():
         return (0.5, 0.0) if z == 0 else (0.01, 0.0)
 
     dd_weak = DroguedDrifter(get_uv=sample_uv_weak)
-    xd_weak, yd_weak = dd_weak.get_final_drift(t_span=(0, 120))
+    xd_weak, yd_weak, _ = dd_weak.get_final_drift(t_span=(0, 120))
 
     dd_strong = DroguedDrifter(get_uv=sample_uv_strong)
-    xd_strong, yd_strong = dd_strong.get_final_drift(t_span=(0, 120))
+    xd_strong, yd_strong, _ = dd_strong.get_final_drift(t_span=(0, 120))
 
     # Both should have same sign (shear direction)
     if xd_weak != 0:
@@ -169,14 +169,14 @@ def test_full_chain_preserves_initial_condition_for_warm_start():
     dd = DroguedDrifter()
 
     # First run: from rest
-    xd1, yd1, theta1, Y_final1 = dd.get_final_drift_batch(
+    xd1, yd1, Y_final1, max_accel1 = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
     )
 
     # Second run: warm-start from solution (if supported)
     try:
-        xd2, yd2, theta2, Y_final2 = dd.get_final_drift_batch(
+        xd2, yd2, Y_final2, max_accel2 = dd.get_final_drift_batch(
             sample_uv=sample_uv,
             t_span=(0, 120),
             y0=Y_final1,
@@ -211,7 +211,7 @@ def test_full_chain_multiple_particles_independence():
     # Build y0 in public format with theta close to pi
     y0 = np.zeros((N, 8))
     y0[:, 2] = 0.999 * np.pi  # theta column
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
         y0=y0,
@@ -237,10 +237,10 @@ def test_full_chain_opposite_shear_direction():
         return (-0.2, 0.0) if z == 0 else (-0.1, 0.0)
 
     dd_east = DroguedDrifter(get_uv=sample_uv_east)
-    xd_east, _ = dd_east.get_final_drift(t_span=(0, 120))
+    xd_east, _, _ma = dd_east.get_final_drift(t_span=(0, 120))
 
     dd_west = DroguedDrifter(get_uv=sample_uv_west)
-    xd_west, _ = dd_west.get_final_drift(t_span=(0, 120))
+    xd_west, _, _ma = dd_west.get_final_drift(t_span=(0, 120))
 
     # Drifts should be opposite sign
     assert np.sign(xd_east) == -np.sign(
@@ -263,7 +263,7 @@ def test_full_chain_convergence_time():
     dd = DroguedDrifter()
 
     # Run with sufficient time for convergence
-    xd, yd, theta, Y_final = dd.get_final_drift_batch(
+    xd, yd, Y_final, max_accel = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 600),  # Long integration
     )
@@ -272,7 +272,10 @@ def test_full_chain_convergence_time():
     assert np.all(np.isfinite([xd[0], yd[0]]))
 
     # Theta should be near π (drogue hanging down) or near equilibrium
-    assert 0.9 * np.pi <= theta[0] <= np.pi or np.isclose(theta[0], np.pi, atol=0.1)
+    theta_final = Y_final[0, 2]
+    assert 0.9 * np.pi <= theta_final <= np.pi or np.isclose(
+        theta_final, np.pi, atol=0.1
+    )
 
 
 def test_full_chain_scalar_to_batch_consistency():
@@ -289,14 +292,14 @@ def test_full_chain_scalar_to_batch_consistency():
         return u_stokes[0], v_stokes[0]  # deep (index 0 = z=-10)
 
     dd = DroguedDrifter(get_uv=sample_uv_scalar)
-    xd_scalar, yd_scalar = dd.get_final_drift(t_span=(0, 120))
+    xd_scalar, yd_scalar, _ = dd.get_final_drift(t_span=(0, 120))
 
     # Batch path (N=1)
     U_profiles = u_stokes.reshape(-1, 1)
     V_profiles = v_stokes.reshape(-1, 1)
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
-    xd_batch, yd_batch, _, _ = dd.get_final_drift_batch(
+    xd_batch, yd_batch, _Y, _ma = dd.get_final_drift_batch(
         sample_uv=sample_uv,
         t_span=(0, 120),
     )

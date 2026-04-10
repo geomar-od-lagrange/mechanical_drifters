@@ -92,7 +92,7 @@ def test_extreme_vertical_pole():
         return 0.1, 0.0
 
     # Equilibrium: u ≈ 0, v ≈ 0 gives θ ≈ π
-    xd, yd = dd.get_final_drift(
+    xd, yd, _ = dd.get_final_drift(
         # No custom get_uv, use default
         t_span=(0, 60),
     )
@@ -108,7 +108,7 @@ def test_extreme_horizontal_pole():
         return 0.1, 0.0
 
     try:
-        xd, yd = dd.get_final_drift(t_span=(0, 120))
+        xd, yd, _ = dd.get_final_drift(t_span=(0, 120))
         # Should either succeed or raise clearly
         assert np.isfinite(xd) or np.isfinite(yd), "Near-horizontal should be handled"
     except (ValueError, RuntimeError):
@@ -126,7 +126,7 @@ def test_zero_drogue_velocity():
         return 0.0, 0.0
 
     dd = DroguedDrifter(get_uv=sample_uv_sheared)
-    xd, yd = dd.get_final_drift(t_span=(0, 120))
+    xd, yd, _ = dd.get_final_drift(t_span=(0, 120))
 
     # Drift should be nonzero (shear-driven)
     assert np.isfinite(xd) and np.isfinite(yd)
@@ -222,7 +222,7 @@ def test_batch_extreme_velocities():
         return U_b, V_b
 
     try:
-        xd, yd, theta, Y_final = dd.get_final_drift_batch(
+        xd, yd, Y_final, max_accel = dd.get_final_drift_batch(
             sample_uv=sample_uv_batch,
             t_span=(0, 120),
         )
@@ -246,7 +246,7 @@ def test_very_small_perturbation_stability():
         return 0.05, 0.025
 
     dd_base = DroguedDrifter(get_uv=sample_uv_base)
-    xd_base, yd_base = dd_base.get_final_drift(t_span=(0, 120))
+    xd_base, yd_base, _ = dd_base.get_final_drift(t_span=(0, 120))
 
     # Integrate with tiny perturbation
     def sample_uv_pert(*, t, x, y, z):
@@ -255,7 +255,7 @@ def test_very_small_perturbation_stability():
         return 0.05 + eps, 0.025 + eps
 
     dd_pert = DroguedDrifter(get_uv=sample_uv_pert)
-    xd_pert, yd_pert = dd_pert.get_final_drift(t_span=(0, 120))
+    xd_pert, yd_pert, _ = dd_pert.get_final_drift(t_span=(0, 120))
 
     # Difference should be small relative to base
     assert np.isfinite(xd_pert) and np.isfinite(yd_pert)
@@ -308,7 +308,7 @@ def test_large_depth_pole_length():
     dd_long = DroguedDrifter(l=100.0, get_uv=sample_uv)  # Very long pole
 
     try:
-        xd, yd = dd_long.get_final_drift(t_span=(0, 120))
+        xd, yd, _ = dd_long.get_final_drift(t_span=(0, 120))
         assert np.isfinite(xd) or np.isfinite(yd)
     except (ValueError, RuntimeError):
         # Long pole may be physically unrealistic, so rejection is OK
@@ -322,5 +322,5 @@ def test_tiny_pole_length():
         return (0.1, 0.0) if z == 0 else (0.05, 0.0)
 
     dd_short = DroguedDrifter(l=0.01, get_uv=sample_uv)  # Very short pole
-    xd, yd = dd_short.get_final_drift(t_span=(0, 120))
+    xd, yd, _ = dd_short.get_final_drift(t_span=(0, 120))
     assert np.isfinite(xd) and np.isfinite(yd)

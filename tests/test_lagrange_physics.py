@@ -277,7 +277,7 @@ def test_z_eff_batch_range():
     u = rng.uniform(-2, 2, N)
     v = rng.uniform(-2, 2, N)
 
-    z_eff = dd._z_eff_batch(u, v)
+    z_eff = dd._z_eff(u, v)
 
     # Should have shape (N,)
     assert z_eff.shape == (N,)
@@ -295,7 +295,7 @@ def test_z_eff_batch_equilibrium():
     u = np.zeros(N)
     v = np.zeros(N)
 
-    z_eff = dd._z_eff_batch(u, v)
+    z_eff = dd._z_eff(u, v)
 
     np.testing.assert_allclose(
         z_eff,
@@ -317,12 +317,12 @@ def test_z_eff_batch_tilt_increases_depth():
     # Small tilt (pass as arrays to use batch mode)
     u_small = np.array([0.1])
     v_small = np.array([0.0])
-    z_small = dd._z_eff_batch(u_small, v_small)[0]
+    z_small = dd._z_eff(u_small, v_small)[0]
 
     # Large tilt
     u_large = np.array([1.0])
     v_large = np.array([0.0])
-    z_large = dd._z_eff_batch(u_large, v_large)[0]
+    z_large = dd._z_eff(u_large, v_large)[0]
 
     # Larger tilt should give shallower depth (larger z_eff, i.e. less negative)
     assert z_large > z_small, (

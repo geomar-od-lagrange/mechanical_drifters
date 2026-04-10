@@ -72,7 +72,7 @@ Replaced the entire codegen pipeline (`_apply_cse_and_lambdify`, 70 lines of str
 
 Kept the clamp as a safety net. Added a comment documenting the decision: no per-call warnings on this hot path; extreme initial conditions that flip the drogue above the surface are outside the physical operating regime.
 
-### DW-F: Rationalize the drift-velocity API
+### DW-F: Rationalize the drift-velocity API ✓ DONE
 
 **Remark:** `# TODO: There's breaks in signature and return types here and there's likely a lot of room for cleanup.`
 

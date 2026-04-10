@@ -73,7 +73,7 @@ def test_no_drift_for_zero_currents():
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
-    xd, yd = dd.get_final_drift(t_span=(0.0, 30.0))
+    xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0))
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -87,7 +87,7 @@ def test_no_drift_for_theta_pi_zero_currents():
 
     dd = DroguedDrifter(get_uv=_getuv_zero)
 
-    xd, yd = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi)
+    xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi)
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -129,8 +129,8 @@ def test_steady_state_independent_of_added_mass():
         get_uv=_getuv_sheared,
     )
 
-    xd_with, yd_with = dd_with.get_final_drift(t_span=(0.0, 600.0))
-    xd_without, yd_without = dd_without.get_final_drift(t_span=(0.0, 600.0))
+    xd_with, yd_with, _ = dd_with.get_final_drift(t_span=(0.0, 600.0))
+    xd_without, yd_without, _ = dd_without.get_final_drift(t_span=(0.0, 600.0))
 
     np.testing.assert_almost_equal(xd_with, xd_without, decimal=1)
     np.testing.assert_almost_equal(yd_with, yd_without, decimal=1)
@@ -189,11 +189,12 @@ def test_batch_matches_scalar():
 
     # --- batch path ---
     dd_batch = DroguedDrifter()
-    xd_batch, yd_batch, theta_batch, _ = dd_batch.get_final_drift_batch(
+    xd_batch, yd_batch, Y_batch, _ = dd_batch.get_final_drift_batch(
         sample_uv=_step_sampler(U_b, V_b, U_d, V_d),
         t_span=t_span,
         y0=y0_batch,
     )
+    theta_batch = Y_batch[:, 2]
 
     # --- scalar path (one call per particle) ---
     xd_scalar = np.empty(N)
@@ -220,14 +221,14 @@ def test_batch_zero_currents():
     zeros = np.zeros(N)
     dd = DroguedDrifter()
 
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(zeros, zeros, zeros, zeros),
         t_span=(0.0, 120.0),
     )
 
     np.testing.assert_allclose(xd, 0.0, atol=0.05)
     np.testing.assert_allclose(yd, 0.0, atol=0.05)
-    np.testing.assert_allclose(theta, np.pi, atol=0.05)
+    np.testing.assert_allclose(Y_final[:, 2], np.pi, atol=0.05)
 
 
 def test_batch_uniform_currents():
@@ -235,7 +236,7 @@ def test_batch_uniform_currents():
     N = 10
     dd = DroguedDrifter()
 
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
             np.full(N, 0.3),
             np.full(N, -0.1),
@@ -248,14 +249,14 @@ def test_batch_uniform_currents():
     # All particles must agree with each other
     np.testing.assert_allclose(xd, xd[0], atol=1e-10)
     np.testing.assert_allclose(yd, yd[0], atol=1e-10)
-    np.testing.assert_allclose(theta, theta[0], atol=1e-10)
+    np.testing.assert_allclose(Y_final[:, 2], Y_final[0, 2], atol=1e-10)
 
 
 def test_batch_opposite_shear():
     """Two particles with swapped buoy/drogue forcing should give different drifts."""
     dd = DroguedDrifter()
 
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
             np.array([0.1, 0.0]),
             np.array([0.0, 0.0]),
@@ -279,7 +280,7 @@ def test_batch_drift_between_buoy_and_drogue():
 
     U_b_val, U_d_val = 0.2, 0.1
 
-    xd, yd, theta, _ = dd.get_final_drift_batch(
+    xd, yd, Y_final, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
             np.array([U_b_val]),
             np.zeros(N),
@@ -727,3 +728,42 @@ def test_state_vector_round_trip():
     assert internal[IY] == y0
     assert internal[IXD] == xd0
     assert internal[IYD] == yd0
+
+
+# ---------------------------------------------------------------------------
+# DW-F: max_accel diagnostic tests
+# ---------------------------------------------------------------------------
+
+
+def test_max_accel_decreases_with_longer_t_span():
+    """Longer integration should yield smaller max_accel (closer to steady state)."""
+
+    def _getuv_sheared(*, t, x, y, z):
+        return (0.3, 0.0) if z == 0 else (0.05, 0.0)
+
+    dd = DroguedDrifter(get_uv=_getuv_sheared)
+
+    _, _, max_accel_short = dd.get_final_drift(t_span=(0.0, 10.0))
+    _, _, max_accel_long = dd.get_final_drift(t_span=(0.0, 600.0))
+
+    assert max_accel_long < max_accel_short, (
+        f"Expected max_accel to decrease with longer integration: "
+        f"short={max_accel_short}, long={max_accel_long}"
+    )
+
+
+def test_max_accel_zero_for_zero_currents():
+    """Zero currents from equilibrium: max_accel should be ~0 (no forcing)."""
+
+    def _getuv_zero(*, t, x, y, z):
+        return 0.0, 0.0
+
+    dd = DroguedDrifter(get_uv=_getuv_zero)
+    _, _, max_accel = dd.get_final_drift(t_span=(0.0, 120.0))
+
+    np.testing.assert_allclose(
+        max_accel,
+        0.0,
+        atol=1e-6,
+        err_msg=f"Expected max_accel ~0 for zero currents, got {max_accel}",
+    )
