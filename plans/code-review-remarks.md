@@ -108,9 +108,12 @@ Some of these are internal, some public. The scalar and batch paths have differe
 
 **Direction:**
 1. Mark internal methods clearly (`_rhs`, `_rhs_batch`, `_get_full_solution`).
-2. Decide on public surface: likely `get_full_solution` (for analysis/plotting) and `get_final_drift_batch` (for Parcels integration). `get_final_drift_velocity` is a convenience wrapper — keep or drop.
+   `rhs` should be `_rhs` — it's a solve_ivp callback, not user API.
+   `default_uv` should be `_default_uv` — testing convenience only.
+2. Decide on public surface: likely `get_full_solution` (for analysis/plotting) and `get_final_drift_batch` (for Parcels integration). `get_final_drift` is a convenience wrapper — keep or drop.
 3. Unify input convention: public methods take spherical `(theta, phi)`, convert internally. No mixing.
 4. Unify return convention: public methods return xarray or plain arrays in spherical coords. Internal methods use `(u_stereo, v_stereo)`.
+5. After DW-C, `_rhs` and `_rhs_batch` share a two-line core (`EOMState(...)` + `qdd_func(...)`). The surrounding code (unpack, sample currents, assemble output) differs inherently between scalar and batch paths. Keep them separate — forced consolidation adds more boilerplate than it removes.
 
 ---
 
