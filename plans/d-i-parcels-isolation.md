@@ -91,8 +91,8 @@ src/drogued_drifters/
 
 | Item | From | To | Rationale |
 |---|---|---|---|
-| `make_dd_velocity_interpolator` | `drifter.py` | deleted | Replaced by kernel factory `make_dd_kernel` |
-| `make_profile_sampler` | `drifter.py` | stays in `drifter.py` | Generic depth-interpolation utility, not Parcels-specific |
+| `make_dd_velocity_interpolator` | `drifter.py` | deleted | Replaced by `DDAdvectEE` kernel |
+| `make_profile_sampler` | `drifter.py` | `parcels_v4.py` | Parcels devs should see the full pipeline in one place |
 | `_get_corner_data_Agrid` import | `drifter.py` | deleted | Replaced by `fieldset.UV.eval()` |
 | `warm_state` parameter | `drifter.py` | deleted | Dropped entirely; cold-start from equilibrium |
 
@@ -156,9 +156,9 @@ cold-starting becomes measurable.
 ### Public API of `parcels_v4.py`
 
 ```python
-def make_dd_kernel(dd: DroguedDrifter) -> Callable:
-    """Create a Parcels kernel that advects particles using drogued-drifter
-    steady-state drift velocity (Euler forward).
+def DDAdvectEE(particles, fieldset, *, dd):
+    """Parcels kernel: advect particles using drogued-drifter steady-state
+    drift velocity (Euler forward).
 
     Profile extraction uses ``fieldset.UV.eval()`` per depth level,
     leveraging Parcels' native interpolation (handles A-grids, C-grids,
@@ -172,24 +172,29 @@ def make_dd_kernel(dd: DroguedDrifter) -> Callable:
     to avoid unnecessary work on deep levels.
 
     Args:
-        dd: DroguedDrifter instance.
-
-    Returns:
-        Kernel function with signature ``(particles, fieldset) -> None``.
+        particles: Parcels ParticleSet.
+        fieldset: Parcels FieldSet.
+        dd: DroguedDrifter instance (bind via ``functools.partial``).
 
     Usage::
 
-        from drogued_drifters.parcels_v4 import make_dd_kernel
+        from functools import partial
+        from drogued_drifters.parcels_v4 import DDAdvectEE
 
         dd = DroguedDrifter()
         fieldset = FieldSet.from_sgrid_conventions(ds, mesh="spherical")
         pset = ParticleSet(fieldset=fieldset, pclass=Particle, ...)
         pset.execute(
-            kernels=[make_dd_kernel(dd), DeleteOOB],
+            kernels=[partial(DDAdvectEE, dd=dd), DeleteOOB],
             dt=DT, runtime=RUNTIME,
         )
     """
 ```
+
+`dd` is a keyword-only argument bound at the call site via
+`functools.partial`.  The kernel is a plain function with an explicit
+signature — no wrapper factory.  Parcels v4 kernels are plain callables
+(no JIT, no signature introspection), so `partial` works directly.
 
 <!-- TODO (upstream): Propose a ``fieldset.UV.eval_profile(time, lat, lon,
 z_levels)`` method to Parcels — grid-agnostic profile sampling as a
@@ -200,94 +205,94 @@ for this repo, but an essential takeaway for Parcels v4 development. -->
 
 ## Implementation steps
 
-### Step 1: Create `parcels_v4.py` with the kernel
+### Step 1: Create `parcels_v4.py`
 
 Write `src/drogued_drifters/parcels_v4.py`:
 
 ```python
 import numpy as np
 
-from drogued_drifters.drifter import make_profile_sampler
-
 _DEG2M = 1852.0 * 60.0
 
 
-def make_dd_kernel(dd):
-    """Create a Parcels kernel for drogued-drifter advection (Euler forward).
-    ...
+def make_profile_sampler(depth_levels, U_profiles, V_profiles):
+    """Build a fast sample_uv(z) interpolator from pre-sampled profiles.
+    (Moved from drifter.py — see existing implementation.)
     """
-    drogue_depth = dd.physics.l  # max relevant depth [m]
+    ...
 
-    def DDAdvectEE(particles, fieldset):
-        lat = np.asarray(particles.lat)
-        lon = np.asarray(particles.lon)
-        time = particles.time
-        N = len(lat)
 
-        is_spherical = fieldset.U.grid._mesh == "spherical"
+def DDAdvectEE(particles, fieldset, *, dd):
+    """Parcels kernel: drogued-drifter advection (Euler forward)."""
+    lat = np.asarray(particles.lat)
+    lon = np.asarray(particles.lon)
+    time = particles.time
+    N = len(lat)
 
-        # Depth levels: limit to drogue depth + one grid cell margin
-        all_depths = np.asarray(fieldset.U.grid.depth, dtype=float)
-        depth_mask = all_depths <= drogue_depth * 1.5
-        depth_mask[0] = True  # always include shallowest
-        depth_levels = all_depths[depth_mask]
-        if len(depth_levels) < 2:
-            depth_levels = all_depths[:2]  # need at least 2 for interpolation
-        D = len(depth_levels)
+    is_spherical = fieldset.U.grid._mesh == "spherical"
+    drogue_depth = dd.physics.l
 
-        # Grid-agnostic profile extraction via default VectorField interpolator
-        U_profiles = np.empty((D, N))
-        V_profiles = np.empty((D, N))
-        for iz, z_level in enumerate(depth_levels):
-            z_arr = np.full(N, z_level)
-            u, v = fieldset.UV.eval(time, z_arr, lat, lon)[:2]
-            if is_spherical:
-                cos_lat = np.cos(np.deg2rad(lat))
-                u = u * _DEG2M * cos_lat
-                v = v * _DEG2M
-            U_profiles[iz] = u
-            V_profiles[iz] = v
+    # Depth levels: include shallowest up to first level >= drogue depth
+    all_depths = np.asarray(fieldset.U.grid.depth, dtype=float)
+    cutoff = np.searchsorted(all_depths, drogue_depth, side="right") + 1
+    depth_levels = all_depths[: max(cutoff, 2)]  # at least 2 for interpolation
+    D = len(depth_levels)
 
-        # Convert to z-up ascending for make_profile_sampler
-        depth_up = -depth_levels[::-1]
-        U_profiles = U_profiles[::-1]
-        V_profiles = V_profiles[::-1]
-
-        sample_uv = make_profile_sampler(depth_up, U_profiles, V_profiles)
-
-        # Cold-start from equilibrium
-        xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
-
-        # Position update (Euler forward)
+    # Grid-agnostic profile extraction via default VectorField interpolator
+    U_profiles = np.empty((D, N))
+    V_profiles = np.empty((D, N))
+    for iz, z_level in enumerate(depth_levels):
+        z_arr = np.full(N, z_level)
+        u, v = fieldset.UV.eval(time, z_arr, lat, lon)[:2]
         if is_spherical:
             cos_lat = np.cos(np.deg2rad(lat))
-            particles.dlon += xd_ms / (_DEG2M * cos_lat) * particles.dt
-            particles.dlat += yd_ms / _DEG2M * particles.dt
-        else:
-            particles.dlon += xd_ms * particles.dt
-            particles.dlat += yd_ms * particles.dt
+            u = u * _DEG2M * cos_lat
+            v = v * _DEG2M
+        U_profiles[iz] = u
+        V_profiles[iz] = v
 
-    return DDAdvectEE
+    # Convert to z-up ascending for make_profile_sampler
+    depth_up = -depth_levels[::-1]
+    U_profiles = U_profiles[::-1]
+    V_profiles = V_profiles[::-1]
+
+    sample_uv = make_profile_sampler(depth_up, U_profiles, V_profiles)
+
+    # Cold-start from equilibrium
+    xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
+
+    # Position update (Euler forward)
+    if is_spherical:
+        cos_lat = np.cos(np.deg2rad(lat))
+        particles.dlon += xd_ms / (_DEG2M * cos_lat) * particles.dt
+        particles.dlat += yd_ms / _DEG2M * particles.dt
+    else:
+        particles.dlon += xd_ms * particles.dt
+        particles.dlat += yd_ms * particles.dt
 ```
 
 ### Step 2: Remove Parcels code from `drifter.py`
 
 - Delete `make_dd_velocity_interpolator` (lines 60–216).
+- Delete `make_profile_sampler` (lines 19–57) — moved to `parcels_v4.py`.
 - Delete the comment at line 18 about Parcels depth convention.
-- Keep `make_profile_sampler` (lines 19–57).
 
 ### Step 3: Update imports and call sites
 
 - `examples/idealized_flow/02_sheared_jet_parcels.ipynb`:
-  - Change import to `from drogued_drifters.parcels_v4 import make_dd_kernel`
+  - Change import to `from drogued_drifters.parcels_v4 import DDAdvectEE`
+  - Add `from functools import partial`
   - Remove `dd_warm_state = {}` and the `vector_interp_method` assignment
   - Replace `kernels=[AdvectionEE, DeleteOOB]` with
-    `kernels=[make_dd_kernel(dd), DeleteOOB]`
-  - Drop `fieldset_pp` construction (the DD fieldset keeps its default
-    interpolator now — no custom one installed)
+    `kernels=[partial(DDAdvectEE, dd=dd), DeleteOOB]`
+  - Drop separate `fieldset_pp` for DD run (the DD fieldset keeps its
+    default interpolator now — no custom one installed)
 - `tests/test_drifter_parcels.py`:
-  - Update imports.  Drop `make_dd_velocity_interpolator` tests.
-  - `make_profile_sampler` tests unchanged.
+  - Update `make_profile_sampler` import: `drogued_drifters.drifter` →
+    `drogued_drifters.parcels_v4` (8 tests, unchanged logic).
+  - Delete 5 `test_make_dd_velocity_interpolator_*` tests (lines 181–305)
+    — the factory no longer exists.
+  - Add `DDAdvectEE` integration tests (see Step 4).
 
 ### Step 4: Add integration tests with a synthetic FieldSet
 
@@ -313,7 +318,7 @@ papermill to verify the full pipeline.
 
 | Test | What it validates |
 |---|---|
-| Existing `test_make_profile_sampler_*` (8 tests) | `make_profile_sampler` still works after removing Parcels code from `drifter.py` |
+| Existing `test_make_profile_sampler_*` (8 tests) | Import updated to `parcels_v4`; logic unchanged |
 | **New:** `test_uniform_flow_dd_kernel` | Kernel + uniform FieldSet → drift ≈ current |
 | **New:** `test_sheared_flow_dd_kernel` | Kernel + sheared FieldSet → drift between surface and bottom |
 | **New:** `test_dd_kernel_spherical_auto` | Kernel auto-detects `mesh="spherical"` and produces correct deg/s position updates |
