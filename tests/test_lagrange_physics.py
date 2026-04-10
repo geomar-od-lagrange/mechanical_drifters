@@ -31,6 +31,63 @@ _DEFAULT_PHYSICS = DrifterPhysics(
 )
 
 
+def test_packer_covers_all_struct_fields():
+    """Every DrifterPhysics and EOMState field must appear in the lambda signature.
+
+    The packer maps lambda parameter names to struct fields by name.
+    This test catches: renamed struct fields, renamed sympy symbols,
+    stale .srepr cache, or fields added to one side but not the other.
+    """
+    import inspect
+    from drogued_drifters.lagrange_model import _get_eom_callables
+
+    _raw_M, _raw_F, _args, _pack = _get_eom_callables()
+    lambda_params = set(inspect.signature(_raw_M).parameters)
+    struct_fields = set(DrifterPhysics._fields) | set(EOMState._fields)
+
+    # Every struct field must appear in the lambda
+    missing_from_lambda = struct_fields - lambda_params
+    assert (
+        not missing_from_lambda
+    ), f"Struct fields not in lambda signature: {missing_from_lambda}"
+
+    # Every lambda param must map to a struct field
+    missing_from_structs = lambda_params - struct_fields
+    assert (
+        not missing_from_structs
+    ), f"Lambda params not in any struct: {missing_from_structs}"
+
+    # Lengths must match (no duplicates)
+    assert len(lambda_params) == len(DrifterPhysics._fields) + len(EOMState._fields)
+
+
+def test_packer_arg_order_matches_lambda():
+    """pack_eom_args must produce values in the order the lambda expects.
+
+    Assigns distinct integer values to each field, packs them, and verifies
+    the result matches what the lambda signature demands.
+    """
+    import inspect
+    from drogued_drifters.lagrange_model import _get_eom_callables
+
+    _raw_M, _, _, pack = _get_eom_callables()
+    lambda_params = list(inspect.signature(_raw_M).parameters)
+
+    # Give each field a unique value
+    physics = DrifterPhysics(
+        **{f: float(i) for i, f in enumerate(DrifterPhysics._fields)}
+    )
+    state = EOMState(**{f: float(100 + i) for i, f in enumerate(EOMState._fields)})
+
+    packed = pack(physics, state)
+    field_to_val = {**physics._asdict(), **state._asdict()}
+    expected = tuple(field_to_val[name] for name in lambda_params)
+
+    assert (
+        packed == expected
+    ), f"Packer ordering mismatch.\n  Got:      {packed}\n  Expected: {expected}"
+
+
 def test_mass_matrix_nonsingular_at_equilibrium():
     """Mass matrix at (u, v) = (0, 0) should be nonsingular (no phi singularity).
 
