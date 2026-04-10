@@ -10,7 +10,13 @@ from drogued_drifters.drifter import (
     drogue_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
 )
-from drogued_drifters.lagrange_model import DrifterPhysics, EOMState, F_func, M_func
+from drogued_drifters.lagrange_model import (
+    DrifterPhysics,
+    EOMState,
+    F_func,
+    M_func,
+    _qdd_func,
+)
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):
@@ -38,27 +44,29 @@ def test_MF_callable():
     assert callable(F_func)
 
 
-def test_MF_evaluates():
+def test_qdd_func_evaluates():
     dd = DroguedDrifter()
 
     t = 0.0
     U_b, V_b = dd.get_uv(t=t, x=0.0, y=0.0, z=0.0)
     U_d, V_d = dd.get_uv(t=t, x=0.0, y=0.0, z=-3.0)
-    currents = U_b, V_b, U_d, V_d
 
-    # Use stereographic coordinates: u=0.1, v=0.05 (small tilt from vertical)
-    M, F = dd._eval_M_F(
+    state = EOMState(
         u=0.1,
         v=0.05,
         xd=0.0,
         yd=0.0,
         ud=0.0,
         vd=0.0,
-        currents=currents,
+        U_b=U_b,
+        V_b=V_b,
+        U_d=U_d,
+        V_d=V_d,
     )
+    qdd = _qdd_func(dd.physics, state)
 
-    assert len(M.squeeze().shape) == 2, "M not 2dim"
-    assert len(F.squeeze().shape) == 1, "F not 1dim"
+    assert qdd.shape == (4,), f"Expected (4,), got {qdd.shape}"
+    assert np.all(np.isfinite(qdd)), "qdd has non-finite values"
 
 
 def test_no_drift_for_zero_currents():
@@ -509,169 +517,63 @@ def test_generated_vectorized():
 
 
 # ---------------------------------------------------------------------------
-# _save_eom_cache
+# Pickle cache tests
 # ---------------------------------------------------------------------------
 
 
-def test_save_eom_cache_exists():
-    """Test that _save_eom_cache is defined and callable in lagrange_model."""
-    from drogued_drifters.lagrange_model import _save_eom_cache
+def test_cache_file_exists():
+    """Test that the pickle cache file exists."""
+    from drogued_drifters.lagrange_model import _CACHE_PATH
 
-    assert callable(_save_eom_cache), "_save_eom_cache should be callable"
-
-
-def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
-    """Test round-trip: save EOM cache and reload via _get_eom_callables.
-
-    Uses mocked _derive_symbolic to avoid expensive computation.
-    Verifies that M_func/F_func can be called with scalar input and return
-    correctly shaped outputs.
-    """
-    import pytest
-    from pathlib import Path
-    from unittest.mock import patch
-    import sympy as sp
-    from drogued_drifters.lagrange_model import (
-        _save_eom_cache,
-        _get_eom_callables,
-        M_func,
-        F_func,
-        DrifterPhysics,
-        EOMState,
-    )
-
-    # Create trivial mock M (4x4 identity) and F (4x1 zeros)
-    M_mock = sp.eye(4)
-    F_mock = sp.zeros(4, 1)
-
-    # Create args tuple matching DrifterPhysics + EOMState field names
-    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
-    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
-
-    # Patch _derive_symbolic to return our mock
-    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
-        mock_derive.return_value = (M_mock, F_mock, args_mock)
-
-        # Save to temp file
-        cache_file = tmp_path / "test_symbolic_eom.srepr"
-        _save_eom_cache(cache_file)
-
-        # Verify file was created
-        assert cache_file.exists(), f"Cache file not created at {cache_file}"
-
-        # Patch _get_eom_callables to use our temp cache instead of default location
-        with patch("drogued_drifters.lagrange_model._SREPR_PATH", cache_file):
-            # Clear the cache on _get_eom_callables so it re-reads
-            from drogued_drifters import lagrange_model
-
-            lagrange_model._get_eom_callables.cache_clear()
-
-            # Load back using _get_eom_callables
-            _raw_M, _raw_F, arg_symbols, pack_eom_args = _get_eom_callables()
-
-            # Verify we got callable functions
-            assert callable(_raw_M), "_raw_M should be callable"
-            assert callable(_raw_F), "_raw_F should be callable"
-
-            # Test with scalar input: all 19 parameters as scalars
-            scalar_input = tuple([1.0] * len(all_fields))
-            M_result = _raw_M(*scalar_input)
-            F_result = _raw_F(*scalar_input)
-
-            # For identity matrix mock, _raw_M should return diagonal elements
-            # For zero vector mock, _raw_F should return all zeros
-            assert M_result is not None, "M should be callable"
-            assert F_result is not None, "F should be callable"
+    assert _CACHE_PATH.exists(), f"Cache file not found at {_CACHE_PATH}"
 
 
-def test_save_eom_cache_format_has_separator(tmp_path, monkeypatch):
-    """Test that the written .srepr file contains the '---' separator."""
-    from pathlib import Path
-    from unittest.mock import patch
-    import sympy as sp
-    from drogued_drifters.lagrange_model import (
-        _save_eom_cache,
-        DrifterPhysics,
-        EOMState,
-    )
+def test_cache_loads_successfully():
+    """Test that the pickle cache loads and has the expected keys."""
+    import pickle
 
-    # Create trivial mock expressions
-    M_mock = sp.eye(4)
-    F_mock = sp.zeros(4, 1)
-    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
-    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
+    from drogued_drifters.lagrange_model import _CACHE_PATH, _cache_key
 
-    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
-        mock_derive.return_value = (M_mock, F_mock, args_mock)
-
-        cache_file = tmp_path / "test_eom_format.srepr"
-        _save_eom_cache(cache_file)
-
-        # Read the file and verify format
-        content = cache_file.read_text()
-        parts = content.split("---")
-
-        # Should have exactly 3 parts: M_srepr, F_srepr, arg_names
-        assert len(parts) == 3, (
-            f"Expected 3 parts separated by '---', got {len(parts)}. "
-            f"File content:\n{content[:200]}..."
-        )
+    cached = pickle.loads(_CACHE_PATH.read_bytes())
+    assert "key" in cached
+    assert "M" in cached
+    assert "F" in cached
+    assert "qdd" in cached
+    assert "args" in cached
+    assert cached["key"] == _cache_key(), "Cache key mismatch"
 
 
-def test_get_eom_callables_raises_on_malformed_file(tmp_path, monkeypatch):
-    """Test that _get_eom_callables raises clear error for malformed .srepr file."""
-    from pathlib import Path
-    from drogued_drifters.lagrange_model import _get_eom_callables
+def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
+    """_load_or_derive should re-derive when pickle has wrong key."""
+    import pickle
+
     from drogued_drifters import lagrange_model
 
-    # Create a malformed .srepr file (missing separators)
-    bad_file = tmp_path / "malformed.srepr"
-    bad_file.write_text("some_invalid_content_without_separators")
-
-    # Patch the _SREPR_PATH to point to our bad file
-    with monkeypatch.context() as mp:
-        mp.setattr(lagrange_model, "_SREPR_PATH", bad_file)
-
-        # Clear the cache
-        lagrange_model._get_eom_callables.cache_clear()
-
-        # Should raise ValueError with clear message
-        with pytest.raises(ValueError, match="Invalid .srepr format"):
-            _get_eom_callables()
-
-        # Restore after test
-        lagrange_model._get_eom_callables.cache_clear()
-
-
-def test_save_eom_cache_creates_parent_directories(tmp_path):
-    """Test that _save_eom_cache creates parent directories if needed."""
-    from pathlib import Path
-    from unittest.mock import patch
-    import sympy as sp
-    from drogued_drifters.lagrange_model import (
-        _save_eom_cache,
-        DrifterPhysics,
-        EOMState,
+    # Write a pickle with a wrong key
+    stale_cache = tmp_path / "stale.pkl"
+    stale_cache.write_bytes(
+        pickle.dumps(
+            {"key": "wrong_key", "M": None, "F": None, "qdd": None, "args": None}
+        )
     )
 
-    # Create a nested path that doesn't exist yet
-    nested_path = tmp_path / "deep" / "nested" / "cache.srepr"
-    assert not nested_path.parent.exists(), "Parent dirs should not exist"
+    with monkeypatch.context() as mp:
+        mp.setattr(lagrange_model, "_CACHE_PATH", stale_cache)
+        lagrange_model._get_eom_callables.cache_clear()
 
-    # Create mock
-    M_mock = sp.eye(4)
-    F_mock = sp.zeros(4, 1)
-    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
-    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
+        # Should re-derive (will warn about cache miss)
+        import warnings
 
-    with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
-        mock_derive.return_value = (M_mock, F_mock, args_mock)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            qdd_raw, M_raw, F_raw, args, pack = lagrange_model._get_eom_callables()
 
-        # Should create parent directories
-        _save_eom_cache(nested_path)
+        assert callable(qdd_raw)
+        assert callable(M_raw)
+        assert callable(F_raw)
 
-        assert nested_path.exists(), "Cache file should be created"
-        assert nested_path.parent.exists(), "Parent dirs should be created"
+    # Restore
+    lagrange_model._get_eom_callables.cache_clear()
 
 
 # ---------------------------------------------------------------------------

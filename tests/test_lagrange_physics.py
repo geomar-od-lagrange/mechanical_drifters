@@ -15,6 +15,7 @@ from drogued_drifters.lagrange_model import (
     EOMState,
     F_func,
     M_func,
+    _qdd_func,
     _uv_to_theta,
 )
 
@@ -41,8 +42,8 @@ def test_packer_covers_all_struct_fields():
     import inspect
     from drogued_drifters.lagrange_model import _get_eom_callables
 
-    _raw_M, _raw_F, _args, _pack = _get_eom_callables()
-    lambda_params = set(inspect.signature(_raw_M).parameters)
+    _qdd_raw, _M_raw, _F_raw, _args, _pack = _get_eom_callables()
+    lambda_params = set(inspect.signature(_qdd_raw).parameters)
     struct_fields = set(DrifterPhysics._fields) | set(EOMState._fields)
 
     # Every struct field must appear in the lambda
@@ -70,8 +71,8 @@ def test_packer_arg_order_matches_lambda():
     import inspect
     from drogued_drifters.lagrange_model import _get_eom_callables
 
-    _raw_M, _, _, pack = _get_eom_callables()
-    lambda_params = list(inspect.signature(_raw_M).parameters)
+    _qdd_raw, _, _, _, pack = _get_eom_callables()
+    lambda_params = list(inspect.signature(_qdd_raw).parameters)
 
     # Give each field a unique value
     physics = DrifterPhysics(
@@ -384,3 +385,274 @@ def test_no_singularity_at_equilibrium():
         f"M is ill-conditioned at equilibrium: cond={cond}. "
         f"Suggests singularity issue. Eigenvalues: {eigvals}"
     )
+
+
+# ---------------------------------------------------------------------------
+# qdd correctness: _qdd_func must match M_func + F_func + np.linalg.solve
+# ---------------------------------------------------------------------------
+
+
+def test_qdd_func_matches_M_F_solve_scalar():
+    """_qdd_func must agree with M_func + F_func + np.linalg.solve at several points."""
+    test_points = [
+        dict(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(
+            u=0.1, v=0.05, xd=0, yd=0, ud=0, vd=0, U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1
+        ),
+        dict(
+            u=0.3,
+            v=-0.2,
+            xd=0.1,
+            yd=-0.05,
+            ud=0.01,
+            vd=-0.02,
+            U_b=0.5,
+            V_b=-0.3,
+            U_d=0.2,
+            V_d=0.1,
+        ),
+        dict(
+            u=2.0, v=0.0, xd=0, yd=0, ud=0, vd=0, U_b=1.0, V_b=1.0, U_d=-1.0, V_d=-1.0
+        ),
+    ]
+
+    for pt in test_points:
+        state = EOMState(**pt)
+        qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+        M = M_func(_DEFAULT_PHYSICS, state)
+        F = F_func(_DEFAULT_PHYSICS, state)
+        qdd_ref = np.linalg.solve(M, F)
+
+        np.testing.assert_allclose(
+            qdd,
+            qdd_ref,
+            atol=1e-12,
+            err_msg=f"qdd mismatch at {pt}",
+        )
+
+
+def test_qdd_func_matches_M_F_solve_batch():
+    """_qdd_func batch must agree with per-particle M_func + F_func + solve."""
+    N = 10
+    rng = np.random.default_rng(42)
+    state = EOMState(
+        u=rng.uniform(-1, 1, N),
+        v=rng.uniform(-1, 1, N),
+        xd=rng.uniform(-0.5, 0.5, N),
+        yd=rng.uniform(-0.5, 0.5, N),
+        ud=rng.uniform(-0.1, 0.1, N),
+        vd=rng.uniform(-0.1, 0.1, N),
+        U_b=rng.uniform(-0.5, 0.5, N),
+        V_b=rng.uniform(-0.5, 0.5, N),
+        U_d=rng.uniform(-0.5, 0.5, N),
+        V_d=rng.uniform(-0.5, 0.5, N),
+    )
+
+    qdd_batch = _qdd_func(_DEFAULT_PHYSICS, state)
+    assert qdd_batch.shape == (N, 4)
+
+    M_batch = M_func(_DEFAULT_PHYSICS, state)
+    F_batch = F_func(_DEFAULT_PHYSICS, state)
+
+    for i in range(N):
+        qdd_ref = np.linalg.solve(M_batch[i], F_batch[i])
+        np.testing.assert_allclose(
+            qdd_batch[i],
+            qdd_ref,
+            atol=1e-12,
+            err_msg=f"qdd mismatch at particle {i}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Broadcasting contract tests
+# ---------------------------------------------------------------------------
+
+
+def test_lambdify_scalar_input():
+    """Scalar args in, scalar results out (baseline)."""
+    state = EOMState(
+        u=0.1,
+        v=0.05,
+        xd=0.0,
+        yd=0.0,
+        ud=0.0,
+        vd=0.0,
+        U_b=0.5,
+        V_b=-0.3,
+        U_d=0.2,
+        V_d=0.1,
+    )
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    assert qdd.shape == (4,), f"Expected (4,), got {qdd.shape}"
+    assert np.all(np.isfinite(qdd))
+
+    M = M_func(_DEFAULT_PHYSICS, state)
+    assert M.shape == (4, 4)
+
+    F = F_func(_DEFAULT_PHYSICS, state)
+    assert F.shape == (4,)
+
+
+def test_lambdify_batch_input():
+    """(N,) arrays in, batch results out."""
+    N = 20
+    rng = np.random.default_rng(123)
+    state = EOMState(
+        u=rng.uniform(-1, 1, N),
+        v=rng.uniform(-1, 1, N),
+        xd=rng.uniform(-0.5, 0.5, N),
+        yd=rng.uniform(-0.5, 0.5, N),
+        ud=rng.uniform(-0.1, 0.1, N),
+        vd=rng.uniform(-0.1, 0.1, N),
+        U_b=rng.uniform(-0.5, 0.5, N),
+        V_b=rng.uniform(-0.5, 0.5, N),
+        U_d=rng.uniform(-0.5, 0.5, N),
+        V_d=rng.uniform(-0.5, 0.5, N),
+    )
+
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    assert qdd.shape == (N, 4), f"Expected ({N}, 4), got {qdd.shape}"
+    assert np.all(np.isfinite(qdd))
+
+    M = M_func(_DEFAULT_PHYSICS, state)
+    assert M.shape == (N, 4, 4)
+
+    F = F_func(_DEFAULT_PHYSICS, state)
+    assert F.shape == (N, 4)
+
+
+def test_lambdify_batch_matches_scalar_loop():
+    """Batch result must match scalar-per-point loop."""
+    N = 10
+    rng = np.random.default_rng(99)
+    u = rng.uniform(-1, 1, N)
+    v = rng.uniform(-1, 1, N)
+    xd = rng.uniform(-0.5, 0.5, N)
+    yd = rng.uniform(-0.5, 0.5, N)
+    ud = rng.uniform(-0.1, 0.1, N)
+    vd = rng.uniform(-0.1, 0.1, N)
+    U_b = rng.uniform(-0.5, 0.5, N)
+    V_b = rng.uniform(-0.5, 0.5, N)
+    U_d = rng.uniform(-0.5, 0.5, N)
+    V_d = rng.uniform(-0.5, 0.5, N)
+
+    batch_state = EOMState(
+        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+    )
+    qdd_batch = _qdd_func(_DEFAULT_PHYSICS, batch_state)
+
+    for i in range(N):
+        scalar_state = EOMState(
+            u=u[i],
+            v=v[i],
+            xd=xd[i],
+            yd=yd[i],
+            ud=ud[i],
+            vd=vd[i],
+            U_b=U_b[i],
+            V_b=V_b[i],
+            U_d=U_d[i],
+            V_d=V_d[i],
+        )
+        qdd_i = _qdd_func(_DEFAULT_PHYSICS, scalar_state)
+        np.testing.assert_allclose(
+            qdd_batch[i],
+            qdd_i,
+            atol=1e-14,
+            err_msg=f"Batch vs scalar mismatch at particle {i}",
+        )
+
+
+def test_lambdify_mixed_scalar_array_broadcast():
+    """Physics args are scalars, state args are (N,) arrays."""
+    N = 5
+    state = EOMState(
+        u=np.full(N, 0.1),
+        v=np.full(N, 0.05),
+        xd=np.zeros(N),
+        yd=np.zeros(N),
+        ud=np.zeros(N),
+        vd=np.zeros(N),
+        U_b=np.full(N, 0.5),
+        V_b=np.full(N, -0.3),
+        U_d=np.full(N, 0.2),
+        V_d=np.full(N, 0.1),
+    )
+
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    assert qdd.shape == (N, 4)
+
+    # All particles have identical input, so all rows should be equal
+    for i in range(1, N):
+        np.testing.assert_allclose(qdd[i], qdd[0], atol=1e-14)
+
+
+def test_lambdify_cse_preserves_broadcasting():
+    """Compare lambdify(cse=True) vs lambdify(cse=False) on batch input.
+
+    If CSE breaks broadcasting, this catches it.
+    """
+    import sympy as sp
+    from drogued_drifters.lagrange_model import _load_or_derive
+
+    _, _, qdd_exprs, args = _load_or_derive()
+
+    qdd_cse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
+    qdd_nocse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=False)
+
+    from drogued_drifters.lagrange_model import _build_packer
+
+    pack = _build_packer(qdd_cse)
+
+    N = 10
+    rng = np.random.default_rng(77)
+    state = EOMState(
+        u=rng.uniform(-1, 1, N),
+        v=rng.uniform(-1, 1, N),
+        xd=rng.uniform(-0.5, 0.5, N),
+        yd=rng.uniform(-0.5, 0.5, N),
+        ud=rng.uniform(-0.1, 0.1, N),
+        vd=rng.uniform(-0.1, 0.1, N),
+        U_b=rng.uniform(-0.5, 0.5, N),
+        V_b=rng.uniform(-0.5, 0.5, N),
+        U_d=rng.uniform(-0.5, 0.5, N),
+        V_d=rng.uniform(-0.5, 0.5, N),
+    )
+
+    packed = pack(_DEFAULT_PHYSICS, state)
+    result_cse = np.column_stack(qdd_cse(*packed))
+    result_nocse = np.column_stack(qdd_nocse(*packed))
+
+    np.testing.assert_allclose(
+        result_cse,
+        result_nocse,
+        atol=1e-12,
+        err_msg="CSE vs no-CSE mismatch on batch input",
+    )
+
+
+def test_lambdify_batch_N1():
+    """Single-element (N=1) arrays: common source of shape bugs."""
+    state = EOMState(
+        u=np.array([0.1]),
+        v=np.array([0.05]),
+        xd=np.array([0.0]),
+        yd=np.array([0.0]),
+        ud=np.array([0.0]),
+        vd=np.array([0.0]),
+        U_b=np.array([0.5]),
+        V_b=np.array([-0.3]),
+        U_d=np.array([0.2]),
+        V_d=np.array([0.1]),
+    )
+
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    assert qdd.shape == (1, 4), f"Expected (1, 4), got {qdd.shape}"
+    assert np.all(np.isfinite(qdd))
+
+    M = M_func(_DEFAULT_PHYSICS, state)
+    assert M.shape == (1, 4, 4)
+
+    F = F_func(_DEFAULT_PHYSICS, state)
+    assert F.shape == (1, 4)

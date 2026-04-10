@@ -4,8 +4,7 @@ from scipy.integrate import solve_ivp
 from drogued_drifters.lagrange_model import (
     DrifterPhysics,
     EOMState,
-    F_func,
-    M_func,
+    _qdd_func,
     _spherical_to_uv,
     _uv_to_spherical,
     _uv_to_theta,
@@ -377,25 +376,6 @@ class DroguedDrifter:
             return 1.0, 1.0
         return -1.0, -1.0
 
-    def _eval_M_F(self, u, v, xd, yd, ud, vd, currents):
-        """Evaluate mass matrix and force vector numerically (scalar)."""
-        U_b, V_b, U_d, V_d = currents
-        state = EOMState(
-            u=u,
-            v=v,
-            xd=xd,
-            yd=yd,
-            ud=ud,
-            vd=vd,
-            U_b=U_b,
-            V_b=V_b,
-            U_d=U_d,
-            V_d=V_d,
-        )
-        M = M_func(self.physics, state)  # Returns (4,4)
-        F = F_func(self.physics, state)  # Returns (4,)
-        return M, F
-
     def rhs(self, t, y):
         """Right-hand side of the ODE system for ``solve_ivp``.
 
@@ -423,11 +403,9 @@ class DroguedDrifter:
 
         U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
         U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
-        currents = U_b, V_b, U_d, V_d
 
-        M, F = self._eval_M_F(u, v, xd, yd, ud, vd, currents)
-
-        qdd = np.linalg.solve(M, F)
+        state = EOMState(u, v, xd, yd, ud, vd, U_b, V_b, U_d, V_d)
+        qdd = _qdd_func(self.physics, state)  # returns (4,)
 
         return np.array([xd, yd, ud, vd, *qdd])
 
@@ -492,18 +470,12 @@ class DroguedDrifter:
             V_d=V_d,
         )
 
-        # Call M_func/F_func with batch arrays
-        M = M_func(self.physics, state)  # Returns (N, 4, 4)
-        F = F_func(self.physics, state)  # Returns (N, 4)
+        qdd = _qdd_func(self.physics, state)  # returns (N, 4)
 
-        # Handle NaN/inf (overflow in expressions)
-        bad = ~np.isfinite(M).all(axis=(1, 2)) | ~np.isfinite(F).all(axis=1)
+        # Guard NaN/inf
+        bad = ~np.isfinite(qdd).all(axis=1)
         if np.any(bad):
-            M[bad] = np.eye(4)
-            F[bad] = 0.0
-
-        # Batched solve: numpy >= 2.0 requires b to be (N, 4, 1) for batch mode.
-        qdd = np.linalg.solve(M, F[:, :, np.newaxis])[:, :, 0]
+            qdd[bad] = 0.0
 
         dY = np.empty_like(Y)
         dY[:, IX] = xd

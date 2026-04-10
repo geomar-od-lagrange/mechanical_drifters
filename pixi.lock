@@ -1401,13 +1401,12 @@ packages:
 - pypi: ./
   name: drogued-drifters
   version: 0.1.0
-  sha256: 6ab708ae91926a47b54012b09aa479385e704102c70a16e4f57dd8eba92f9d4d
+  sha256: 54242b2e3700accf0ce86574820f6384a3490814e875dbf21f22876c80fde93c
   requires_dist:
   - sympy
   - numpy
   - scipy
   - xarray
-  - click
   - parcels @ git+https://github.com/parcels-code/parcels.git@17241585384f9cbb04a796cb3581cb49559df9df
   requires_python: '>=3.11'
   editable: true

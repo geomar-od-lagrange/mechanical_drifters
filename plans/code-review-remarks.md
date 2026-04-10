@@ -60,33 +60,13 @@ Design decisions are needed, but the scope is bounded.
 
 Defined `IX, IY, IU, IV, IXD, IYD, IUD, IVD = range(8)` as module-level constants in `drifter.py`. All magic-number indexing replaced with named constants. Round-trip test (`test_state_vector_round_trip`) added.
 
-### DW-C: Document and simplify the CSE/lambdify pipeline
+### DW-C: Document and simplify the CSE/lambdify pipeline — DONE
 
-**Remarks:**
-- `# TODO: This solution needs more explanation. How's the CSE logic lambdified exactly?`
-- `# TODO: Awkward comment. Explain what's done. Not where we read it.`
-- `# TODO: This feels really hacky. Is there no other way? Can we make sympy lambdifies accept kwargs?`
-- `# TODO: the --- split feels awkward. Is there a proper way to do this?`
-- `# TODO: Brief comment explaining the symbols. Do we need the static symbols?`
+Replaced the entire codegen pipeline (`_apply_cse_and_lambdify`, 70 lines of string formatting + `exec`, `NumPyPrinter` import, `---`-delimited `.srepr` cache) with `sp.lambdify(..., modules='numpy', cse=True)` + hash-keyed pickle cache (`_load_or_derive`). Also lambdifies `qdd = M^{-1}F` directly for a 2.4x speedup on the hot path. The `_qdd_func` internal function replaces `np.linalg.solve` in both `rhs` and `_rhs_batch`. CLI (`cli.py`) and `click` dependency removed. Broadcasting contract tests added.
 
-**Problem:** `_apply_cse_and_lambdify` generates Python source via string formatting and `exec`, loads a `---`-delimited `.srepr` cache file, and maps between dynamic/static symbols. The pipeline works but is opaque and fragile.
+### DW-D: Inline `_eval_M_F` / simplify parameter flow — DONE
 
-**Direction (incremental, don't rewrite from scratch):**
-1. Document the pipeline in a top-of-module comment: derive -> substitute static symbols -> CSE -> codegen -> exec -> wrap.
-2. Replace `---`-delimited srepr with a proper format (e.g. a dict serialized via `pickle` or a `.py` file with the generated functions directly).
-3. Test whether `sp.lambdify` with `cse=True` (added in sympy 1.12) can replace the manual CSE + exec. If so, the entire `_apply_cse_and_lambdify` function collapses to a few lines.
-4. Check if the static-symbol substitution is still necessary with modern sympy's lambdify. **Context:** At `38d7c31` (the pre-stereographic version on this branch), `_derive_and_lambdify` lambdifies dynamic symbols directly with no static substitution and it works. The substitution was introduced later alongside the stereographic reparameterization — check whether it was actually needed or just cargo-culted in.
-
-### DW-D: Inline `_eval_M_F` / simplify parameter flow
-
-**Remarks:**
-- `# TODO: This feels like there should be a more straightforward way to pass around parameters. Maybe we just inline the _eval_M_F part into rhs and use LagrangeParameters namedtuple there?`
-
-**Problem:** `_eval_M_F` unpacks currents, calls `_params()`, splats the dict into `M_func`/`F_func`. It's a thin wrapper that adds indirection without value.
-
-**Direction:** Once DW-A is done, `rhs` can build the params tuple directly and call `M_func`/`F_func`. `_eval_M_F` becomes unnecessary.
-
-**Depends on:** DW-A.
+`_eval_M_F` deleted. `rhs` and `_rhs_batch` now build `EOMState` directly and call `_qdd_func`. No more `M_func`/`F_func` + `np.linalg.solve` on the hot path.
 
 ### DW-E: `z_eff` clamp — DONE
 

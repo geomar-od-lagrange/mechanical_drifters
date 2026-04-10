@@ -1,12 +1,15 @@
 import functools
+import hashlib
 import inspect
+import os
+import pickle
+import warnings
 from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
 import sympy as sp
 from sympy.physics.mechanics import dynamicsymbols
-from sympy.printing.numpy import NumPyPrinter
 
 
 class DrifterPhysics(NamedTuple):
@@ -238,140 +241,113 @@ def _derive_symbolic():
     return M_static, F_static, args
 
 
-_SREPR_PATH = Path(__file__).resolve().parent / "data" / "symbolic_eom.srepr"
+_CACHE_PATH = Path(__file__).resolve().parent / "data" / "eom_cache.pkl"
 
 
-def _save_eom_cache(path):
-    """Save the symbolic EOM to a .srepr cache file.
+def _cache_key():
+    """Hash of _derive_symbolic source + sympy version for cache invalidation."""
+    source = inspect.getsource(_derive_symbolic)
+    return hashlib.sha256((source + sp.__version__).encode()).hexdigest()[:16]
 
-    Args:
-        path: Path where the cache file should be written.
-              Parent directories are created if needed.
+
+def _load_or_derive():
+    """Load symbolic EOM from pickle cache, or derive from scratch.
+
+    Returns:
+        (M_static, F_static, qdd_exprs, args)
+        where qdd_exprs is a tuple of 4 scalar sympy expressions
+        representing M^{-1}F (the generalized accelerations).
     """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    if _CACHE_PATH.exists():
+        try:
+            cached = pickle.loads(_CACHE_PATH.read_bytes())
+            if cached.get("key") == _cache_key():
+                return cached["M"], cached["F"], cached["qdd"], cached["args"]
+        except Exception:
+            pass  # corrupt or incompatible pickle — re-derive
 
+    # Miss or stale — re-derive (slow, ~2 min)
+    warnings.warn(
+        "EOM cache miss — running symbolic derivation (~2 min). "
+        "This happens once after code or sympy version changes.",
+        stacklevel=2,
+    )
     M_static, F_static, args = _derive_symbolic()
+    qdd_vec = M_static.LUsolve(F_static)
+    qdd_exprs = tuple(qdd_vec[i] for i in range(4))
 
-    arg_names = ",".join(str(s) for s in args)
-    content = f"{sp.srepr(M_static)}\n---\n{sp.srepr(F_static)}\n---\n{arg_names}\n"
+    data = {
+        "key": _cache_key(),
+        "M": M_static,
+        "F": F_static,
+        "qdd": qdd_exprs,
+        "args": args,
+    }
+    _CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp = _CACHE_PATH.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps(data))
+        os.replace(tmp, _CACHE_PATH)
+    except OSError:
+        pass  # read-only install — skip cache write
 
-    path.write_text(content)
+    return M_static, F_static, qdd_exprs, args
 
 
 @functools.lru_cache()
 def _get_eom_callables():
-    """Load or derive M_static, F_static, args; apply CSE; return raw lambdified callables.
-
-    Attempts to load the `.srepr` file from `data/symbolic_eom.srepr`. If not found,
-    falls back to symbolic derivation. In either case, applies CSE and Approach B exec
-    to produce raw lambdified callables.
+    """Load or derive symbolic EOM; lambdify qdd, M, F; return raw callables.
 
     Returns:
-        (_raw_M_func, _raw_F_func, arg_symbols, pack_eom_args)
-        where _raw_M_func/F_func are lambdified callables that accept positional args,
-        arg_symbols is the ordered tuple of sympy symbols, and pack_eom_args is a
-        closure built via _build_packer that assembles (physics, state) into positional
-        args for the raw callables.
+        (qdd_raw, M_raw, F_raw, args, pack_eom_args)
+        where qdd_raw returns a tuple of 4 values,
+        M_raw returns a tuple of 10 upper-triangle values,
+        F_raw returns a tuple of 4 values,
+        args is the ordered tuple of sympy symbols,
+        and pack_eom_args assembles (physics, state) into positional args.
     """
-    # Try to load .srepr file
-    if _SREPR_PATH.exists():
-        content = _SREPR_PATH.read_text().strip()
-        parts = content.split("---")
-        if len(parts) == 3:
-            M_srepr, F_srepr, arg_names_csv = parts
-            M_static = sp.sympify(M_srepr)
-            F_static = sp.sympify(F_srepr)
-            arg_names = [n.strip() for n in arg_names_csv.split(",")]
-            arg_symbols = tuple(
-                sp.Symbol(name, real=True) if "(" not in name else sp.sympify(name)
-                for name in arg_names
-            )
-        else:
-            raise ValueError(f"Invalid .srepr format in {_SREPR_PATH}")
-    else:
-        # Fallback: derive symbolically
-        M_static, F_static, arg_symbols = _derive_symbolic()
+    M_static, F_static, qdd_exprs, args = _load_or_derive()
 
-    # Apply CSE and build raw lambdified functions via Approach B
-    _raw_M, _raw_F, args = _apply_cse_and_lambdify(M_static, F_static, arg_symbols)
+    # Extract M upper-triangle elements (symmetric)
+    m_exprs = tuple(M_static[i, j] for i in range(4) for j in range(i, 4))
+
+    # Extract F elements
+    f_exprs = tuple(F_static[i] for i in range(4))
+
+    # Lambdify with CSE
+    qdd_raw = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
+    M_raw = sp.lambdify(args, m_exprs, modules="numpy", cse=True)
+    F_raw = sp.lambdify(args, f_exprs, modules="numpy", cse=True)
 
     # Build packer once by inspecting the lambda signature
-    pack_eom_args = _build_packer(_raw_M)
+    pack_eom_args = _build_packer(qdd_raw)
 
-    return _raw_M, _raw_F, args, pack_eom_args
+    return qdd_raw, M_raw, F_raw, args, pack_eom_args
 
 
-def _apply_cse_and_lambdify(M_static, F_static, args):
-    """Apply CSE to M and F; build raw lambdified functions via exec.
+def _qdd_func(physics, state):
+    """Evaluate generalized accelerations qdd = M^{-1}F.
 
-    Performs common-subexpression elimination (CSE) on the combined set of
-    M and F matrix elements, then generates Python source code for two
-    functions (_raw_M and _raw_F) that evaluate them using NumPy.  The
-    generated source is exec'd into callable objects.  This avoids the
-    overhead of repeated symbolic evaluation while sharing subexpressions
-    between M and F.
+    Internal function — not part of the public API.
 
     Args:
-        M_static: 4x4 sympy matrix (static symbols)
-        F_static: 4x1 sympy matrix (static symbols)
-        args: tuple of sympy symbols in lambdify order
+        physics: DrifterPhysics instance.
+        state: EOMState instance (scalar or batch).
 
     Returns:
-        (_raw_M_func, _raw_F_func, args)
-        where _raw_M_func(*args) returns M elements as tuple
-        and _raw_F_func(*args) returns F elements as tuple
-        (both vectorized over numpy arrays; batch dim goes last).
+        (4,) array for scalar input, (N, 4) array for batch input.
     """
-    # Extract elements for CSE
-    m_exprs = []
-    m_labels = []
-    for i in range(4):
-        for j in range(i, 4):  # Upper triangle only (symmetric)
-            m_exprs.append(M_static[i, j])
-            m_labels.append((i, j))
+    qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
 
-    f_exprs = [F_static[i] for i in range(4)]
+    u_arr = np.asarray(state.u)
+    batch_ndim = u_arr.ndim
 
-    all_exprs = m_exprs + f_exprs
+    result = qdd_raw(*pack_eom_args(physics, state))
 
-    # Apply CSE
-    replacements, reduced = sp.cse(all_exprs, optimizations="basic")
-
-    # Generate Python code using NumPyPrinter
-    printer = NumPyPrinter()
-    arg_names = [str(s) for s in args]
-
-    # Build compute_M source
-    lines_M = [f"def _raw_M({', '.join(arg_names)}):"]
-    for sym, expr in replacements:
-        lines_M.append(f"    {sym} = {printer.doprint(expr)}")
-    for expr, (i, j) in zip(reduced[: len(m_exprs)], m_labels):
-        lines_M.append(f"    M_{i}{j} = {printer.doprint(expr)}")
-    ret_names_M = ", ".join(f"M_{i}{j}" for i, j in m_labels)
-    lines_M.append(f"    return {ret_names_M}")
-
-    # Build compute_F source
-    lines_F = [f"def _raw_F({', '.join(arg_names)}):"]
-    for sym, expr in replacements:
-        lines_F.append(f"    {sym} = {printer.doprint(expr)}")
-    for idx, expr in enumerate(reduced[len(m_exprs) :]):
-        lines_F.append(f"    F_{idx} = {printer.doprint(expr)}")
-    ret_names_F = ", ".join(f"F_{idx}" for idx in range(len(f_exprs)))
-    lines_F.append(f"    return {ret_names_F}")
-
-    # Combine source
-    source = "\n".join(lines_M) + "\n\n" + "\n".join(lines_F)
-    source = source.replace("numpy.", "np.")
-
-    # Exec to create functions
-    local_ns = {"np": np}
-    exec(source, local_ns)
-
-    _raw_M = local_ns["_raw_M"]
-    _raw_F = local_ns["_raw_F"]
-
-    return _raw_M, _raw_F, args
+    if batch_ndim == 0:
+        return np.array(result, dtype=float)
+    else:
+        return np.column_stack(result)
 
 
 def M_func(physics: DrifterPhysics, state: EOMState):
@@ -390,14 +366,14 @@ def M_func(physics: DrifterPhysics, state: EOMState):
         - Scalar input: (4,4) array
         - Batch input: (N,4,4) array
     """
-    _raw_M, _, _arg_symbols, pack_eom_args = _get_eom_callables()
+    _, M_raw, _, _, pack_eom_args = _get_eom_callables()
 
     # Detect batch size from state.u
     u_arr = np.asarray(state.u)
     batch_ndim = u_arr.ndim
 
     # Pack args in the order the lambda expects (derived from its signature)
-    M_elems = _raw_M(*pack_eom_args(physics, state))
+    M_elems = M_raw(*pack_eom_args(physics, state))
 
     if batch_ndim == 0:
         # Scalar: assemble (4,4)
@@ -449,14 +425,14 @@ def F_func(physics: DrifterPhysics, state: EOMState):
         - Scalar input: (4,) array
         - Batch input: (N,4) array
     """
-    _, _raw_F, _arg_symbols, pack_eom_args = _get_eom_callables()
+    _, _, F_raw, _, pack_eom_args = _get_eom_callables()
 
     # Detect batch size from state.u
     u_arr = np.asarray(state.u)
     batch_ndim = u_arr.ndim
 
     # Pack args in the order the lambda expects (derived from its signature)
-    F_elems = _raw_F(*pack_eom_args(physics, state))
+    F_elems = F_raw(*pack_eom_args(physics, state))
 
     if batch_ndim == 0:
         # Scalar: (4,)

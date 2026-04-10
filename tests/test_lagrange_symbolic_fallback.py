@@ -17,7 +17,6 @@ from drogued_drifters.lagrange_model import (
     EOMState,
     F_func,
     M_func,
-    _apply_cse_and_lambdify,
     _derive_symbolic,
     _get_eom_callables,
 )
@@ -77,29 +76,12 @@ def test_derive_symbolic_finite_values():
     F_num = F_sub.subs(subs_dict)
 
     # Convert to Python float
-    import sympy as sp
-
     M_vals = np.array([[float(M_num[i, j]) for j in range(4)] for i in range(4)])
     F_vals = np.array([float(F_num[i]) for i in range(4)])
 
     # Check finiteness
     assert np.all(np.isfinite(M_vals)), f"M has non-finite values: {M_vals}"
     assert np.all(np.isfinite(F_vals)), f"F has non-finite values: {F_vals}"
-
-
-@pytest.mark.slow
-def test_cse_and_lambdify_produces_callables():
-    """Verify _apply_cse_and_lambdify produces callable functions."""
-    M_sub, F_sub, args = _derive_symbolic()
-
-    _raw_M, _raw_F, args_out = _apply_cse_and_lambdify(M_sub, F_sub, args)
-
-    assert callable(_raw_M), "_raw_M should be callable"
-    assert callable(_raw_F), "_raw_F should be callable"
-    expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
-    assert (
-        len(args_out) == expected_n_args
-    ), f"Expected {expected_n_args} args, got {len(args_out)}"
 
 
 @pytest.mark.slow
@@ -139,19 +121,25 @@ def test_derived_vs_cached_numerical_agreement():
     F_cached = F_func(test_physics, test_state)
 
     # Now derive fresh and lambdify
+    import sympy as sp
+
     M_fresh_sym, F_fresh_sym, args = _derive_symbolic()
-    _raw_M_fresh, _raw_F_fresh, args_out = _apply_cse_and_lambdify(
-        M_fresh_sym, F_fresh_sym, args
-    )
+
+    # Extract M upper-triangle and F elements
+    m_exprs = tuple(M_fresh_sym[i, j] for i in range(4) for j in range(i, 4))
+    f_exprs = tuple(F_fresh_sym[i] for i in range(4))
+
+    M_raw_fresh = sp.lambdify(args, m_exprs, modules="numpy", cse=True)
+    F_raw_fresh = sp.lambdify(args, f_exprs, modules="numpy", cse=True)
 
     # Call with same parameters using packer from _build_packer
     from drogued_drifters.lagrange_model import _build_packer
 
-    packer = _build_packer(_raw_M_fresh)
+    packer = _build_packer(M_raw_fresh)
     params_tuple = packer(test_physics, test_state)
 
-    M_elems_fresh = _raw_M_fresh(*params_tuple)
-    F_elems_fresh = _raw_F_fresh(*params_tuple)
+    M_elems_fresh = M_raw_fresh(*params_tuple)
+    F_elems_fresh = F_raw_fresh(*params_tuple)
 
     # Assemble fresh M into (4, 4)
     M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems_fresh
@@ -187,27 +175,25 @@ def test_derived_vs_cached_numerical_agreement():
 
 @pytest.mark.slow
 def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
-    """_get_eom_callables should fall back to _derive_symbolic if cache missing.
-
-    Create a temp directory without the .srepr file and verify fallback works.
-    """
+    """_get_eom_callables should fall back to _derive_symbolic if cache missing."""
     from drogued_drifters import lagrange_model
 
-    # Patch _SREPR_PATH to non-existent file in temp dir
-    temp_cache = tmp_path / "missing.srepr"
+    # Patch _CACHE_PATH to non-existent file in temp dir
+    temp_cache = tmp_path / "missing.pkl"
     assert not temp_cache.exists(), "Cache file should not exist"
 
     with monkeypatch.context() as mp:
-        mp.setattr(lagrange_model, "_SREPR_PATH", temp_cache)
+        mp.setattr(lagrange_model, "_CACHE_PATH", temp_cache)
 
         # Clear cache so it re-evaluates
         lagrange_model._get_eom_callables.cache_clear()
 
         # Should fall back to _derive_symbolic and work
-        _raw_M, _raw_F, args, pack_eom_args = lagrange_model._get_eom_callables()
+        qdd_raw, M_raw, F_raw, args, pack_eom_args = lagrange_model._get_eom_callables()
 
-        assert callable(_raw_M), "_raw_M should be callable (fallback)"
-        assert callable(_raw_F), "_raw_F should be callable (fallback)"
+        assert callable(qdd_raw), "qdd_raw should be callable (fallback)"
+        assert callable(M_raw), "M_raw should be callable (fallback)"
+        assert callable(F_raw), "F_raw should be callable (fallback)"
         expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
         assert (
             len(args) == expected_n_args
@@ -237,11 +223,15 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
             U_d=0.0,
             V_d=0.0,
         )
-        M_elems = _raw_M(*pack_eom_args(test_physics, test_state))
-        F_elems = _raw_F(*pack_eom_args(test_physics, test_state))
+        packed = pack_eom_args(test_physics, test_state)
+        qdd_elems = qdd_raw(*packed)
+        M_elems = M_raw(*packed)
+        F_elems = F_raw(*packed)
 
+        assert len(qdd_elems) == 4, f"Expected 4 qdd elements, got {len(qdd_elems)}"
         assert len(M_elems) == 10, f"Expected 10 M elements, got {len(M_elems)}"
         assert len(F_elems) == 4, f"Expected 4 F elements, got {len(F_elems)}"
+        assert all(np.isfinite(q) for q in qdd_elems), "qdd has non-finite values"
         assert all(np.isfinite(m) for m in M_elems), "M has non-finite values"
         assert all(np.isfinite(f) for f in F_elems), "F has non-finite values"
 
