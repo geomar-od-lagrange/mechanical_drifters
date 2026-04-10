@@ -232,10 +232,12 @@ def DDAdvectEE(particles, fieldset, *, dd):
     is_spherical = fieldset.U.grid._mesh == "spherical"
     drogue_depth = dd.physics.l
 
-    # Depth levels: include shallowest up to first level >= drogue depth
+    # Depth levels: surface to first level beyond drogue depth (or all if
+    # drogue covers the full water column).  At least 2 for interpolation.
     all_depths = np.asarray(fieldset.U.grid.depth, dtype=float)
-    cutoff = np.searchsorted(all_depths, drogue_depth, side="right") + 1
-    depth_levels = all_depths[: max(cutoff, 2)]  # at least 2 for interpolation
+    cutoff = min(np.searchsorted(all_depths, drogue_depth, side="right") + 1,
+                 len(all_depths))
+    depth_levels = all_depths[: max(cutoff, 2)]
     D = len(depth_levels)
 
     # Grid-agnostic profile extraction via default VectorField interpolator
