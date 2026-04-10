@@ -6,9 +6,6 @@ produces the same numerical results as cached versions.
 Marked @pytest.mark.slow because symbolic derivation takes 30-60s.
 """
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 import pytest
 

@@ -432,7 +432,7 @@ class DroguedDrifter:
     def _rhs_batch(self, Y, sample_uv):
         """Vectorized RHS for N particles.
 
-        Uses M_func and F_func for fast evaluation. All arithmetic broadcasts
+        Uses _qdd_func for fast evaluation. All arithmetic broadcasts
         over ``(N,)`` arrays, so no per-particle loop is needed.
 
         Args:

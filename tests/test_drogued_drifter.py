@@ -1,7 +1,5 @@
 import numpy as np
 import pytest
-from pathlib import Path
-from unittest.mock import patch
 
 from drogued_drifters.drifter import (
     DroguedDrifter,

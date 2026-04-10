@@ -93,7 +93,8 @@ Some of these are internal, some public. The scalar and batch paths have differe
 2. Decide on public surface: likely `get_full_solution` (for analysis/plotting) and `get_final_drift_batch` (for Parcels integration). `get_final_drift` is a convenience wrapper — keep or drop.
 3. Unify input convention: public methods take spherical `(theta, phi)`, convert internally. No mixing.
 4. Unify return convention: public methods return xarray or plain arrays in spherical coords. Internal methods use `(u_stereo, v_stereo)`.
-5. After DW-C, `_rhs` and `_rhs_batch` share a two-line core (`EOMState(...)` + `qdd_func(...)`). The surrounding code (unpack, sample currents, assemble output) differs inherently between scalar and batch paths. Keep them separate — forced consolidation adds more boilerplate than it removes.
+5. After DW-C, `_rhs` and `_rhs_batch` share a two-line core (`EOMState(...)` + `_qdd_func(...)`). The surrounding code (unpack, sample currents, assemble output) differs inherently between scalar and batch paths. Keep them separate — forced consolidation adds more boilerplate than it removes.
+6. **Check test coverage** before and after. Renaming public → private methods will break any external tests or notebooks that call them. Run coverage to identify untested paths and dead code that can be dropped rather than renamed.
 
 ---
 
