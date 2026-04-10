@@ -3,7 +3,7 @@
 Validates:
 - Mass matrix positive-definiteness (physical constraint)
 - Drag force scaling (quadratic, not linear)
-- Pole tilt depth mapping (_z_eff_batch)
+- Pole tilt depth mapping (_z_eff)
 """
 
 import numpy as np
@@ -268,7 +268,7 @@ def test_zero_velocity_zero_force():
     )
 
 
-def test_z_eff_batch_range():
+def test_z_eff_range():
     """Effective drogue vertical position should be in [-l, 0] where l is pole length."""
     dd = DroguedDrifter(l=3.0)
 
@@ -287,7 +287,7 @@ def test_z_eff_batch_range():
     assert np.all(z_eff >= -3.0), f"z_eff exceeds pole length: {z_eff[z_eff < -3.0]}"
 
 
-def test_z_eff_batch_equilibrium():
+def test_z_eff_equilibrium():
     """At equilibrium (u, v)=(0, 0), drogue should hang straight down: z_eff = -l."""
     dd = DroguedDrifter(l=3.0)
 
@@ -305,7 +305,7 @@ def test_z_eff_batch_equilibrium():
     )
 
 
-def test_z_eff_batch_tilt_increases_depth():
+def test_z_eff_tilt_increases_depth():
     """Tilting pole away from vertical should make drogue shallower (less negative z_eff).
 
     At (u, v)=(0, 0), pole is vertical, z_eff = -l.

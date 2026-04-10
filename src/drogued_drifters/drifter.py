@@ -323,7 +323,7 @@ class DroguedDrifter:
             ``z`` is vertical position [m], positive upward (0 = surface,
             negative = below MSL).
             Called separately at ``z=0`` (buoy) and ``z=z_d`` (drogue).
-            If None, uses ``default_uv``.
+            If None, uses ``_default_uv``.
             Use ``functools.partial`` to bind external data (e.g. an xarray
             dataset) before passing it here.
     """
