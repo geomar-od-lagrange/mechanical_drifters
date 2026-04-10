@@ -46,7 +46,7 @@ classDiagram
 
     DroguedDrifter --> DrifterPhysics : self.physics
     DroguedDrifter ..> EOMState : builds per timestep
-    DroguedDrifter ..> "_qdd_func()" : calls in _rhs, _rhs_batch
+    DroguedDrifter ..> lagrange_model : calls _qdd_func
 
     class lagrange_model {
         <<module>>
