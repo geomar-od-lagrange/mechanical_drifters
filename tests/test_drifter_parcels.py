@@ -7,6 +7,7 @@ These tests verify:
 - Warm-state warm-starting
 - Particle reordering edge cases
 """
+
 import numpy as np
 import pytest
 
@@ -23,16 +24,20 @@ def test_make_profile_sampler_basic():
     """
     depth_levels = np.array([-10.0, -5.0, 0.0])
     N = 3
-    U_profiles = np.array([
-        [0.3, 0.4, 0.5],   # z=-10 (deep)
-        [0.4, 0.5, 0.6],   # z=-5
-        [0.5, 0.6, 0.7],   # z=0 (surface)
-    ])
-    V_profiles = np.array([
-        [0.1, 0.2, 0.3],
-        [0.1, 0.2, 0.3],
-        [0.1, 0.2, 0.3],
-    ])
+    U_profiles = np.array(
+        [
+            [0.3, 0.4, 0.5],  # z=-10 (deep)
+            [0.4, 0.5, 0.6],  # z=-5
+            [0.5, 0.6, 0.7],  # z=0 (surface)
+        ]
+    )
+    V_profiles = np.array(
+        [
+            [0.1, 0.2, 0.3],
+            [0.1, 0.2, 0.3],
+            [0.1, 0.2, 0.3],
+        ]
+    )
 
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
@@ -65,11 +70,13 @@ def test_make_profile_sampler_vectorized_z():
     """Sample at multiple z values for N particles simultaneously (z-up)."""
     depth_levels = np.array([-10.0, -5.0, 0.0])
     N = 2
-    U_profiles = np.array([
-        [0.5, 0.6],   # z=-10
-        [0.3, 0.4],   # z=-5
-        [0.1, 0.2],   # z=0
-    ])
+    U_profiles = np.array(
+        [
+            [0.5, 0.6],  # z=-10
+            [0.3, 0.4],  # z=-5
+            [0.1, 0.2],  # z=0
+        ]
+    )
     V_profiles = np.zeros((3, 2))
 
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
@@ -129,7 +136,9 @@ def test_make_profile_sampler_multiple_particles():
     """Sample with multiple particles in profile (z-up convention)."""
     depth_levels = np.array([-5.0, 0.0])
     N = 5
-    U_profiles = np.arange(N, dtype=float).reshape(1, -1) * 0.1  # (1, 5): [0, 0.1, 0.2, ...]
+    U_profiles = (
+        np.arange(N, dtype=float).reshape(1, -1) * 0.1
+    )  # (1, 5): [0, 0.1, 0.2, ...]
     U_profiles = np.vstack([U_profiles + 0.05, U_profiles])  # (2, 5): deep then surface
     V_profiles = np.zeros_like(U_profiles)
 
@@ -221,16 +230,20 @@ def test_profile_sampler_vectorized_batch_z():
     """Sampler should accept vector z and return vector (U, V) (z-up convention)."""
     depth_levels = np.array([-10.0, -5.0, 0.0])
     N = 4
-    U_profiles = np.array([
-        [0.3, 0.4, 0.5, 0.6],   # z=-10
-        [0.2, 0.3, 0.4, 0.5],   # z=-5
-        [0.1, 0.2, 0.3, 0.4],   # z=0
-    ])
-    V_profiles = np.array([
-        [0.05, 0.1, 0.15, 0.2],
-        [0.05, 0.1, 0.15, 0.2],
-        [0.05, 0.1, 0.15, 0.2],
-    ])
+    U_profiles = np.array(
+        [
+            [0.3, 0.4, 0.5, 0.6],  # z=-10
+            [0.2, 0.3, 0.4, 0.5],  # z=-5
+            [0.1, 0.2, 0.3, 0.4],  # z=0
+        ]
+    )
+    V_profiles = np.array(
+        [
+            [0.05, 0.1, 0.15, 0.2],
+            [0.05, 0.1, 0.15, 0.2],
+            [0.05, 0.1, 0.15, 0.2],
+        ]
+    )
 
     sample_uv = make_profile_sampler(depth_levels, U_profiles, V_profiles)
 
@@ -240,8 +253,8 @@ def test_profile_sampler_vectorized_batch_z():
 
     assert U.shape == (4,), f"Expected U shape (4,), got {U.shape}"
     assert V.shape == (4,), f"Expected V shape (4,), got {V.shape}"
-    np.testing.assert_allclose(U[0], 0.1, rtol=1e-10)   # z=0, particle 0 (surface)
-    np.testing.assert_allclose(U[1], 0.3, rtol=1e-10)   # z=-5, particle 1
+    np.testing.assert_allclose(U[0], 0.1, rtol=1e-10)  # z=0, particle 0 (surface)
+    np.testing.assert_allclose(U[1], 0.3, rtol=1e-10)  # z=-5, particle 1
 
 
 def test_profile_sampler_preserves_velocity_profiles():
@@ -257,10 +270,12 @@ def test_profile_sampler_preserves_velocity_profiles():
     # At each depth level, should recover exact values
     for iz, z in enumerate(depth_levels):
         U, V = sample_uv(z)
-        np.testing.assert_allclose(U, U_profiles[iz], rtol=1e-10,
-                                    err_msg=f"U mismatch at z={z}")
-        np.testing.assert_allclose(V, V_profiles[iz], rtol=1e-10,
-                                    err_msg=f"V mismatch at z={z}")
+        np.testing.assert_allclose(
+            U, U_profiles[iz], rtol=1e-10, err_msg=f"U mismatch at z={z}"
+        )
+        np.testing.assert_allclose(
+            V, V_profiles[iz], rtol=1e-10, err_msg=f"V mismatch at z={z}"
+        )
 
 
 def test_profile_sampler_nan_handling():

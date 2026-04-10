@@ -6,11 +6,30 @@ Covers:
 - Zero drogue velocity
 - Singularity avoidance in coordinate conversions
 """
+
 import numpy as np
 import pytest
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.lagrange_model import F_func, M_func, _uv_to_theta
+from drogued_drifters.lagrange_model import (
+    DrifterPhysics,
+    EOMState,
+    F_func,
+    M_func,
+    _uv_to_theta,
+)
+
+_DEFAULT_PHYSICS = DrifterPhysics(
+    m_b=1.0,
+    m_d=2.7,
+    m_hat_d=1.0,
+    m_tilde_d=101.0,
+    m_tilde_b=1.9,
+    l=3.0,
+    g=9.81,
+    k_b=12.0,
+    k_d=154.0,
+)
 
 
 def test_rhs_batch_handles_nan_M():
@@ -99,6 +118,7 @@ def test_extreme_horizontal_pole():
 
 def test_zero_drogue_velocity():
     """Drogue velocity stationary, buoy moving: drift should converge."""
+
     def sample_uv_sheared(*, t, x, y, z):
         """Buoy: v=0.5 m/s, Drogue: v=0.0 m/s."""
         if z == 0:
@@ -159,22 +179,34 @@ def test_uv_to_theta_roundtrip_extreme():
     u, v, ud, vd = _spherical_to_uv(theta_in, phi_in, 0.0, 0.0)
     theta_out = _uv_to_theta(u, v)
 
-    np.testing.assert_allclose(theta_out, theta_in, rtol=1e-8,
-                                err_msg="Round-trip failed near-vertical")
+    np.testing.assert_allclose(
+        theta_out, theta_in, rtol=1e-8, err_msg="Round-trip failed near-vertical"
+    )
 
 
 def test_M_func_positive_definite_extreme_angles():
     """M matrix should remain positive-definite even at extreme tilt angles."""
     # Very large u (near-horizontal)
     M_horiz = M_func(
-        u=5.0, v=0.0, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=5.0,
+            v=0.0,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.0,
+            V_b=0.0,
+            U_d=0.0,
+            V_d=0.0,
+        ),
     )
 
     eigvals = np.linalg.eigvalsh(M_horiz)
-    assert np.all(eigvals > 0), f"M not positive definite at horizontal angle: {eigvals}"
+    assert np.all(
+        eigvals > 0
+    ), f"M not positive definite at horizontal angle: {eigvals}"
 
 
 def test_batch_extreme_velocities():
@@ -182,6 +214,7 @@ def test_batch_extreme_velocities():
     dd = DroguedDrifter()
 
     N = 5
+
     def sample_uv_batch(z):
         """Different current for each particle, some extreme."""
         U_b = np.array([0.1, 1000.0, 0.01, -50.0, 0.2])
@@ -236,18 +269,11 @@ def test_M_F_continuity_near_zero():
     F_vals = []
 
     for eps in eps_values:
-        M = M_func(
-            u=eps, v=eps, xd=0, yd=0, ud=0, vd=0,
-            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-            U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
+        state = EOMState(
+            u=eps, v=eps, xd=0, yd=0, ud=0, vd=0, U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0
         )
-        F = F_func(
-            u=eps, v=eps, xd=0, yd=0, ud=0, vd=0,
-            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-            U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
-        )
+        M = M_func(_DEFAULT_PHYSICS, state)
+        F = F_func(_DEFAULT_PHYSICS, state)
         M_vals.append(M.flatten())
         F_vals.append(F)
 
@@ -275,6 +301,7 @@ def test_spherical_singularity_at_pi():
 
 def test_large_depth_pole_length():
     """Very long pole should not cause numerical issues."""
+
     def sample_uv(*, t, x, y, z):
         return (0.1, 0.0) if z == 0 else (0.05, 0.0)
 
@@ -290,6 +317,7 @@ def test_large_depth_pole_length():
 
 def test_tiny_pole_length():
     """Very short pole should reduce to point particle."""
+
     def sample_uv(*, t, x, y, z):
         return (0.1, 0.0) if z == 0 else (0.05, 0.0)
 

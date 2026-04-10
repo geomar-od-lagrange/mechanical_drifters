@@ -2,6 +2,8 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 from drogued_drifters.lagrange_model import (
+    DrifterPhysics,
+    EOMState,
     F_func,
     M_func,
     _spherical_to_uv,
@@ -342,15 +344,17 @@ class DroguedDrifter:
         g=9.81,
         get_uv=None,
     ):
-        self.m_b = m_b
-        self.m_d = m_d
-        self.m_hat_d = m_hat_d
-        self.m_tilde_d = m_tilde_d
-        self.m_tilde_b = m_tilde_b
-        self.l = l
-        self.k_b = k_b
-        self.k_d = k_d
-        self.g = g
+        self.physics = DrifterPhysics(
+            m_b=m_b,
+            m_d=m_d,
+            m_hat_d=m_hat_d,
+            m_tilde_d=m_tilde_d,
+            m_tilde_b=m_tilde_b,
+            l=l,
+            g=g,
+            k_b=k_b,
+            k_d=k_d,
+        )
 
         if get_uv is not None:
             self.get_uv = get_uv
@@ -373,54 +377,23 @@ class DroguedDrifter:
             return 1.0, 1.0
         return -1.0, -1.0
 
-    def _params(self):
-        """Return the physical parameter dict for M_func / F_func."""
-        return dict(
-            m_b=self.m_b,
-            m_d=self.m_d,
-            m_hat_d=self.m_hat_d,
-            m_tilde_d=self.m_tilde_d,
-            m_tilde_b=self.m_tilde_b,
-            l=self.l,
-            g=self.g,
-            k_b=self.k_b,
-            k_d=self.k_d,
-        )
-
-    def _eval_M_F(self, t, x, y, u, v, xd, yd, ud, vd, currents):
+    def _eval_M_F(self, u, v, xd, yd, ud, vd, currents):
         """Evaluate mass matrix and force vector numerically (scalar)."""
         U_b, V_b, U_d, V_d = currents
-        p = self._params()
-
-        # Call M_func/F_func directly — they handle shaping
-        M = M_func(
+        state = EOMState(
             u=u,
             v=v,
             xd=xd,
             yd=yd,
             ud=ud,
             vd=vd,
-            **p,
             U_b=U_b,
             V_b=V_b,
             U_d=U_d,
             V_d=V_d,
-        )  # Returns (4,4)
-
-        F = F_func(
-            u=u,
-            v=v,
-            xd=xd,
-            yd=yd,
-            ud=ud,
-            vd=vd,
-            **p,
-            U_b=U_b,
-            V_b=V_b,
-            U_d=U_d,
-            V_d=V_d,
-        )  # Returns (4,)
-
+        )
+        M = M_func(self.physics, state)  # Returns (4,4)
+        F = F_func(self.physics, state)  # Returns (4,)
         return M, F
 
     def rhs(self, t, y):
@@ -446,13 +419,13 @@ class DroguedDrifter:
         theta = _uv_to_theta(u, v)
         # z-up: at equilibrium (theta=pi), cos(pi)=-1 so z_d = l*(-1) = -l.
         # min clamp ensures z_d <= 0 (drogue cannot be above the surface).
-        z_d = float(min(0.0, self.l * np.cos(theta)))
+        z_d = float(min(0.0, self.physics.l * np.cos(theta)))
 
         U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
         U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
         currents = U_b, V_b, U_d, V_d
 
-        M, F = self._eval_M_F(t, x_b, y_b, u, v, xd, yd, ud, vd, currents)
+        M, F = self._eval_M_F(u, v, xd, yd, ud, vd, currents)
 
         qdd = np.linalg.solve(M, F)
 
@@ -476,7 +449,7 @@ class DroguedDrifter:
         # operating regime of the model, and the uv callback will likely fail
         # on positive z anyway.  We accept this edge case and clamp silently
         # rather than adding per-call warnings on this hot path.
-        return np.minimum(0.0, self.l * cos_theta)
+        return np.minimum(0.0, self.physics.l * cos_theta)
 
     def _rhs_batch(self, Y, sample_uv):
         """Vectorized RHS for N particles.
@@ -506,36 +479,22 @@ class DroguedDrifter:
         z_eff = self._z_eff_batch(u, v)
         U_d, V_d = sample_uv(z_eff)
 
-        p = self._params()
+        state = EOMState(
+            u=u,
+            v=v,
+            xd=xd,
+            yd=yd,
+            ud=ud,
+            vd=vd,
+            U_b=U_b,
+            V_b=V_b,
+            U_d=U_d,
+            V_d=V_d,
+        )
 
         # Call M_func/F_func with batch arrays
-        M = M_func(
-            u=u,
-            v=v,
-            xd=xd,
-            yd=yd,
-            ud=ud,
-            vd=vd,
-            **p,
-            U_b=U_b,
-            V_b=V_b,
-            U_d=U_d,
-            V_d=V_d,
-        )  # Returns (N, 4, 4)
-
-        F = F_func(
-            u=u,
-            v=v,
-            xd=xd,
-            yd=yd,
-            ud=ud,
-            vd=vd,
-            **p,
-            U_b=U_b,
-            V_b=V_b,
-            U_d=U_d,
-            V_d=V_d,
-        )  # Returns (N, 4)
+        M = M_func(self.physics, state)  # Returns (N, 4, 4)
+        F = F_func(self.physics, state)  # Returns (N, 4)
 
         # Handle NaN/inf (overflow in expressions)
         bad = ~np.isfinite(M).all(axis=(1, 2)) | ~np.isfinite(F).all(axis=1)

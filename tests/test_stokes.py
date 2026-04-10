@@ -7,6 +7,7 @@ Tests cover:
 - Vectorization over spatial dimensions
 - Surface boundary condition (z=0)
 """
+
 import numpy as np
 import pytest
 
@@ -248,7 +249,9 @@ def test_stokes_positive_depth_invalid():
     surface_u = 0.1
     surface_v = 0.0
     peak_period = 10.0
-    depth_levels = np.array([-10.0, 5.0, 0.0])  # Positive 5.0 is invalid (above surface)
+    depth_levels = np.array(
+        [-10.0, 5.0, 0.0]
+    )  # Positive 5.0 is invalid (above surface)
 
     # The function does not currently validate; test that shape is preserved.
     # With z-up, positive z means above the surface: exp(2*k*z) > 1 (amplification).
@@ -284,7 +287,9 @@ def test_stokes_very_large_depth():
     expected_u_large = surface_u * decay_large
 
     np.testing.assert_allclose(u_profile[0], expected_u_large, rtol=1e-6)
-    assert u_profile[0] < 1e-10, f"Drift at z=-500m should be negligible, got {u_profile[0]}"
+    assert (
+        u_profile[0] < 1e-10
+    ), f"Drift at z=-500m should be negligible, got {u_profile[0]}"
 
 
 def test_stokes_output_dtype_float():

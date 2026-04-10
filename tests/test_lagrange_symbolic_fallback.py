@@ -5,6 +5,7 @@ produces the same numerical results as cached versions.
 
 Marked @pytest.mark.slow because symbolic derivation takes 30-60s.
 """
+
 import tempfile
 from pathlib import Path
 
@@ -12,6 +13,8 @@ import numpy as np
 import pytest
 
 from drogued_drifters.lagrange_model import (
+    DrifterPhysics,
+    EOMState,
     F_func,
     M_func,
     _apply_cse_and_lambdify,
@@ -31,8 +34,11 @@ def test_derive_symbolic_produces_matrices():
     # F should be 4x1 symbolic matrix
     assert F_sub.shape == (4, 1), f"Expected F shape (4,1), got {F_sub.shape}"
 
-    # args should have 19 symbols (matching LagrangeParams fields)
-    assert len(args) == 19, f"Expected 19 args, got {len(args)}"
+    # args should have 19 symbols (9 DrifterPhysics + 10 EOMState)
+    expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+    assert (
+        len(args) == expected_n_args
+    ), f"Expected {expected_n_args} args, got {len(args)}"
 
 
 @pytest.mark.slow
@@ -40,35 +46,39 @@ def test_derive_symbolic_finite_values():
     """Derived M and F should evaluate to finite values at test points."""
     M_sub, F_sub, args = _derive_symbolic()
 
-    # Build a test parameter tuple (all 19 parameters)
+    # Build a test parameter dict keyed by symbol name (order-independent)
     import sympy as sp
 
-    test_params = (
-        0.1, 0.05,  # u, v
-        0.0, 0.0,   # xd, yd
-        0.0, 0.0,   # ud, vd
-        1.0,        # m_b
-        2.7,        # m_d
-        1.0,        # m_hat_d
-        101.0,      # m_tilde_d
-        1.9,        # m_tilde_b
-        3.0,        # l
-        9.81,       # g
-        12.0,       # k_b
-        154.0,      # k_d
-        0.5,        # U_b
-        -0.3,       # V_b
-        0.2,        # U_d
-        0.1,        # V_d
-    )
+    test_values = {
+        "m_b": 1.0,
+        "m_d": 2.7,
+        "m_hat_d": 1.0,
+        "m_tilde_d": 101.0,
+        "m_tilde_b": 1.9,
+        "l": 3.0,
+        "g": 9.81,
+        "k_b": 12.0,
+        "k_d": 154.0,
+        "u": 0.1,
+        "v": 0.05,
+        "xd": 0.0,
+        "yd": 0.0,
+        "ud": 0.0,
+        "vd": 0.0,
+        "U_b": 0.5,
+        "V_b": -0.3,
+        "U_d": 0.2,
+        "V_d": 0.1,
+    }
 
-    # Substitute symbols with numerical values
-    subs_dict = dict(zip(args, test_params))
+    # Substitute symbols with numerical values (order-independent via names)
+    subs_dict = {sym: test_values[str(sym)] for sym in args}
     M_num = M_sub.subs(subs_dict)
     F_num = F_sub.subs(subs_dict)
 
     # Convert to Python float
     import sympy as sp
+
     M_vals = np.array([[float(M_num[i, j]) for j in range(4)] for i in range(4)])
     F_vals = np.array([float(F_num[i]) for i in range(4)])
 
@@ -86,7 +96,10 @@ def test_cse_and_lambdify_produces_callables():
 
     assert callable(_raw_M), "_raw_M should be callable"
     assert callable(_raw_F), "_raw_F should be callable"
-    assert len(args_out) == 19, f"Expected 19 args, got {len(args_out)}"
+    expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+    assert (
+        len(args_out) == expected_n_args
+    ), f"Expected {expected_n_args} args, got {len(args_out)}"
 
 
 @pytest.mark.slow
@@ -97,20 +110,33 @@ def test_derived_vs_cached_numerical_agreement():
     pass. If cache is missing or broken, it should fall back to _derive_symbolic
     and still agree (up to numerical precision).
     """
-    # Get M/F from cached path
-    M_cached = M_func(
-        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
+    test_physics = DrifterPhysics(
+        m_b=1.0,
+        m_d=2.7,
+        m_hat_d=1.0,
+        m_tilde_d=101.0,
+        m_tilde_b=1.9,
+        l=3.0,
+        g=9.81,
+        k_b=12.0,
+        k_d=154.0,
+    )
+    test_state = EOMState(
+        u=0.1,
+        v=0.05,
+        xd=0.0,
+        yd=0.0,
+        ud=0.0,
+        vd=0.0,
+        U_b=0.5,
+        V_b=-0.3,
+        U_d=0.2,
+        V_d=0.1,
     )
 
-    F_cached = F_func(
-        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
-    )
+    # Get M/F from cached path
+    M_cached = M_func(test_physics, test_state)
+    F_cached = F_func(test_physics, test_state)
 
     # Now derive fresh and lambdify
     M_fresh_sym, F_fresh_sym, args = _derive_symbolic()
@@ -118,46 +144,45 @@ def test_derived_vs_cached_numerical_agreement():
         M_fresh_sym, F_fresh_sym, args
     )
 
-    # Call with same parameters (note: args are in order of LagrangeParams fields)
-    params_tuple = (
-        0.1, 0.05,  # u, v
-        0.0, 0.0,   # xd, yd
-        0.0, 0.0,   # ud, vd
-        1.0,        # m_b
-        2.7,        # m_d
-        1.0,        # m_hat_d
-        101.0,      # m_tilde_d
-        1.9,        # m_tilde_b
-        3.0,        # l
-        9.81,       # g
-        12.0,       # k_b
-        154.0,      # k_d
-        0.5,        # U_b
-        -0.3,       # V_b
-        0.2,        # U_d
-        0.1,        # V_d
-    )
+    # Call with same parameters using packer from _build_packer
+    from drogued_drifters.lagrange_model import _build_packer
+
+    packer = _build_packer(_raw_M_fresh)
+    params_tuple = packer(test_physics, test_state)
 
     M_elems_fresh = _raw_M_fresh(*params_tuple)
     F_elems_fresh = _raw_F_fresh(*params_tuple)
 
     # Assemble fresh M into (4, 4)
     M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems_fresh
-    M_fresh = np.array([
-        [M00, M01, M02, M03],
-        [M01, M11, M12, M13],
-        [M02, M12, M22, M23],
-        [M03, M13, M23, M33],
-    ], dtype=float)
+    M_fresh = np.array(
+        [
+            [M00, M01, M02, M03],
+            [M01, M11, M12, M13],
+            [M02, M12, M22, M23],
+            [M03, M13, M23, M33],
+        ],
+        dtype=float,
+    )
 
     # Assemble fresh F into (4,)
     F_fresh = np.array(F_elems_fresh, dtype=float)
 
     # Compare cached vs fresh
-    np.testing.assert_allclose(M_cached, M_fresh, rtol=1e-6, atol=1e-14,
-                                err_msg="M from cache and derivation disagree")
-    np.testing.assert_allclose(F_cached, F_fresh, rtol=1e-6, atol=1e-14,
-                                err_msg="F from cache and derivation disagree")
+    np.testing.assert_allclose(
+        M_cached,
+        M_fresh,
+        rtol=1e-6,
+        atol=1e-14,
+        err_msg="M from cache and derivation disagree",
+    )
+    np.testing.assert_allclose(
+        F_cached,
+        F_fresh,
+        rtol=1e-6,
+        atol=1e-14,
+        err_msg="F from cache and derivation disagree",
+    )
 
 
 @pytest.mark.slow
@@ -179,23 +204,41 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
         lagrange_model._get_eom_callables.cache_clear()
 
         # Should fall back to _derive_symbolic and work
-        _raw_M, _raw_F, args = lagrange_model._get_eom_callables()
+        _raw_M, _raw_F, args, pack_eom_args = lagrange_model._get_eom_callables()
 
         assert callable(_raw_M), "_raw_M should be callable (fallback)"
         assert callable(_raw_F), "_raw_F should be callable (fallback)"
-        assert len(args) == 19, f"Expected 19 args, got {len(args)}"
+        expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+        assert (
+            len(args) == expected_n_args
+        ), f"Expected {expected_n_args} args, got {len(args)}"
 
         # Verify the fallback works by evaluating at test point
-        test_params = (
-            0.0, 0.0,  # u, v
-            0.0, 0.0,  # xd, yd
-            0.0, 0.0,  # ud, vd
-            1.0, 2.7, 1.0, 101.0, 1.9,
-            3.0, 9.81, 12.0, 154.0,
-            0.0, 0.0, 0.0, 0.0,
+        test_physics = DrifterPhysics(
+            m_b=1.0,
+            m_d=2.7,
+            m_hat_d=1.0,
+            m_tilde_d=101.0,
+            m_tilde_b=1.9,
+            l=3.0,
+            g=9.81,
+            k_b=12.0,
+            k_d=154.0,
         )
-        M_elems = _raw_M(*test_params)
-        F_elems = _raw_F(*test_params)
+        test_state = EOMState(
+            u=0.0,
+            v=0.0,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.0,
+            V_b=0.0,
+            U_d=0.0,
+            V_d=0.0,
+        )
+        M_elems = _raw_M(*pack_eom_args(test_physics, test_state))
+        F_elems = _raw_F(*pack_eom_args(test_physics, test_state))
 
         assert len(M_elems) == 10, f"Expected 10 M elements, got {len(M_elems)}"
         assert len(F_elems) == 4, f"Expected 4 F elements, got {len(F_elems)}"

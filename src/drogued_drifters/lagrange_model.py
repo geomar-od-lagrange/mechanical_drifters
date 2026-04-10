@@ -1,4 +1,5 @@
 import functools
+import inspect
 from pathlib import Path
 from typing import NamedTuple
 
@@ -8,34 +9,72 @@ from sympy.physics.mechanics import dynamicsymbols
 from sympy.printing.numpy import NumPyPrinter
 
 
-# TODO: These LagrangeParams are only used internally, right? External API of the package is pure theta / phi in spherical coords. Any renaming of the class warranted then?
-class LagrangeParams(NamedTuple):
-    """19-parameter tuple for Lagrange model M and F functions.
+class DrifterPhysics(NamedTuple):
+    """Physical constants for a drogued drifter — frozen, set once per instance.
 
-    # TODO: Let's make sure argument order is not a hidden complection. THe docstring comment on field ordering is either misleading or it points at a problem we need to solve.
-    Fields are ordered to match the symbolic derivation (lambdify order).
+    These are the 9 physical parameters that characterise the drifter geometry
+    and drag properties.  They do not change during integration.
     """
 
-    # TODO: The u and v may be standard, but they're still really misleading because they could also be mistakent for horizontal velocity components.
-    u: float
-    v: float
-    xd: float
-    yd: float
-    ud: float
-    vd: float
-    m_b: float
-    m_d: float
-    m_hat_d: float
-    m_tilde_d: float
-    m_tilde_b: float
-    l: float
-    g: float
-    k_b: float
-    k_d: float
-    U_b: float
-    V_b: float
-    U_d: float
-    V_d: float
+    m_b: float  # buoy dry mass [kg]
+    m_d: float  # drogue dry mass [kg]
+    m_hat_d: float  # drogue buoyancy correction [kg]
+    m_tilde_d: float  # drogue added mass [kg]
+    m_tilde_b: float  # buoy added mass [kg]
+    l: float  # pole length [m]
+    g: float  # gravitational acceleration [m/s^2]
+    k_b: float  # buoy drag coefficient [kg/m]
+    k_d: float  # drogue drag coefficient [kg/m]
+
+
+class EOMState(NamedTuple):
+    """Per-timestep state variables and forcing.
+
+    Fields hold scalars (in rhs) or (N,) arrays (in _rhs_batch).
+    Not part of the public API — fields use stereographic coordinates.
+    """
+
+    u: float  # stereographic u
+    v: float  # stereographic v
+    xd: float  # buoy x velocity [m/s]
+    yd: float  # buoy y velocity [m/s]
+    ud: float  # stereographic u velocity [1/s]
+    vd: float  # stereographic v velocity [1/s]
+    U_b: float  # current at buoy, east [m/s]
+    V_b: float  # current at buoy, north [m/s]
+    U_d: float  # current at drogue, east [m/s]
+    V_d: float  # current at drogue, north [m/s]
+
+
+def _build_packer(raw_func):
+    """Inspect raw_func's signature, return a pack_eom_args(physics, state) callable.
+
+    Called once (cached). Maps each lambda parameter name to a field in
+    DrifterPhysics or EOMState by name. Returns a closure that assembles
+    the positional arg tuple from (physics, state).
+
+    Raises KeyError immediately if a parameter name doesn't map to
+    any struct field — no silent ordering bugs.
+    """
+    param_names = list(inspect.signature(raw_func).parameters)
+    physics_fields = DrifterPhysics._fields
+    state_fields = EOMState._fields
+
+    indices = []  # list of ('p'|'s', field_index)
+    for name in param_names:
+        if name in physics_fields:
+            indices.append(("p", physics_fields.index(name)))
+        elif name in state_fields:
+            indices.append(("s", state_fields.index(name)))
+        else:
+            raise KeyError(
+                f"Lambda param {name!r} not found in DrifterPhysics or EOMState fields"
+            )
+
+    def pack_eom_args(physics, state):
+        return tuple(physics[i] if src == "p" else state[i] for src, i in indices)
+
+    return pack_eom_args
 
 
 def _mag(vec):
@@ -139,40 +178,38 @@ def _derive_symbolic():
     M, F = sp.simplify(sp.linear_eq_to_matrix(eoms, list(qdd)))
 
     # Substitute dynamic symbols with static ones for lambdify / codegen
-    xd, yd = x.diff(t), y.diff(t)
-    ud, vd = u_st.diff(t), v_st.diff(t)
+    xd_dyn, yd_dyn = x.diff(t), y.diff(t)
+    ud_dyn, vd_dyn = u_st.diff(t), v_st.diff(t)
 
-    # Static (non-dynamic) replacements: sympy's dynamicsymbols carry
-    # implicit time dependence which prevents lambdify from generating
-    # simple positional-arg functions.  We substitute each dynamic symbol
-    # with a plain Symbol so the resulting expressions are lambdify-friendly.
-    u_s, v_s = sp.symbols("u_s v_s", real=True)
-    ud_s, vd_s = sp.symbols("ud_s vd_s", real=True)
-    x_s, y_s = sp.symbols("x_s y_s", real=True)
-    xd_s, yd_s = sp.symbols("xd_s yd_s", real=True)
+    # Static substitution is required for inspectable lambda signatures.
+    # dynamicsymbols (e.g. x(t)) have str() representations like "x(t)" and
+    # "Derivative(x(t), t)" which are not valid Python identifiers. lambdify
+    # replaces them with anonymous _Dummy_N parameters that cannot be mapped
+    # back to struct fields. Substituting plain Symbols with names matching
+    # our DrifterPhysics/EOMState field names produces named parameters,
+    # enabling signature-based argument packing in _build_packer.
+    u_static, v_static = sp.symbols("u v", real=True)
+    ud_static, vd_static = sp.symbols("ud vd", real=True)
+    x_static, y_static = sp.symbols("x_pos y_pos", real=True)
+    xd_static, yd_static = sp.symbols("xd yd", real=True)
 
     subs = {
-        x: x_s,
-        y: y_s,
-        u_st: u_s,
-        v_st: v_s,
-        xd: xd_s,
-        yd: yd_s,
-        ud: ud_s,
-        vd: vd_s,
+        x: x_static,
+        y: y_static,
+        u_st: u_static,
+        v_st: v_static,
+        xd_dyn: xd_static,
+        yd_dyn: yd_static,
+        ud_dyn: ud_static,
+        vd_dyn: vd_static,
     }
     M_static = M.subs(subs)
     F_static = F.subs(subs)
 
-    # Derive args tuple from LagrangeParams field names, mapping to symbolic values.
-    # This ensures the args tuple always matches the NamedTuple definition.
+    # Derive args tuple from DrifterPhysics and EOMState field names, mapping
+    # to symbolic values. The symbol NAME (str of sympy symbol) must match the
+    # struct field name exactly, enabling _build_packer to inspect lambda signatures.
     symbol_map = {
-        "u": u_s,
-        "v": v_s,
-        "xd": xd_s,
-        "yd": yd_s,
-        "ud": ud_s,
-        "vd": vd_s,
         "m_b": m_b,
         "m_d": m_d,
         "m_hat_d": m_hat_d,
@@ -182,12 +219,21 @@ def _derive_symbolic():
         "g": g,
         "k_b": k_b,
         "k_d": k_d,
+        "u": u_static,
+        "v": v_static,
+        "xd": xd_static,
+        "yd": yd_static,
+        "ud": ud_static,
+        "vd": vd_static,
         "U_b": U_b,
         "V_b": V_b,
         "U_d": U_d,
         "V_d": V_d,
     }
-    args = tuple(symbol_map[field] for field in LagrangeParams._fields)
+    # Collect all symbols that actually appear in M_static and F_static.
+    # This is the canonical ordering used for lambdification.
+    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
+    args = tuple(symbol_map[field] for field in all_fields)
 
     return M_static, F_static, args
 
@@ -222,9 +268,11 @@ def _get_eom_callables():
     to produce raw lambdified callables.
 
     Returns:
-        (_raw_M_func, _raw_F_func, arg_symbols)
-        where _raw_M_func/F_func are lambdified callables that accept positional args
-        and return results (potentially with batch dimension last).
+        (_raw_M_func, _raw_F_func, arg_symbols, pack_eom_args)
+        where _raw_M_func/F_func are lambdified callables that accept positional args,
+        arg_symbols is the ordered tuple of sympy symbols, and pack_eom_args is a
+        closure built via _build_packer that assembles (physics, state) into positional
+        args for the raw callables.
     """
     # Try to load .srepr file
     if _SREPR_PATH.exists():
@@ -234,7 +282,7 @@ def _get_eom_callables():
             M_srepr, F_srepr, arg_names_csv = parts
             M_static = sp.sympify(M_srepr)
             F_static = sp.sympify(F_srepr)
-            arg_names = arg_names_csv.split(",")
+            arg_names = [n.strip() for n in arg_names_csv.split(",")]
             arg_symbols = tuple(
                 sp.Symbol(name, real=True) if "(" not in name else sp.sympify(name)
                 for name in arg_names
@@ -246,7 +294,12 @@ def _get_eom_callables():
         M_static, F_static, arg_symbols = _derive_symbolic()
 
     # Apply CSE and build raw lambdified functions via Approach B
-    return _apply_cse_and_lambdify(M_static, F_static, arg_symbols)
+    _raw_M, _raw_F, args = _apply_cse_and_lambdify(M_static, F_static, arg_symbols)
+
+    # Build packer once by inspecting the lambda signature
+    pack_eom_args = _build_packer(_raw_M)
+
+    return _raw_M, _raw_F, args, pack_eom_args
 
 
 def _apply_cse_and_lambdify(M_static, F_static, args):
@@ -321,88 +374,30 @@ def _apply_cse_and_lambdify(M_static, F_static, args):
     return _raw_M, _raw_F, args
 
 
-def M_func(
-    *,
-    u,
-    v,
-    xd,
-    yd,
-    ud,
-    vd,
-    m_b,
-    m_d,
-    m_hat_d,
-    m_tilde_d,
-    m_tilde_b,
-    l,
-    g,
-    k_b,
-    k_d,
-    U_b,
-    V_b,
-    U_d,
-    V_d,
-):
+def M_func(physics: DrifterPhysics, state: EOMState):
     """Numerically evaluate the mass matrix M in stereographic coordinates.
 
     Wraps the raw lambdified callable from _get_eom_callables().
     Detects scalar vs batch input and returns shaped output.
 
     Args:
-        u: Stereographic u coordinate (scalar or (N,) array).
-        v: Stereographic v coordinate (scalar or (N,) array).
-        xd: Time derivative of x [m/s] (scalar or (N,) array).
-        yd: Time derivative of y [m/s] (scalar or (N,) array).
-        ud: Time derivative of u [1/s] (scalar or (N,) array).
-        vd: Time derivative of v [1/s] (scalar or (N,) array).
-        m_b: Buoy dry mass [kg] (scalar or (N,) array).
-        m_d: Drogue dry mass [kg] (scalar or (N,) array).
-        m_hat_d: Buoyancy correction for drogue [kg] (scalar or (N,) array).
-        m_tilde_d: Drogue added mass [kg] (scalar or (N,) array).
-        m_tilde_b: Buoy added mass [kg] (scalar or (N,) array).
-        l: Pole length [m] (scalar or (N,) array).
-        g: Gravitational acceleration [m/s^2] (scalar or (N,) array).
-        k_b: Buoy drag coefficient [kg/m] (scalar or (N,) array).
-        k_d: Drogue drag coefficient [kg/m] (scalar or (N,) array).
-        U_b: Eastward current velocity at buoy [m/s] (scalar or (N,) array).
-        V_b: Northward current velocity at buoy [m/s] (scalar or (N,) array).
-        U_d: Eastward current velocity at drogue [m/s] (scalar or (N,) array).
-        V_d: Northward current velocity at drogue [m/s] (scalar or (N,) array).
+        physics: DrifterPhysics instance with physical constants.
+        state: EOMState instance with current state and forcing.
+            Fields may be scalars or (N,) arrays for batch evaluation.
 
     Returns:
         4x4 mass matrix:
         - Scalar input: (4,4) array
         - Batch input: (N,4,4) array
     """
-    _raw_M, _, arg_symbols = _get_eom_callables()
-    params = LagrangeParams(
-        u=u,
-        v=v,
-        xd=xd,
-        yd=yd,
-        ud=ud,
-        vd=vd,
-        m_b=m_b,
-        m_d=m_d,
-        m_hat_d=m_hat_d,
-        m_tilde_d=m_tilde_d,
-        m_tilde_b=m_tilde_b,
-        l=l,
-        g=g,
-        k_b=k_b,
-        k_d=k_d,
-        U_b=U_b,
-        V_b=V_b,
-        U_d=U_d,
-        V_d=V_d,
-    )
+    _raw_M, _, _arg_symbols, pack_eom_args = _get_eom_callables()
 
-    # Detect batch size from first dynamic argument
-    u_arr = np.asarray(u)
+    # Detect batch size from state.u
+    u_arr = np.asarray(state.u)
     batch_ndim = u_arr.ndim
 
-    # Call raw function with positional args
-    M_elems = _raw_M(*params)
+    # Pack args in the order the lambda expects (derived from its signature)
+    M_elems = _raw_M(*pack_eom_args(physics, state))
 
     if batch_ndim == 0:
         # Scalar: assemble (4,4)
@@ -438,70 +433,30 @@ def M_func(
     return M
 
 
-def F_func(
-    *,
-    u,
-    v,
-    xd,
-    yd,
-    ud,
-    vd,
-    m_b,
-    m_d,
-    m_hat_d,
-    m_tilde_d,
-    m_tilde_b,
-    l,
-    g,
-    k_b,
-    k_d,
-    U_b,
-    V_b,
-    U_d,
-    V_d,
-):
+def F_func(physics: DrifterPhysics, state: EOMState):
     """Numerically evaluate the force vector F in stereographic coordinates.
 
     Wraps the raw lambdified callable from _get_eom_callables().
     Detects scalar vs batch input and returns shaped output.
 
     Args:
-        Same as M_func.
+        physics: DrifterPhysics instance with physical constants.
+        state: EOMState instance with current state and forcing.
+            Fields may be scalars or (N,) arrays for batch evaluation.
 
     Returns:
         4-element force vector:
         - Scalar input: (4,) array
         - Batch input: (N,4) array
     """
-    _, _raw_F, arg_symbols = _get_eom_callables()
-    params = LagrangeParams(
-        u=u,
-        v=v,
-        xd=xd,
-        yd=yd,
-        ud=ud,
-        vd=vd,
-        m_b=m_b,
-        m_d=m_d,
-        m_hat_d=m_hat_d,
-        m_tilde_d=m_tilde_d,
-        m_tilde_b=m_tilde_b,
-        l=l,
-        g=g,
-        k_b=k_b,
-        k_d=k_d,
-        U_b=U_b,
-        V_b=V_b,
-        U_d=U_d,
-        V_d=V_d,
-    )
+    _, _raw_F, _arg_symbols, pack_eom_args = _get_eom_callables()
 
-    # Detect batch size
-    u_arr = np.asarray(u)
+    # Detect batch size from state.u
+    u_arr = np.asarray(state.u)
     batch_ndim = u_arr.ndim
 
-    # Call raw function
-    F_elems = _raw_F(*params)
+    # Pack args in the order the lambda expects (derived from its signature)
+    F_elems = _raw_F(*pack_eom_args(physics, state))
 
     if batch_ndim == 0:
         # Scalar: (4,)

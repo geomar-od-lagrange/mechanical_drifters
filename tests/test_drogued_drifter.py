@@ -10,7 +10,7 @@ from drogued_drifters.drifter import (
     drogue_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
 )
-from drogued_drifters.lagrange_model import F_func, M_func
+from drogued_drifters.lagrange_model import DrifterPhysics, EOMState, F_func, M_func
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):
@@ -48,9 +48,6 @@ def test_MF_evaluates():
 
     # Use stereographic coordinates: u=0.1, v=0.05 (small tilt from vertical)
     M, F = dd._eval_M_F(
-        t,
-        x=0.0,
-        y=0.0,
         u=0.1,
         v=0.05,
         xd=0.0,
@@ -187,7 +184,9 @@ def test_batch_matches_scalar():
     # --- batch path ---
     dd_batch = DroguedDrifter()
     xd_batch, yd_batch, theta_batch, _ = dd_batch.get_final_drift_batch(
-        sample_uv=_step_sampler(U_b, V_b, U_d, V_d), t_span=t_span, y0=y0_batch,
+        sample_uv=_step_sampler(U_b, V_b, U_d, V_d),
+        t_span=t_span,
+        y0=y0_batch,
     )
 
     # --- scalar path (one call per particle) ---
@@ -216,7 +215,8 @@ def test_batch_zero_currents():
     dd = DroguedDrifter()
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
-        sample_uv=_step_sampler(zeros, zeros, zeros, zeros), t_span=(0.0, 120.0),
+        sample_uv=_step_sampler(zeros, zeros, zeros, zeros),
+        t_span=(0.0, 120.0),
     )
 
     np.testing.assert_allclose(xd, 0.0, atol=0.05)
@@ -231,8 +231,10 @@ def test_batch_uniform_currents():
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
-            np.full(N, 0.3), np.full(N, -0.1),
-            np.full(N, 0.15), np.full(N, -0.05),
+            np.full(N, 0.3),
+            np.full(N, -0.1),
+            np.full(N, 0.15),
+            np.full(N, -0.05),
         ),
         t_span=(0.0, 120.0),
     )
@@ -249,17 +251,19 @@ def test_batch_opposite_shear():
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
-            np.array([0.1, 0.0]), np.array([0.0, 0.0]),
-            np.array([0.0, 0.1]), np.array([0.0, 0.0]),
+            np.array([0.1, 0.0]),
+            np.array([0.0, 0.0]),
+            np.array([0.0, 0.1]),
+            np.array([0.0, 0.0]),
         ),
         t_span=(0.0, 120.0),
     )
 
     # The drifter model is not symmetric in buoy vs drogue forcing,
     # so the two particles must produce different drift velocities.
-    assert not np.allclose(xd[0], xd[1], atol=1e-4), (
-        f"Expected different xd for swapped buoy/drogue forcing, got {xd}"
-    )
+    assert not np.allclose(
+        xd[0], xd[1], atol=1e-4
+    ), f"Expected different xd for swapped buoy/drogue forcing, got {xd}"
 
 
 def test_batch_drift_between_buoy_and_drogue():
@@ -271,16 +275,18 @@ def test_batch_drift_between_buoy_and_drogue():
 
     xd, yd, theta, _ = dd.get_final_drift_batch(
         sample_uv=_step_sampler(
-            np.array([U_b_val]), np.zeros(N),
-            np.array([U_d_val]), np.zeros(N),
+            np.array([U_b_val]),
+            np.zeros(N),
+            np.array([U_d_val]),
+            np.zeros(N),
         ),
         t_span=(0.0, 120.0),
     )
 
     # The drifter cannot go faster than the fastest layer or slower than the slowest
-    assert U_d_val <= xd[0] <= U_b_val, (
-        f"Expected {U_d_val} <= xd={xd[0]:.6f} <= {U_b_val}"
-    )
+    assert (
+        U_d_val <= xd[0] <= U_b_val
+    ), f"Expected {U_d_val} <= xd={xd[0]:.6f} <= {U_b_val}"
     # y-drift should be negligible (no V forcing)
     np.testing.assert_allclose(yd[0], 0.0, atol=1e-3)
 
@@ -290,22 +296,53 @@ def test_batch_drift_between_buoy_and_drogue():
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_PHYSICS = DrifterPhysics(
+    m_b=1.0,
+    m_d=2.7,
+    m_hat_d=1.0,
+    m_tilde_d=101.0,
+    m_tilde_b=1.9,
+    l=3.0,
+    g=9.81,
+    k_b=12.0,
+    k_d=154.0,
+)
+
+
 def test_M_F_func_shapes():
     """Verify M_func and F_func return correct shapes for scalar and batch inputs."""
     # Scalar input
     M_scalar = M_func(
-        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=0.1,
+            v=0.05,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.5,
+            V_b=-0.3,
+            U_d=0.2,
+            V_d=0.1,
+        ),
     )
     assert M_scalar.shape == (4, 4), f"Expected (4,4), got {M_scalar.shape}"
 
     F_scalar = F_func(
-        u=0.1, v=0.05, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=0.1,
+            v=0.05,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.5,
+            V_b=-0.3,
+            U_d=0.2,
+            V_d=0.1,
+        ),
     )
     assert F_scalar.shape == (4,), f"Expected (4,), got {F_scalar.shape}"
 
@@ -315,22 +352,36 @@ def test_M_F_func_shapes():
     v_batch = np.full(N, 0.05)
 
     M_batch = M_func(
-        u=u_batch, v=v_batch, xd=np.zeros(N), yd=np.zeros(N),
-        ud=np.zeros(N), vd=np.zeros(N),
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
-        U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=u_batch,
+            v=v_batch,
+            xd=np.zeros(N),
+            yd=np.zeros(N),
+            ud=np.zeros(N),
+            vd=np.zeros(N),
+            U_b=np.full(N, 0.5),
+            V_b=np.full(N, -0.3),
+            U_d=np.full(N, 0.2),
+            V_d=np.full(N, 0.1),
+        ),
     )
     assert M_batch.shape == (N, 4, 4), f"Expected (N,4,4), got {M_batch.shape}"
 
     F_batch = F_func(
-        u=u_batch, v=v_batch, xd=np.zeros(N), yd=np.zeros(N),
-        ud=np.zeros(N), vd=np.zeros(N),
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
-        U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=u_batch,
+            v=v_batch,
+            xd=np.zeros(N),
+            yd=np.zeros(N),
+            ud=np.zeros(N),
+            vd=np.zeros(N),
+            U_b=np.full(N, 0.5),
+            V_b=np.full(N, -0.3),
+            U_d=np.full(N, 0.2),
+            V_d=np.full(N, 0.1),
+        ),
     )
     assert F_batch.shape == (N, 4), f"Expected (N,4), got {F_batch.shape}"
 
@@ -343,27 +394,52 @@ def test_generated_vs_lambdified():
         # small tilt
         dict(u=0.1, v=0.05, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # nonzero velocities and currents
-        dict(u=0.3, v=-0.2, xd=0.1, yd=-0.05, ud=0.01, vd=-0.02,
-             U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1),
+        dict(
+            u=0.3,
+            v=-0.2,
+            xd=0.1,
+            yd=-0.05,
+            ud=0.01,
+            vd=-0.02,
+            U_b=0.5,
+            V_b=-0.3,
+            U_d=0.2,
+            V_d=0.1,
+        ),
         # large tilt (theta ~ pi/2)
         dict(u=2.0, v=0.0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # symmetric case
-        dict(u=0.5, v=0.5, xd=0.1, yd=0.1, ud=0.05, vd=0.05,
-             U_b=1.0, V_b=1.0, U_d=-1.0, V_d=-1.0),
+        dict(
+            u=0.5,
+            v=0.5,
+            xd=0.1,
+            yd=0.1,
+            ud=0.05,
+            vd=0.05,
+            U_b=1.0,
+            V_b=1.0,
+            U_d=-1.0,
+            V_d=-1.0,
+        ),
     ]
 
     for pt in test_points:
-        # Build kwargs inline
-        kw = dict(
-            u=pt["u"], v=pt["v"], xd=pt["xd"], yd=pt["yd"], ud=pt["ud"], vd=pt["vd"],
-            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-            U_b=pt["U_b"], V_b=pt["V_b"], U_d=pt["U_d"], V_d=pt["V_d"],
+        state = EOMState(
+            u=pt["u"],
+            v=pt["v"],
+            xd=pt["xd"],
+            yd=pt["yd"],
+            ud=pt["ud"],
+            vd=pt["vd"],
+            U_b=pt["U_b"],
+            V_b=pt["V_b"],
+            U_d=pt["U_d"],
+            V_d=pt["V_d"],
         )
 
         # M_func/F_func (wrapped version with shaping)
-        M_wrapped = M_func(**kw)
-        F_wrapped = F_func(**kw)
+        M_wrapped = M_func(_DEFAULT_PHYSICS, state)
+        F_wrapped = F_func(_DEFAULT_PHYSICS, state)
 
         # Verify shapes
         assert M_wrapped.shape == (4, 4), f"M shape mismatch at {pt}"
@@ -384,18 +460,17 @@ def test_generated_vectorized():
     yd = rng.uniform(-0.5, 0.5, N)
     ud = rng.uniform(-0.1, 0.1, N)
     vd = rng.uniform(-0.1, 0.1, N)
-    params = dict(
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=rng.uniform(-0.5, 0.5, N),
-        V_b=rng.uniform(-0.5, 0.5, N),
-        U_d=rng.uniform(-0.5, 0.5, N),
-        V_d=rng.uniform(-0.5, 0.5, N),
-    )
+    U_b = rng.uniform(-0.5, 0.5, N)
+    V_b = rng.uniform(-0.5, 0.5, N)
+    U_d = rng.uniform(-0.5, 0.5, N)
+    V_d = rng.uniform(-0.5, 0.5, N)
 
     # Vectorized call
-    M_vec = M_func(u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, **params)
-    F_vec = F_func(u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, **params)
+    batch_state = EOMState(
+        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+    )
+    M_vec = M_func(_DEFAULT_PHYSICS, batch_state)
+    F_vec = F_func(_DEFAULT_PHYSICS, batch_state)
 
     # Should have shape (N, 4, 4) and (N, 4)
     assert M_vec.shape == (N, 4, 4), f"Expected M shape (N,4,4), got {M_vec.shape}"
@@ -403,19 +478,31 @@ def test_generated_vectorized():
 
     # Scalar calls
     for i in range(N):
-        p_i = {k: (val[i] if isinstance(val, np.ndarray) else val)
-               for k, val in params.items()}
-        M_i = M_func(u=u[i], v=v[i], xd=xd[i], yd=yd[i], ud=ud[i], vd=vd[i], **p_i)
-        F_i = F_func(u=u[i], v=v[i], xd=xd[i], yd=yd[i], ud=ud[i], vd=vd[i], **p_i)
+        scalar_state = EOMState(
+            u=u[i],
+            v=v[i],
+            xd=xd[i],
+            yd=yd[i],
+            ud=ud[i],
+            vd=vd[i],
+            U_b=U_b[i],
+            V_b=V_b[i],
+            U_d=U_d[i],
+            V_d=V_d[i],
+        )
+        M_i = M_func(_DEFAULT_PHYSICS, scalar_state)
+        F_i = F_func(_DEFAULT_PHYSICS, scalar_state)
 
         # Compare batch result to scalar result
         np.testing.assert_allclose(
-            M_vec[i], M_i,
+            M_vec[i],
+            M_i,
             atol=1e-14,
             err_msg=f"M mismatch at particle {i}",
         )
         np.testing.assert_allclose(
-            F_vec[i], F_i,
+            F_vec[i],
+            F_i,
             atol=1e-14,
             err_msg=f"F mismatch at particle {i}",
         )
@@ -429,6 +516,7 @@ def test_generated_vectorized():
 def test_save_eom_cache_exists():
     """Test that _save_eom_cache is defined and callable in lagrange_model."""
     from drogued_drifters.lagrange_model import _save_eom_cache
+
     assert callable(_save_eom_cache), "_save_eom_cache should be callable"
 
 
@@ -448,15 +536,17 @@ def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
         _get_eom_callables,
         M_func,
         F_func,
-        LagrangeParams,
+        DrifterPhysics,
+        EOMState,
     )
 
     # Create trivial mock M (4x4 identity) and F (4x1 zeros)
     M_mock = sp.eye(4)
     F_mock = sp.zeros(4, 1)
 
-    # Create args tuple with correct 19 symbols
-    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+    # Create args tuple matching DrifterPhysics + EOMState field names
+    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
+    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
 
     # Patch _derive_symbolic to return our mock
     with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
@@ -473,17 +563,18 @@ def test_save_eom_cache_round_trip(tmp_path, monkeypatch):
         with patch("drogued_drifters.lagrange_model._SREPR_PATH", cache_file):
             # Clear the cache on _get_eom_callables so it re-reads
             from drogued_drifters import lagrange_model
+
             lagrange_model._get_eom_callables.cache_clear()
 
             # Load back using _get_eom_callables
-            _raw_M, _raw_F, arg_symbols = _get_eom_callables()
+            _raw_M, _raw_F, arg_symbols, pack_eom_args = _get_eom_callables()
 
             # Verify we got callable functions
             assert callable(_raw_M), "_raw_M should be callable"
             assert callable(_raw_F), "_raw_F should be callable"
 
             # Test with scalar input: all 19 parameters as scalars
-            scalar_input = tuple([1.0] * len(LagrangeParams._fields))
+            scalar_input = tuple([1.0] * len(all_fields))
             M_result = _raw_M(*scalar_input)
             F_result = _raw_F(*scalar_input)
 
@@ -500,13 +591,15 @@ def test_save_eom_cache_format_has_separator(tmp_path, monkeypatch):
     import sympy as sp
     from drogued_drifters.lagrange_model import (
         _save_eom_cache,
-        LagrangeParams,
+        DrifterPhysics,
+        EOMState,
     )
 
     # Create trivial mock expressions
     M_mock = sp.eye(4)
     F_mock = sp.zeros(4, 1)
-    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
+    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
 
     with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
         mock_derive.return_value = (M_mock, F_mock, args_mock)
@@ -546,6 +639,9 @@ def test_get_eom_callables_raises_on_malformed_file(tmp_path, monkeypatch):
         with pytest.raises(ValueError, match="Invalid .srepr format"):
             _get_eom_callables()
 
+        # Restore after test
+        lagrange_model._get_eom_callables.cache_clear()
+
 
 def test_save_eom_cache_creates_parent_directories(tmp_path):
     """Test that _save_eom_cache creates parent directories if needed."""
@@ -554,7 +650,8 @@ def test_save_eom_cache_creates_parent_directories(tmp_path):
     import sympy as sp
     from drogued_drifters.lagrange_model import (
         _save_eom_cache,
-        LagrangeParams,
+        DrifterPhysics,
+        EOMState,
     )
 
     # Create a nested path that doesn't exist yet
@@ -564,7 +661,8 @@ def test_save_eom_cache_creates_parent_directories(tmp_path):
     # Create mock
     M_mock = sp.eye(4)
     F_mock = sp.zeros(4, 1)
-    args_mock = tuple(sp.Symbol(name, real=True) for name in LagrangeParams._fields)
+    all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
+    args_mock = tuple(sp.Symbol(name, real=True) for name in all_fields)
 
     with patch("drogued_drifters.lagrange_model._derive_symbolic") as mock_derive:
         mock_derive.return_value = (M_mock, F_mock, args_mock)
@@ -601,15 +699,15 @@ class TestHorizontalRename:
     def test_new_names_importable(self):
         """The new *_horizontal_* names must be importable from drifter module."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         for name in _NEW_NAMES:
-            assert hasattr(mod, name), (
-                f"{name} not found in drogued_drifters.drifter"
-            )
+            assert hasattr(mod, name), f"{name} not found in drogued_drifters.drifter"
 
     def test_new_names_callable(self):
         """Each renamed function must be callable."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
@@ -619,15 +717,17 @@ class TestHorizontalRename:
     def test_old_names_removed(self):
         """The old names must NOT exist in the module after rename."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         for name in _OLD_NAMES:
-            assert not hasattr(mod, name), (
-                f"Old name {name} still exists — should have been renamed"
-            )
+            assert not hasattr(
+                mod, name
+            ), f"Old name {name} still exists — should have been renamed"
 
     def test_drogue_horizontal_added_mass_value(self):
         """drogue_horizontal_added_mass must return same value as old function."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         fn = getattr(mod, "drogue_horizontal_added_mass")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
@@ -636,6 +736,7 @@ class TestHorizontalRename:
     def test_buoy_horizontal_added_mass_value(self):
         """buoy_horizontal_added_mass must return same value as old function."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         fn = getattr(mod, "buoy_horizontal_added_mass")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
@@ -644,6 +745,7 @@ class TestHorizontalRename:
     def test_drogue_horizontal_drag_coeff_value(self):
         """drogue_horizontal_drag_coeff must return same value as old function."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         fn = getattr(mod, "drogue_horizontal_drag_coeff")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
@@ -652,6 +754,7 @@ class TestHorizontalRename:
     def test_buoy_horizontal_drag_coeff_value(self):
         """buoy_horizontal_drag_coeff must return same value as old function."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         fn = getattr(mod, "buoy_horizontal_drag_coeff")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
@@ -660,15 +763,16 @@ class TestHorizontalRename:
     def test_docstrings_mention_horizontal(self):
         """All renamed functions must have 'horizontal' in their docstring."""
         import importlib
+
         mod = importlib.import_module("drogued_drifters.drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
             assert fn is not None, f"{name} not found"
             doc = fn.__doc__
             assert doc is not None, f"{name} has no docstring"
-            assert "horizontal" in doc.lower(), (
-                f"{name}.__doc__ does not mention 'horizontal': {doc!r}"
-            )
+            assert (
+                "horizontal" in doc.lower()
+            ), f"{name}.__doc__ does not mention 'horizontal': {doc!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -707,7 +811,10 @@ def test_state_vector_round_trip():
 
     # Internal -> public (round trip on angular components)
     theta_rt, phi_rt, thetad_rt, phid_rt = _uv_to_spherical(
-        internal[IU], internal[IV], internal[IUD], internal[IVD],
+        internal[IU],
+        internal[IV],
+        internal[IUD],
+        internal[IVD],
     )
 
     np.testing.assert_allclose(theta_rt, theta0, atol=1e-12)

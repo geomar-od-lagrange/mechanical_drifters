@@ -9,6 +9,7 @@ These tests verify that the complete pipeline works end-to-end:
 They validate that modules integrate correctly and produce
 physically sensible results.
 """
+
 import numpy as np
 import pytest
 
@@ -96,9 +97,9 @@ def test_full_chain_multi_partition_stokes():
     # Particle 0 should have larger drift than particle 1
     # (0.5x smaller Stokes drift should give ~0.5x smaller drift)
     if xd[0] != 0:
-        assert np.abs(xd[0]) > np.abs(xd[1] * 0.3), (
-            f"Expected xd[0]={xd[0]} > 0.3*xd[1]={xd[1]*0.3}"
-        )
+        assert np.abs(xd[0]) > np.abs(
+            xd[1] * 0.3
+        ), f"Expected xd[0]={xd[0]} > 0.3*xd[1]={xd[1]*0.3}"
 
 
 def test_full_chain_zero_stokes_zero_drift():
@@ -127,6 +128,7 @@ def test_full_chain_zero_stokes_zero_drift():
 
 def test_full_chain_shear_increases_drift():
     """Strong velocity shear should increase drift magnitude."""
+
     # No Stokes drift, but velocity shear
     def sample_uv_weak(*, t, x, y, z):
         return (0.1, 0.0) if z == 0 else (0.01, 0.0)
@@ -142,14 +144,14 @@ def test_full_chain_shear_increases_drift():
 
     # Both should have same sign (shear direction)
     if xd_weak != 0:
-        assert np.sign(xd_strong) == np.sign(xd_weak), (
-            f"Shear direction changed: weak={xd_weak}, strong={xd_strong}"
-        )
+        assert np.sign(xd_strong) == np.sign(
+            xd_weak
+        ), f"Shear direction changed: weak={xd_weak}, strong={xd_strong}"
 
     # Strong shear should give larger drift magnitude
-    assert np.abs(xd_strong) > np.abs(xd_weak) * 0.9, (
-        f"Strong shear should give larger drift: weak={xd_weak}, strong={xd_strong}"
-    )
+    assert (
+        np.abs(xd_strong) > np.abs(xd_weak) * 0.9
+    ), f"Strong shear should give larger drift: weak={xd_weak}, strong={xd_strong}"
 
 
 def test_full_chain_preserves_initial_condition_for_warm_start():
@@ -225,6 +227,7 @@ def test_full_chain_multiple_particles_independence():
 
 def test_full_chain_opposite_shear_direction():
     """Opposite shear directions should produce opposite drift."""
+
     # Eastward shear
     def sample_uv_east(*, t, x, y, z):
         return (0.2, 0.0) if z == 0 else (0.1, 0.0)
@@ -240,9 +243,9 @@ def test_full_chain_opposite_shear_direction():
     xd_west, _ = dd_west.get_final_drift(t_span=(0, 120))
 
     # Drifts should be opposite sign
-    assert np.sign(xd_east) == -np.sign(xd_west), (
-        f"Opposite shear should give opposite drift: east={xd_east}, west={xd_west}"
-    )
+    assert np.sign(xd_east) == -np.sign(
+        xd_west
+    ), f"Opposite shear should give opposite drift: east={xd_east}, west={xd_west}"
 
 
 def test_full_chain_convergence_time():
@@ -324,6 +327,7 @@ def test_full_chain_xarray_output():
 
     # Should be xarray Dataset
     import xarray as xr
+
     assert isinstance(ds, xr.Dataset)
 
     # Should have expected variables

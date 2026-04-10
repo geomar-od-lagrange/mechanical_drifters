@@ -41,7 +41,7 @@ All completed and tested (94 tests pass).
 
 Design decisions are needed, but the scope is bounded.
 
-### DW-A: Unify parameter passing
+### DW-A: Unify parameter passing — DONE
 
 **Remarks:**
 - `# TODO: Consolidate with named-tuple approach in lagrange model?`

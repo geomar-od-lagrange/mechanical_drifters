@@ -5,11 +5,30 @@ Validates:
 - Drag force scaling (quadratic, not linear)
 - Pole tilt depth mapping (_z_eff_batch)
 """
+
 import numpy as np
 import pytest
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.lagrange_model import F_func, M_func, _uv_to_theta
+from drogued_drifters.lagrange_model import (
+    DrifterPhysics,
+    EOMState,
+    F_func,
+    M_func,
+    _uv_to_theta,
+)
+
+_DEFAULT_PHYSICS = DrifterPhysics(
+    m_b=1.0,
+    m_d=2.7,
+    m_hat_d=1.0,
+    m_tilde_d=101.0,
+    m_tilde_b=1.9,
+    l=3.0,
+    g=9.81,
+    k_b=12.0,
+    k_d=154.0,
+)
 
 
 def test_mass_matrix_nonsingular_at_equilibrium():
@@ -20,14 +39,14 @@ def test_mass_matrix_nonsingular_at_equilibrium():
     be well-conditioned at equilibrium.
     """
     M = M_func(
-        u=0, v=0, xd=0, yd=0, ud=0, vd=0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0, V_b=0, U_d=0, V_d=0,
+        _DEFAULT_PHYSICS,
+        EOMState(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
     )
     # Should be well-conditioned (no near-zero eigenvalues)
     eigvals = np.linalg.eigvalsh(M)
-    assert np.all(eigvals > 0), f"Mass matrix not positive definite: eigenvalues = {eigvals}"
+    assert np.all(
+        eigvals > 0
+    ), f"Mass matrix not positive definite: eigenvalues = {eigvals}"
 
 
 def test_mass_matrix_positive_definite_scalar():
@@ -44,26 +63,43 @@ def test_mass_matrix_positive_definite_scalar():
         # Large tilt
         dict(u=1.0, v=0.5, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # With nonzero velocities
-        dict(u=0.2, v=-0.1, xd=0.1, yd=-0.05, ud=0.01, vd=-0.02,
-             U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1),
+        dict(
+            u=0.2,
+            v=-0.1,
+            xd=0.1,
+            yd=-0.05,
+            ud=0.01,
+            vd=-0.02,
+            U_b=0.5,
+            V_b=-0.3,
+            U_d=0.2,
+            V_d=0.1,
+        ),
         # Extreme: near-horizontal pole
         dict(u=2.0, v=1.5, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
     ]
 
     for pt in test_points:
         M = M_func(
-            u=pt["u"], v=pt["v"], xd=pt["xd"], yd=pt["yd"],
-            ud=pt["ud"], vd=pt["vd"],
-            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-            U_b=pt["U_b"], V_b=pt["V_b"], U_d=pt["U_d"], V_d=pt["V_d"],
+            _DEFAULT_PHYSICS,
+            EOMState(
+                u=pt["u"],
+                v=pt["v"],
+                xd=pt["xd"],
+                yd=pt["yd"],
+                ud=pt["ud"],
+                vd=pt["vd"],
+                U_b=pt["U_b"],
+                V_b=pt["V_b"],
+                U_d=pt["U_d"],
+                V_d=pt["V_d"],
+            ),
         )
 
         # Check positive-definiteness via eigenvalues
         eigvals = np.linalg.eigvalsh(M)
         assert np.all(eigvals > 0), (
-            f"M not positive definite at {pt}. "
-            f"Eigenvalues: {eigvals}"
+            f"M not positive definite at {pt}. " f"Eigenvalues: {eigvals}"
         )
 
 
@@ -83,10 +119,10 @@ def test_mass_matrix_positive_definite_batch():
     V_d = rng.uniform(-0.5, 0.5, N)
 
     M_batch = M_func(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+        ),
     )
 
     # M_batch has shape (N, 4, 4)
@@ -95,9 +131,9 @@ def test_mass_matrix_positive_definite_batch():
     # Check each particle's M
     for i in range(N):
         eigvals = np.linalg.eigvalsh(M_batch[i])
-        assert np.all(eigvals > 0), (
-            f"M[{i}] not positive definite. Eigenvalues: {eigvals}"
-        )
+        assert np.all(
+            eigvals > 0
+        ), f"M[{i}] not positive definite. Eigenvalues: {eigvals}"
 
 
 def test_drag_force_quadratic_scaling():
@@ -109,17 +145,24 @@ def test_drag_force_quadratic_scaling():
     Test: Compare drag at v0 and 2*v0. For quadratic drag:
         F(2*v) / F(v) ~ (2*v)^2 / v^2 = 4
     """
+
     # Setup: equilibrium pole (u=0, v=0) with varying buoy current
     def test_force_scaling(U_b_test):
         """Helper: compute F at given buoy current."""
         return F_func(
-            u=0.0, v=0.0,  # Equilibrium orientation
-            xd=0.0, yd=0.0,  # No buoy motion
-            ud=0.0, vd=0.0,
-            m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-            U_b=U_b_test, V_b=0.0,  # Vary buoy current
-            U_d=0.0, V_d=0.0,  # Still drogue
+            _DEFAULT_PHYSICS,
+            EOMState(
+                u=0.0,
+                v=0.0,  # Equilibrium orientation
+                xd=0.0,
+                yd=0.0,  # No buoy motion
+                ud=0.0,
+                vd=0.0,
+                U_b=U_b_test,
+                V_b=0.0,  # Vary buoy current
+                U_d=0.0,
+                V_d=0.0,  # Still drogue
+            ),
         )
 
     # Test scaling for small perturbations in current
@@ -144,14 +187,27 @@ def test_zero_velocity_zero_force():
     F should be zero (no forces acting).
     """
     F = F_func(
-        u=0.0, v=0.0, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=0.0,
+            v=0.0,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.0,
+            V_b=0.0,
+            U_d=0.0,
+            V_d=0.0,
+        ),
     )
 
-    np.testing.assert_allclose(F, 0.0, atol=1e-12,
-                                err_msg="Force should be zero at equilibrium with zero currents")
+    np.testing.assert_allclose(
+        F,
+        0.0,
+        atol=1e-12,
+        err_msg="Force should be zero at equilibrium with zero currents",
+    )
 
 
 def test_z_eff_batch_range():
@@ -183,8 +239,12 @@ def test_z_eff_batch_equilibrium():
 
     z_eff = dd._z_eff_batch(u, v)
 
-    np.testing.assert_allclose(z_eff, -3.0, rtol=1e-10,
-                                err_msg="At equilibrium, z_eff should equal -l = -3.0 (z-up)")
+    np.testing.assert_allclose(
+        z_eff,
+        -3.0,
+        rtol=1e-10,
+        err_msg="At equilibrium, z_eff should equal -l = -3.0 (z-up)",
+    )
 
 
 def test_z_eff_batch_tilt_increases_depth():
@@ -227,8 +287,12 @@ def test_uv_to_theta_inversion():
         # Convert back
         theta_actual = _uv_to_theta(u, v)
 
-        np.testing.assert_allclose(theta_actual, theta_expected, rtol=1e-10,
-                                    err_msg=f"Round-trip failed for theta={theta_expected}")
+        np.testing.assert_allclose(
+            theta_actual,
+            theta_expected,
+            rtol=1e-10,
+            err_msg=f"Round-trip failed for theta={theta_expected}",
+        )
 
 
 def test_no_singularity_at_equilibrium():
@@ -239,10 +303,19 @@ def test_no_singularity_at_equilibrium():
     Verify M is well-conditioned at (u, v)=(0, 0).
     """
     M = M_func(
-        u=0.0, v=0.0, xd=0.0, yd=0.0, ud=0.0, vd=0.0,
-        m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
+        _DEFAULT_PHYSICS,
+        EOMState(
+            u=0.0,
+            v=0.0,
+            xd=0.0,
+            yd=0.0,
+            ud=0.0,
+            vd=0.0,
+            U_b=0.0,
+            V_b=0.0,
+            U_d=0.0,
+            V_d=0.0,
+        ),
     )
 
     # Compute condition number
