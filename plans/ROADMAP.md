@@ -64,6 +64,9 @@ All items complete. Plans in [done/](done/).
   numba not installed, no silent fallback
 - Notes: [numba-acceleration.md](numba-acceleration.md)
 
-### E2. README update
-- Current README references old notebook names and doesn't mention
-  the Parcels kernel or `parcels_v4.py`
+### E2. README update ✓
+
+### E3. Repo cleanup ✓
+- Removed `examples/baltic_drifters_archive/` (~900 MB duplicate CMEMS data)
+- Cleaned profiling artifacts, `__pycache__/`, stale checkpoints
+- Updated `.gitignore` (`__pycache__/`, `*.prof`)
