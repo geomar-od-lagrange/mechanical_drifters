@@ -1,32 +1,34 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.19.1
-#   kernelspec:
-#     display_name: default
-#     language: python
-#     name: python3
-# ---
+---
+jupyter:
+  jupytext:
+    formats: ipynb,md
+    text_representation:
+      extension: .md
+      format_name: markdown
+      format_version: '1.3'
+      jupytext_version: 1.19.1
+  kernelspec:
+    display_name: default
+    language: python
+    name: python3
+---
 
-# %% [markdown] papermill={"duration": 0.010655, "end_time": "2026-04-02T15:01:07.676509+00:00", "exception": false, "start_time": "2026-04-02T15:01:07.665854+00:00", "status": "completed"}
-# # Extract science periods from raw drifter GPS data
-#
-# Filter raw Baltic drifter trajectories to isolate the science (free-drifting) periods by removing pre-deployment, beaching, and post-beaching phases.
+<!-- #region papermill={"duration": 0.001429, "end_time": "2026-04-11T15:45:19.195783+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.194354+00:00", "status": "completed"} -->
+# Extract science periods from raw drifter GPS data
 
-# %% papermill={"duration": 0.013192, "end_time": "2026-04-02T15:01:07.695984+00:00", "exception": false, "start_time": "2026-04-02T15:01:07.682792+00:00", "status": "completed"} tags=["parameters"]
+Filter raw Baltic drifter trajectories to isolate the science (free-drifting) periods by removing pre-deployment, beaching, and post-beaching phases.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.00478, "end_time": "2026-04-11T15:45:19.201705+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.196925+00:00", "status": "completed"} tags=["parameters"]
 raw_csv = "data/drifters_raw.csv"
 out_csv = "data/drifters_science.csv"
 
 # Baltic bounding box
 lat_min, lat_max = 53.5, 56.0
 lon_min, lon_max = 9.0, 13.0
+```
 
-# %% papermill={"duration": 0.414222, "end_time": "2026-04-02T15:01:08.113071+00:00", "exception": false, "start_time": "2026-04-02T15:01:07.698849+00:00", "status": "completed"}
+```python papermill={"duration": 0.396601, "end_time": "2026-04-11T15:45:19.599287+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.202686+00:00", "status": "completed"}
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -34,11 +36,13 @@ import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 from pathlib import Path
 
+```
 
-# %% [markdown] papermill={"duration": 0.000889, "end_time": "2026-04-02T15:01:08.115070+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.114181+00:00", "status": "completed"}
-# ## Load and basic filter
+<!-- #region papermill={"duration": 0.000904, "end_time": "2026-04-11T15:45:19.601314+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.600410+00:00", "status": "completed"} -->
+## Load and basic filter
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.040735, "end_time": "2026-04-02T15:01:08.156634+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.115899+00:00", "status": "completed"}
+```python papermill={"duration": 0.041757, "end_time": "2026-04-11T15:45:19.643946+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.602189+00:00", "status": "completed"}
 df = pd.read_csv(raw_csv, parse_dates=["date_UTC"], dayfirst=True)
 df["D_number"] = "D" + df["D_number"].astype(str)
 df = df.sort_values(["D_number", "date_UTC"]).reset_index(drop=True)
@@ -58,11 +62,13 @@ df = df[df["D_number"] != "D290"].reset_index(drop=True)
 print(f"Drifters: {sorted(df['D_number'].unique())}")
 print(f"Total records: {len(df)}")
 print(df.groupby("D_number").size())
+```
 
-# %% [markdown] papermill={"duration": 0.000907, "end_time": "2026-04-02T15:01:08.158624+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.157717+00:00", "status": "completed"}
-# ## Resample to 1-minute resolution
+<!-- #region papermill={"duration": 0.000933, "end_time": "2026-04-11T15:45:19.645972+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.645039+00:00", "status": "completed"} -->
+## Resample to 1-minute resolution
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.083393, "end_time": "2026-04-02T15:01:08.242875+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.159482+00:00", "status": "completed"}
+```python papermill={"duration": 0.084437, "end_time": "2026-04-11T15:45:19.731299+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.646862+00:00", "status": "completed"}
 m_per_deg = 111120.0
 
 resampled = []
@@ -97,11 +103,13 @@ print(f"{len(df)} records at 1-min resolution")
 for did in sorted(df["D_number"].unique()):
     g = df[df["D_number"] == did]
     print(f"  {did}: {len(g)} pts, {g['date_UTC'].min()} to {g['date_UTC'].max()}")
+```
 
-# %% [markdown] papermill={"duration": 0.000888, "end_time": "2026-04-02T15:01:08.245049+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.244161+00:00", "status": "completed"}
-# ## Classify science periods
+<!-- #region papermill={"duration": 0.000887, "end_time": "2026-04-11T15:45:19.733371+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.732484+00:00", "status": "completed"} -->
+## Classify science periods
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.096809, "end_time": "2026-04-02T15:01:08.342687+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.245878+00:00", "status": "completed"}
+```python papermill={"duration": 0.096435, "end_time": "2026-04-11T15:45:19.830653+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.734218+00:00", "status": "completed"}
 accel_threshold = 0.002   # m/s², max absolute accel per bin
 speed_threshold = 2.0     # m/s, max speed per bin
 beaching_std = 5.0        # m, position spread per bin (below = beached)
@@ -140,11 +148,13 @@ for did in sorted(df["D_number"].unique()):
     t0 = g.loc[g["is_science"], "date_UTC"].min()
     t1 = g.loc[g["is_science"], "date_UTC"].max()
     print(f"  {did}: {ns} / {len(g)} science, {t0} to {t1}")
+```
 
-# %% [markdown] papermill={"duration": 0.000874, "end_time": "2026-04-02T15:01:08.344608+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.343734+00:00", "status": "completed"}
-# ## All drifter trajectories
+<!-- #region papermill={"duration": 0.000899, "end_time": "2026-04-11T15:45:19.832621+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.831722+00:00", "status": "completed"} -->
+## All drifter trajectories
+<!-- #endregion -->
 
-# %% papermill={"duration": 2.928515, "end_time": "2026-04-02T15:01:11.274044+00:00", "exception": false, "start_time": "2026-04-02T15:01:08.345529+00:00", "status": "completed"}
+```python papermill={"duration": 6.257148, "end_time": "2026-04-11T15:45:26.090687+00:00", "exception": false, "start_time": "2026-04-11T15:45:19.833539+00:00", "status": "completed"}
 tiles = cimgt.OSM()
 geo = ccrs.Geodetic()
 
@@ -163,11 +173,13 @@ for did in drifter_ids:
 ax.legend(loc=0)
 ax.set_title("All drifter trajectories")
 plt.show()
+```
 
-# %% [markdown] papermill={"duration": 0.00189, "end_time": "2026-04-02T15:01:11.278041+00:00", "exception": false, "start_time": "2026-04-02T15:01:11.276151+00:00", "status": "completed"}
-# ## Science periods only
+<!-- #region papermill={"duration": 0.001671, "end_time": "2026-04-11T15:45:26.094942+00:00", "exception": false, "start_time": "2026-04-11T15:45:26.093271+00:00", "status": "completed"} -->
+## Science periods only
+<!-- #endregion -->
 
-# %% papermill={"duration": 1.803769, "end_time": "2026-04-02T15:01:13.083808+00:00", "exception": false, "start_time": "2026-04-02T15:01:11.280039+00:00", "status": "completed"}
+```python papermill={"duration": 2.684266, "end_time": "2026-04-11T15:45:28.780863+00:00", "exception": false, "start_time": "2026-04-11T15:45:26.096597+00:00", "status": "completed"}
 fig, ax = plt.subplots(subplot_kw=dict(projection=tiles.crs), dpi=200)
 ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=geo)
 ax.add_image(tiles, 8)
@@ -183,11 +195,13 @@ for did in drifter_ids:
 ax.legend(loc=0)
 ax.set_title("Science periods only")
 plt.show()
+```
 
-# %% [markdown] papermill={"duration": 0.005084, "end_time": "2026-04-02T15:01:13.094077+00:00", "exception": false, "start_time": "2026-04-02T15:01:13.088993+00:00", "status": "completed"}
-# ## Science / non-science timeline
+<!-- #region papermill={"duration": 0.004407, "end_time": "2026-04-11T15:45:28.789940+00:00", "exception": false, "start_time": "2026-04-11T15:45:28.785533+00:00", "status": "completed"} -->
+## Science / non-science timeline
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.938425, "end_time": "2026-04-02T15:01:14.038561+00:00", "exception": false, "start_time": "2026-04-02T15:01:13.100136+00:00", "status": "completed"}
+```python papermill={"duration": 0.79122, "end_time": "2026-04-11T15:45:29.585502+00:00", "exception": false, "start_time": "2026-04-11T15:45:28.794282+00:00", "status": "completed"}
 reason_colors = {
     "science": "C2",
     "beached": "C1",
@@ -226,8 +240,9 @@ ax.legend(
 
 fig.autofmt_xdate()
 plt.show()
+```
 
-# %% papermill={"duration": 0.913034, "end_time": "2026-04-02T15:01:14.956750+00:00", "exception": false, "start_time": "2026-04-02T15:01:14.043716+00:00", "status": "completed"}
+```python papermill={"duration": 0.877913, "end_time": "2026-04-11T15:45:30.468445+00:00", "exception": false, "start_time": "2026-04-11T15:45:29.590532+00:00", "status": "completed"}
 # Filter out short science segments (< 2 days)
 min_science_duration = pd.Timedelta("2D")
 reclassified = 0
@@ -259,8 +274,9 @@ for _, row in short_bins.iterrows():
 
 print(f"Reclassified {reclassified} records as 'short' (science segment < 2 days)")
 print(f"Science after filtering: {df['is_science'].sum()} / {len(df)} records")
+```
 
-# %% papermill={"duration": 0.862636, "end_time": "2026-04-02T15:01:15.824726+00:00", "exception": false, "start_time": "2026-04-02T15:01:14.962090+00:00", "status": "completed"}
+```python papermill={"duration": 0.812242, "end_time": "2026-04-11T15:45:31.285812+00:00", "exception": false, "start_time": "2026-04-11T15:45:30.473570+00:00", "status": "completed"}
 reason_colors2 = {
     "science": "C2",
     "beached": "C1",
@@ -302,14 +318,17 @@ ax.legend(
 
 fig.autofmt_xdate()
 plt.show()
+```
 
-# %% [markdown] papermill={"duration": 0.005373, "end_time": "2026-04-02T15:01:15.835624+00:00", "exception": false, "start_time": "2026-04-02T15:01:15.830251+00:00", "status": "completed"}
-# ## Save output
+<!-- #region papermill={"duration": 0.004667, "end_time": "2026-04-11T15:45:31.295621+00:00", "exception": false, "start_time": "2026-04-11T15:45:31.290954+00:00", "status": "completed"} -->
+## Save output
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.132128, "end_time": "2026-04-02T15:01:15.973216+00:00", "exception": false, "start_time": "2026-04-02T15:01:15.841088+00:00", "status": "completed"}
+```python papermill={"duration": 0.124997, "end_time": "2026-04-11T15:45:31.425251+00:00", "exception": false, "start_time": "2026-04-11T15:45:31.300254+00:00", "status": "completed"}
 out_path = Path(out_csv)
 out_path.parent.mkdir(parents=True, exist_ok=True)
 df_science = df.loc[df["is_science"], ["D_number", "date_UTC", "Latitude", "Longitude"]]
 df_science.to_csv(out_path, index=False)
 print(f"Saved {len(df_science)} science records to {out_path}")
 
+```

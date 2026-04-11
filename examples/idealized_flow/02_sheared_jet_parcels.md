@@ -1,35 +1,37 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.19.1
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
+---
+jupyter:
+  jupytext:
+    formats: ipynb,md
+    text_representation:
+      extension: .md
+      format_name: markdown
+      format_version: '1.3'
+      jupytext_version: 1.19.1
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
 
-# %% [markdown] papermill={"duration": 0.002361, "end_time": "2026-04-11T11:37:14.245170+00:00", "exception": false, "start_time": "2026-04-11T11:37:14.242809+00:00", "status": "completed"}
-# # Drogued Drifter in an Idealized Sheared Flow with Parcels
-#
-# A drogued drifter is a surface buoy connected by a rigid pole to a subsurface drogue. The drogue anchors the drifter to a target depth so that the buoy tracks currents at that depth rather than being blown by wind and surface waves. But the buoy still feels surface drag, so the actual drift velocity is a compromise between the surface current (acting on the buoy) and the deeper current (acting on the drogue). Under sufficient shear, the pole can tilt, and the drogue can drift at depths shallower than its equilibrium depth. The `DroguedDrifter` model computes this compromise from the full equations of motion.
-#
-# This notebook demonstrates the drogued drifter model coupled to [Parcels v4](https://github.com/OceanParcels/parcels) in a synthetic 3D velocity field. We compare three types of Lagrangian particles:
-#
-# 1. **Drogued drifters**: advected at the steady-state drift velocity of the buoy+drogue system.
-# 2. **Surface point particles**: advected at z = 0 (the fastest current).
-# 3. **Drogue-depth point particles**: advected at the equilibrium drogue depth.
-#
-# The drogued drifter should travel at an intermediate speed, between the surface and drogue-depth point particles.
+<!-- #region papermill={"duration": 0.006432, "end_time": "2026-04-11T15:45:20.520639+00:00", "exception": false, "start_time": "2026-04-11T15:45:20.514207+00:00", "status": "completed"} -->
+# Drogued Drifter in an Idealized Sheared Flow with Parcels
 
-# %% [markdown] papermill={"duration": 0.001398, "end_time": "2026-04-11T11:37:14.248506+00:00", "exception": false, "start_time": "2026-04-11T11:37:14.247108+00:00", "status": "completed"}
-# ## Imports
+A drogued drifter is a surface buoy connected by a rigid pole to a subsurface drogue. The drogue anchors the drifter to a target depth so that the buoy tracks currents at that depth rather than being blown by wind and surface waves. But the buoy still feels surface drag, so the actual drift velocity is a compromise between the surface current (acting on the buoy) and the deeper current (acting on the drogue). Under sufficient shear, the pole can tilt, and the drogue can drift at depths shallower than its equilibrium depth. The `DroguedDrifter` model computes this compromise from the full equations of motion.
 
-# %% papermill={"duration": 5.179346, "end_time": "2026-04-11T11:37:19.429158+00:00", "exception": false, "start_time": "2026-04-11T11:37:14.249812+00:00", "status": "completed"}
+This notebook demonstrates the drogued drifter model coupled to [Parcels v4](https://github.com/OceanParcels/parcels) in a synthetic 3D velocity field. We compare three types of Lagrangian particles:
+
+1. **Drogued drifters**: advected at the steady-state drift velocity of the buoy+drogue system.
+2. **Surface point particles**: advected at z = 0 (the fastest current).
+3. **Drogue-depth point particles**: advected at the equilibrium drogue depth.
+
+The drogued drifter should travel at an intermediate speed, between the surface and drogue-depth point particles.
+<!-- #endregion -->
+
+<!-- #region papermill={"duration": 0.001931, "end_time": "2026-04-11T15:45:20.525156+00:00", "exception": false, "start_time": "2026-04-11T15:45:20.523225+00:00", "status": "completed"} -->
+## Imports
+<!-- #endregion -->
+
+```python papermill={"duration": 4.801162, "end_time": "2026-04-11T15:45:25.328051+00:00", "exception": false, "start_time": "2026-04-11T15:45:20.526889+00:00", "status": "completed"}
 import shutil
 from pathlib import Path
 
@@ -43,24 +45,26 @@ from scipy.special import erf
 
 from drogued_drifters.drifter import DroguedDrifter
 from drogued_drifters.parcels_v4 import make_dd_kernel
+```
 
-# %% [markdown] papermill={"duration": 0.001343, "end_time": "2026-04-11T11:37:19.432242+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.430899+00:00", "status": "completed"}
-# ## Physical parameters
-#
-# The velocity field consists of two opposing meandering jets on a flat Cartesian grid. The current decays exponentially with depth and rotates clockwise (Ekman-like), creating vertical shear that the drogued drifter model must resolve.
-#
-# **Flow parameters:**
-# - `U_0`: peak surface current speed.
-# - `H`: e-folding depth for vertical decay. At depth `H`, the current is reduced to ~37% of its surface value.
-# - `L_Y`: meridional Gaussian half-width of each jet.
-# - `JET_SEP`: meridional distance between jet centres.
-# - `A_MEANDER`, `MEANDER_WAVELENGTH`: amplitude and wavelength of the sinusoidal jet meander.
-# - `MEANDER_PHASE_DEG`: phase offset between the two jets (in degrees).
-#
-# **Drifter parameter:**
-# - `DROGUE_DEPTH`: depth of the drogue below the surface (3 m for the [Callies et al. (2017)](https://doi.org/10.5194/os-13-799-2017) drifter design).
+<!-- #region papermill={"duration": 0.001266, "end_time": "2026-04-11T15:45:25.330906+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.329640+00:00", "status": "completed"} -->
+## Physical parameters
 
-# %% papermill={"duration": 0.004794, "end_time": "2026-04-11T11:37:19.438390+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.433596+00:00", "status": "completed"}
+The velocity field consists of two opposing meandering jets on a flat Cartesian grid. The current decays exponentially with depth and rotates clockwise (Ekman-like), creating vertical shear that the drogued drifter model must resolve.
+
+**Flow parameters:**
+- `U_0`: peak surface current speed.
+- `H`: e-folding depth for vertical decay. At depth `H`, the current is reduced to ~37% of its surface value.
+- `L_Y`: meridional Gaussian half-width of each jet.
+- `JET_SEP`: meridional distance between jet centres.
+- `A_MEANDER`, `MEANDER_WAVELENGTH`: amplitude and wavelength of the sinusoidal jet meander.
+- `MEANDER_PHASE_DEG`: phase offset between the two jets (in degrees).
+
+**Drifter parameter:**
+- `DROGUE_DEPTH`: depth of the drogue below the surface (3 m for the [Callies et al. (2017)](https://doi.org/10.5194/os-13-799-2017) drifter design).
+<!-- #endregion -->
+
+```python papermill={"duration": 0.004462, "end_time": "2026-04-11T15:45:25.336580+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.332118+00:00", "status": "completed"}
 U_0 = 2.0              # peak surface current [m/s]
 H = 3.0                # e-folding depth [m]
 L_Y = 5_000.0          # jet half-width [m]
@@ -82,29 +86,31 @@ DT = 300.0            # timestep: 5 min [s]
 RUNTIME = 86400.0     # total: 24 hours [s]
 OUTPUTDT = 300.0      # output every 5 min
 OUTPUT_DIR = "output"
+```
 
-# %% [markdown] papermill={"duration": 0.001348, "end_time": "2026-04-11T11:37:19.441266+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.439918+00:00", "status": "completed"}
-# ## Build the velocity field
-#
-# We use a **streamfunction** to prescribe the surface flow — not because non-divergence is important here, but because it is a convenient way to define a smooth, interesting flow pattern with meandering jets.
-#
-# Each jet has a Gaussian cross-section with sinusoidal meanders. The streamfunction is
-#
-# $$\psi_i(x, y) = -U_i \, L_Y \, \frac{\sqrt{\pi}}{2} \, \operatorname{erf}\!\left(\frac{y - y_{c,i}(x)}{L_Y}\right)$$
-#
-# where $y_{c,i}(x)$ is the meandering centreline and $\operatorname{erf}$ is the error function (the antiderivative of the Gaussian $e^{-t^2}$, up to normalization). The velocity components follow from $U_s = -\partial\psi/\partial y$ and $V_s = \partial\psi/\partial x$.
-#
-# The two jets flow in opposite directions (jet 1 eastward, jet 2 westward) and have different meander phases. The surface velocity decays exponentially with depth and rotates clockwise, mimicking Ekman dynamics:
-#
-# $$\begin{pmatrix} U \\ V \end{pmatrix} = e^{-z/H} \begin{pmatrix} \cos\alpha(z) & -\sin\alpha(z) \\ \sin\alpha(z) & \cos\alpha(z) \end{pmatrix} \begin{pmatrix} U_s \\ V_s \end{pmatrix}$$
-#
-# where the rotation rate increases with depth:
-#
-# $$\alpha(z) = -\frac{z}{H}\left[\alpha_0 + (\alpha_\infty - \alpha_0)\left(1 - e^{-z/z_r}\right)\right]$$
-#
-# with $\alpha_0 = 20°$/e-fold at the surface increasing to $\alpha_\infty = 90°$/e-fold at depth, over a scale $z_r = 5$ m.
+<!-- #region papermill={"duration": 0.001287, "end_time": "2026-04-11T15:45:25.339260+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.337973+00:00", "status": "completed"} -->
+## Build the velocity field
 
-# %% papermill={"duration": 0.066637, "end_time": "2026-04-11T11:37:19.509232+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.442595+00:00", "status": "completed"}
+We use a **streamfunction** to prescribe the surface flow — not because non-divergence is important here, but because it is a convenient way to define a smooth, interesting flow pattern with meandering jets.
+
+Each jet has a Gaussian cross-section with sinusoidal meanders. The streamfunction is
+
+$$\psi_i(x, y) = -U_i \, L_Y \, \frac{\sqrt{\pi}}{2} \, \operatorname{erf}\!\left(\frac{y - y_{c,i}(x)}{L_Y}\right)$$
+
+where $y_{c,i}(x)$ is the meandering centreline and $\operatorname{erf}$ is the error function (the antiderivative of the Gaussian $e^{-t^2}$, up to normalization). The velocity components follow from $U_s = -\partial\psi/\partial y$ and $V_s = \partial\psi/\partial x$.
+
+The two jets flow in opposite directions (jet 1 eastward, jet 2 westward) and have different meander phases. The surface velocity decays exponentially with depth and rotates clockwise, mimicking Ekman dynamics:
+
+$$\begin{pmatrix} U \\ V \end{pmatrix} = e^{-z/H} \begin{pmatrix} \cos\alpha(z) & -\sin\alpha(z) \\ \sin\alpha(z) & \cos\alpha(z) \end{pmatrix} \begin{pmatrix} U_s \\ V_s \end{pmatrix}$$
+
+where the rotation rate increases with depth:
+
+$$\alpha(z) = -\frac{z}{H}\left[\alpha_0 + (\alpha_\infty - \alpha_0)\left(1 - e^{-z/z_r}\right)\right]$$
+
+with $\alpha_0 = 20°$/e-fold at the surface increasing to $\alpha_\infty = 90°$/e-fold at depth, over a scale $z_r = 5$ m.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.056862, "end_time": "2026-04-11T15:45:25.397349+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.340487+00:00", "status": "completed"}
 K_MEANDER = 2 * np.pi / MEANDER_WAVELENGTH
 MEANDER_PHASE = np.deg2rad(MEANDER_PHASE_DEG)
 
@@ -162,20 +168,22 @@ ds = xr.Dataset(
 )
 
 fieldset = FieldSet.from_sgrid_conventions(ds, mesh="flat")
+```
 
-# %% [markdown] papermill={"duration": 0.00128, "end_time": "2026-04-11T11:37:19.511945+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.510665+00:00", "status": "completed"}
-# ## Define the drogued drifter kernel
-#
-# We use the `DDAdvectEE` kernel from `parcels_v4` to advect particles using the drogued drifter model. At each Parcels timestep, the kernel:
-#
-# 1. Extracts the velocity profile at all relevant depth levels using `fieldset.UV.eval()` (grid-agnostic).
-# 2. Builds a fast depth interpolator from the sampled profiles.
-# 3. Runs `DroguedDrifter.get_final_drift_batch` with the profile sampler.
-# 4. Applies an Euler forward position update with the steady-state drift velocity.
-#
-# The kernel auto-detects spherical/flat mesh from the FieldSet.
+<!-- #region papermill={"duration": 0.001265, "end_time": "2026-04-11T15:45:25.400072+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.398807+00:00", "status": "completed"} -->
+## Define the drogued drifter kernel
 
-# %% papermill={"duration": 0.004342, "end_time": "2026-04-11T11:37:19.517612+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.513270+00:00", "status": "completed"}
+We use the `DDAdvectEE` kernel from `parcels_v4` to advect particles using the drogued drifter model. At each Parcels timestep, the kernel:
+
+1. Extracts the velocity profile at all relevant depth levels using `fieldset.UV.eval()` (grid-agnostic).
+2. Builds a fast depth interpolator from the sampled profiles.
+3. Runs `DroguedDrifter.get_final_drift_batch` with the profile sampler.
+4. Applies an Euler forward position update with the steady-state drift velocity.
+
+The kernel auto-detects spherical/flat mesh from the FieldSet.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.004038, "end_time": "2026-04-11T15:45:25.405323+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.401285+00:00", "status": "completed"}
 dd = DroguedDrifter()
 dd_kernel = make_dd_kernel(dd)
 
@@ -186,18 +194,19 @@ def DeleteOOB(particles, fieldset):
     oob = (state == StatusCode.ErrorOutOfBounds) | (state == StatusCode.ErrorThroughSurface)
     if np.any(oob):
         particles.state = np.where(oob, StatusCode.Delete, state)
+```
 
+<!-- #region papermill={"duration": 0.001242, "end_time": "2026-04-11T15:45:25.407891+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.406649+00:00", "status": "completed"} -->
+## Run simulations
 
-# %% [markdown] papermill={"duration": 0.00126, "end_time": "2026-04-11T11:37:19.520216+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.518956+00:00", "status": "completed"}
-# ## Run simulations
-#
-# We release particles in a grid spanning both jets at several x-positions. Three simulations:
-#
-# 1. **Drogued drifter**: `DDAdvectEE` kernel on the standard FieldSet (the kernel extracts velocity profiles and computes drift internally).
-# 2. **Surface point particle**: `AdvectionRK4` at z=0 on the same FieldSet.
-# 3. **Drogue-depth point particle**: `AdvectionRK4` at z=3m on the same FieldSet.
+We release particles in a grid spanning both jets at several x-positions. Three simulations:
 
-# %% papermill={"duration": 0.004557, "end_time": "2026-04-11T11:37:19.526062+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.521505+00:00", "status": "completed"}
+1. **Drogued drifter**: `DDAdvectEE` kernel on the standard FieldSet (the kernel extracts velocity profiles and computes drift internally).
+2. **Surface point particle**: `AdvectionRK4` at z=0 on the same FieldSet.
+3. **Drogue-depth point particle**: `AdvectionRK4` at z=3m on the same FieldSet.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.00431, "end_time": "2026-04-11T15:45:25.413678+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.409368+00:00", "status": "completed"}
 output_dir = Path(OUTPUT_DIR)
 output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -208,8 +217,9 @@ _lon_grid, _lat_grid = np.meshgrid(_x_positions, _lats)
 release_lons = _lon_grid.ravel().tolist()
 release_lats = _lat_grid.ravel().tolist()
 n_particles = len(release_lats)
+```
 
-# %% papermill={"duration": 76.198882, "end_time": "2026-04-11T11:38:35.726429+00:00", "exception": false, "start_time": "2026-04-11T11:37:19.527547+00:00", "status": "completed"}
+```python papermill={"duration": 74.910591, "end_time": "2026-04-11T15:46:40.325515+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.414924+00:00", "status": "completed"}
 # Drogued drifter run — DDAdvectEE kernel
 dd_store = str(output_dir / "01_drogued_drifter.zarr")
 shutil.rmtree(dd_store, ignore_errors=True)
@@ -228,8 +238,9 @@ pset_drifter.execute(
     output_file=ParticleFile(store=dd_store, outputdt=OUTPUTDT),
     verbose_progress=False,
 )
+```
 
-# %% papermill={"duration": 3.499564, "end_time": "2026-04-11T11:38:39.227775+00:00", "exception": false, "start_time": "2026-04-11T11:38:35.728211+00:00", "status": "completed"}
+```python papermill={"duration": 3.545334, "end_time": "2026-04-11T15:46:43.872731+00:00", "exception": false, "start_time": "2026-04-11T15:46:40.327397+00:00", "status": "completed"}
 surface_store = str(output_dir / "01_surface_pp.zarr")
 shutil.rmtree(surface_store, ignore_errors=True)
 
@@ -247,8 +258,9 @@ pset_surface.execute(
     output_file=ParticleFile(store=surface_store, outputdt=OUTPUTDT),
     verbose_progress=False,
 )
+```
 
-# %% papermill={"duration": 3.646609, "end_time": "2026-04-11T11:38:42.876242+00:00", "exception": false, "start_time": "2026-04-11T11:38:39.229633+00:00", "status": "completed"}
+```python papermill={"duration": 3.569999, "end_time": "2026-04-11T15:46:47.444535+00:00", "exception": false, "start_time": "2026-04-11T15:46:43.874536+00:00", "status": "completed"}
 drogue_store = str(output_dir / "01_drogue_depth_pp.zarr")
 shutil.rmtree(drogue_store, ignore_errors=True)
 
@@ -266,13 +278,15 @@ pset_drogue.execute(
     output_file=ParticleFile(store=drogue_store, outputdt=OUTPUTDT),
     verbose_progress=False,
 )
+```
 
-# %% [markdown] papermill={"duration": 0.001498, "end_time": "2026-04-11T11:38:42.879488+00:00", "exception": false, "start_time": "2026-04-11T11:38:42.877990+00:00", "status": "completed"}
-# ## Plot trajectories
-#
-# Streamfunction contours show the flow structure. Surface point particles (red) travel furthest, drogue-depth point particles (green) travel least, and the drogued drifters (blue, dashed) fall in between.
+<!-- #region papermill={"duration": 0.001493, "end_time": "2026-04-11T15:46:47.447787+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.446294+00:00", "status": "completed"} -->
+## Plot trajectories
 
-# %% papermill={"duration": 21.390334, "end_time": "2026-04-11T11:39:04.271281+00:00", "exception": false, "start_time": "2026-04-11T11:38:42.880947+00:00", "status": "completed"}
+Streamfunction contours show the flow structure. Surface point particles (red) travel furthest, drogue-depth point particles (green) travel least, and the drogued drifters (blue, dashed) fall in between.
+<!-- #endregion -->
+
+```python papermill={"duration": 21.836693, "end_time": "2026-04-11T15:47:09.286152+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.449459+00:00", "status": "completed"}
 ds_drifter = xr.open_zarr(dd_store)
 ds_surface = xr.open_zarr(surface_store)
 ds_drogue = xr.open_zarr(drogue_store)
@@ -313,9 +327,9 @@ ax.set_ylabel("y [km]")
 ax.legend()
 plt.tight_layout()
 plt.show()
+```
 
-
-# %% papermill={"duration": 28.476488, "end_time": "2026-04-11T11:39:32.752249+00:00", "exception": false, "start_time": "2026-04-11T11:39:04.275761+00:00", "status": "completed"}
+```python papermill={"duration": 28.819712, "end_time": "2026-04-11T15:47:38.110126+00:00", "exception": false, "start_time": "2026-04-11T15:47:09.290414+00:00", "status": "completed"}
 # Compute mean drift speeds from final positions
 def compute_mean_drift_speed(ds, runtime):
     """Compute mean drift speed from final particle positions.
@@ -359,3 +373,4 @@ print(f"Mean drift speed — Surface point particle:       {speed_surface:.4f} m
 print(f"Mean drift speed — Drogue-depth point particle:  {speed_drogue:.4f} m/s")
 print(f"Mean drift speed — Drogued drifter:              {speed_dd:.4f} m/s")
 print(f"\nDrogued drifter is {100 * (speed_surface - speed_dd) / (speed_surface - speed_drogue):.1f}% between surface and drogue-depth.")
+```

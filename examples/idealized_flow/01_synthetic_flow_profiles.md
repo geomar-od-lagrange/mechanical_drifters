@@ -1,44 +1,49 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.19.1
-#   kernelspec:
-#     display_name: Python 3
-#     language: python
-#     name: python3
-# ---
+---
+jupyter:
+  jupytext:
+    formats: ipynb,md
+    text_representation:
+      extension: .md
+      format_name: markdown
+      format_version: '1.3'
+      jupytext_version: 1.19.1
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
 
-# %% [markdown] papermill={"duration": 0.001385, "end_time": "2026-04-02T10:20:54.695967+00:00", "exception": false, "start_time": "2026-04-02T10:20:54.694582+00:00", "status": "completed"}
-# # Drogued Drifter in Synthetic Flow Profiles
-#
-# A drogued drifter consists of a surface buoy connected by a rigid pole to a subsurface drogue. The buoy feels surface drag while the drogue is anchored to depth. Under vertical shear, the pole tilts and the buoy drifts at an intermediate speed between the surface current and the drogue-depth current. This notebook demonstrates the `DroguedDrifter` API directly (no Parcels) to show that the steady-state drift velocity lies between surface and drogue-depth velocities.
+<!-- #region papermill={"duration": 0.002581, "end_time": "2026-04-11T15:45:15.237249+00:00", "exception": false, "start_time": "2026-04-11T15:45:15.234668+00:00", "status": "completed"} -->
+# Drogued Drifter in Synthetic Flow Profiles
 
-# %% [markdown] papermill={"duration": 0.000709, "end_time": "2026-04-02T10:20:54.697656+00:00", "exception": false, "start_time": "2026-04-02T10:20:54.696947+00:00", "status": "completed"}
-# ## Parameters
+A drogued drifter consists of a surface buoy connected by a rigid pole to a subsurface drogue. The buoy feels surface drag while the drogue is anchored to depth. Under vertical shear, the pole tilts and the buoy drifts at an intermediate speed between the surface current and the drogue-depth current. This notebook demonstrates the `DroguedDrifter` API directly (no Parcels) to show that the steady-state drift velocity lies between surface and drogue-depth velocities.
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.653731, "end_time": "2026-04-02T10:20:55.352120+00:00", "exception": false, "start_time": "2026-04-02T10:20:54.698389+00:00", "status": "completed"}
+<!-- #region papermill={"duration": 0.001426, "end_time": "2026-04-11T15:45:15.240595+00:00", "exception": false, "start_time": "2026-04-11T15:45:15.239169+00:00", "status": "completed"} -->
+## Parameters
+<!-- #endregion -->
+
+```python papermill={"duration": 0.788191, "end_time": "2026-04-11T15:45:16.030225+00:00", "exception": false, "start_time": "2026-04-11T15:45:15.242034+00:00", "status": "completed"}
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from drogued_drifters.drifter import DroguedDrifter
+```
 
-# %% papermill={"duration": 0.003621, "end_time": "2026-04-02T10:20:55.356771+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.353150+00:00", "status": "completed"}
+```python papermill={"duration": 0.003508, "end_time": "2026-04-11T15:45:16.034703+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.031195+00:00", "status": "completed"}
 U_0 = 2.0              # peak surface current [m/s]
 H = 3.0                # e-folding depth [m]
 DROGUE_DEPTH = -3.0     # z-up convention     # drogue depth [m]
 N_DEPTHS = 50          # number of depth levels
+```
 
-# %% [markdown] papermill={"duration": 0.000711, "end_time": "2026-04-02T10:20:55.358201+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.357490+00:00", "status": "completed"}
-# ## Define the velocity profile
-#
-# We prescribe a simple 1D velocity profile with exponential decay with depth and Ekman-like rotation. At each depth z, the current is scaled by exp(-z/H) and rotated by an angle proportional to z.
+<!-- #region papermill={"duration": 0.000688, "end_time": "2026-04-11T15:45:16.036060+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.035372+00:00", "status": "completed"} -->
+## Define the velocity profile
 
-# %% papermill={"duration": 0.003525, "end_time": "2026-04-02T10:20:55.362423+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.358898+00:00", "status": "completed"}
+We prescribe a simple 1D velocity profile with exponential decay with depth and Ekman-like rotation. At each depth z, the current is scaled by exp(-z/H) and rotated by an angle proportional to z.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.003628, "end_time": "2026-04-11T15:45:16.040387+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.036759+00:00", "status": "completed"}
 # Depth array
 z_array = np.linspace(0, -10, N_DEPTHS)  # z positive upward
 
@@ -52,13 +57,15 @@ rotation_angle = np.radians(rotation_deg_per_depth) * z_array / H  # rotates wit
 # Rotate the profile: (u, v) = (u0*cos(alpha), u0*sin(alpha))
 v_profile = u_profile * np.sin(rotation_angle)
 u_profile = u_profile * np.cos(rotation_angle)
+```
 
-# %% [markdown] papermill={"duration": 0.000688, "end_time": "2026-04-02T10:20:55.363799+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.363111+00:00", "status": "completed"}
-# ## Run drogued drifter model
-#
-# We create a profile sampler using linear interpolation and then compute the steady-state drift velocity of the drogued drifter. For comparison, we also sample the velocities at the surface (z=0) and at the drogue depth.
+<!-- #region papermill={"duration": 0.000715, "end_time": "2026-04-11T15:45:16.041889+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.041174+00:00", "status": "completed"} -->
+## Run drogued drifter model
 
-# %% papermill={"duration": 0.555287, "end_time": "2026-04-02T10:20:55.919774+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.364487+00:00", "status": "completed"}
+We create a profile sampler using linear interpolation and then compute the steady-state drift velocity of the drogued drifter. For comparison, we also sample the velocities at the surface (z=0) and at the drogue depth.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.315079, "end_time": "2026-04-11T15:45:16.357634+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.042555+00:00", "status": "completed"}
 # Create interpolation functions for u and v profiles
 u_interp = interp1d(z_array, u_profile, kind='linear', bounds_error=False, fill_value='extrapolate')
 v_interp = interp1d(z_array, v_profile, kind='linear', bounds_error=False, fill_value='extrapolate')
@@ -93,11 +100,13 @@ v_surf = float(v_surf[0])
 u_drogue, v_drogue = sample_uv(DROGUE_DEPTH)
 u_drogue = float(u_drogue[0])
 v_drogue = float(v_drogue[0])
+```
 
-# %% [markdown] papermill={"duration": 0.000737, "end_time": "2026-04-02T10:20:55.921481+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.920744+00:00", "status": "completed"}
-# ## Results
+<!-- #region papermill={"duration": 0.000689, "end_time": "2026-04-11T15:45:16.359260+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.358571+00:00", "status": "completed"} -->
+## Results
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.004646, "end_time": "2026-04-02T10:20:55.926830+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.922184+00:00", "status": "completed"}
+```python papermill={"duration": 0.004014, "end_time": "2026-04-11T15:45:16.363920+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.359906+00:00", "status": "completed"}
 # Compute speeds (magnitude of velocity vectors)
 speed_surf = np.sqrt(u_surf**2 + v_surf**2)
 speed_drogue = np.sqrt(u_drogue**2 + v_drogue**2)
@@ -110,8 +119,9 @@ print()
 print(f"Drogued drifter intermediate behavior:")
 assert speed_drogue <= speed_dd <= speed_surf, "DD speed should be between drogue and surface!"
 print(f"  {speed_drogue:.4f} <= {speed_dd:.4f} <= {speed_surf:.4f} OK")
+```
 
-# %% papermill={"duration": 0.06189, "end_time": "2026-04-02T10:20:55.989583+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.927693+00:00", "status": "completed"}
+```python papermill={"duration": 0.054166, "end_time": "2026-04-11T15:45:16.418914+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.364748+00:00", "status": "completed"}
 # Plot u-profile vs depth
 fig, ax = plt.subplots()
 
@@ -127,13 +137,15 @@ ax.set_xlabel("Speed [m/s]")
 ax.set_ylabel("Depth [m]")
 ax.legend()
 plt.show()
+```
 
-# %% [markdown] papermill={"duration": 0.000925, "end_time": "2026-04-02T10:20:55.991582+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.990657+00:00", "status": "completed"}
-# ## Sweep over shear strengths
-#
-# We now vary the surface current speed U_0 and compute the drift velocity for each strength. The drogued drifter drift should always lie between surface and drogue-depth drifts.
+<!-- #region papermill={"duration": 0.000814, "end_time": "2026-04-11T15:45:16.420820+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.420006+00:00", "status": "completed"} -->
+## Sweep over shear strengths
 
-# %% papermill={"duration": 1.071875, "end_time": "2026-04-02T10:20:57.064323+00:00", "exception": false, "start_time": "2026-04-02T10:20:55.992448+00:00", "status": "completed"}
+We now vary the surface current speed U_0 and compute the drift velocity for each strength. The drogued drifter drift should always lie between surface and drogue-depth drifts.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.649346, "end_time": "2026-04-11T15:45:17.070960+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.421614+00:00", "status": "completed"}
 u0_values = np.array([0.5, 1.0, 2.0, 4.0])  # m/s
 speeds_surf = []
 speeds_drogue = []
@@ -167,8 +179,9 @@ for U0 in u0_values:
 speeds_surf = np.array(speeds_surf)
 speeds_drogue = np.array(speeds_drogue)
 speeds_dd = np.array(speeds_dd)
+```
 
-# %% papermill={"duration": 0.067249, "end_time": "2026-04-02T10:20:57.132726+00:00", "exception": false, "start_time": "2026-04-02T10:20:57.065477+00:00", "status": "completed"}
+```python papermill={"duration": 0.042751, "end_time": "2026-04-11T15:45:17.114826+00:00", "exception": false, "start_time": "2026-04-11T15:45:17.072075+00:00", "status": "completed"}
 fig, ax = plt.subplots()
 
 ax.plot(u0_values, speeds_surf, 'o-', label='Surface (z=0)')
@@ -180,3 +193,4 @@ ax.set_ylabel("Drift speed [m/s]")
 ax.legend()
 ax.grid(True, alpha=0.3)
 plt.show()
+```

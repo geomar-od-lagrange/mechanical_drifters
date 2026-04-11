@@ -1,75 +1,78 @@
-# ---
-# jupyter:
-#   jupytext:
-#     formats: ipynb,py:percent
-#     text_representation:
-#       extension: .py
-#       format_name: percent
-#       format_version: '1.3'
-#       jupytext_version: 1.19.1
-#   kernelspec:
-#     display_name: default
-#     language: python
-#     name: python3
-# ---
+---
+jupyter:
+  jupytext:
+    formats: ipynb,md
+    text_representation:
+      extension: .md
+      format_name: markdown
+      format_version: '1.3'
+      jupytext_version: 1.19.1
+  kernelspec:
+    display_name: default
+    language: python
+    name: python3
+---
 
-# %% [markdown] papermill={"duration": 0.001864, "end_time": "2026-04-11T15:48:16.856345+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.854481+00:00", "status": "completed"}
-# # What reference level for Stokes drift?
-#
-# The Stokes drift of a deep-water wave decays exponentially with depth:
-# $u_\mathrm{St}(z) = A^2 \omega k \exp(2kz)$. When we say a drogued
-# drifter measures "the current at drogue depth", we implicitly assume
-# that the Stokes drift contribution equals $u_\mathrm{St}(-l)$ where $l$
-# is the pole length. But the buoy sits at the instantaneous free surface
-# $z = \eta(x,t)$, not at mean sea level. Does this matter?
-#
-# This notebook derives and integrates a Lagrangian mechanics model for
-# four objects in a monochromatic deep-water wave:
-#
-# 1. **Surface passive tracer** -- constrained to $z = \eta(x,t)$, driven by horizontal drag.
-# 2. **Deep passive tracer** -- a true Lagrangian fluid parcel at initial depth $-l$.
-# 3. **Extended drogued drifter** -- buoy constrained to the free surface, rigid pole to a drogue at depth $\approx -l$.
-# 4. **Production `DroguedDrifter`** -- the operational model from `src/`, driven by the steady Stokes drift profile on a flat surface.
-#
-# We compare their mean horizontal drifts to Stokes drift predictions
-# evaluated at different reference levels.
+<!-- #region papermill={"duration": 0.001864, "end_time": "2026-04-11T15:48:16.856345+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.854481+00:00", "status": "completed"} -->
+# What reference level for Stokes drift?
 
-# %% [markdown] papermill={"duration": 0.001165, "end_time": "2026-04-11T15:48:16.858905+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.857740+00:00", "status": "completed"}
-# ## Physics setup
-#
-# ### Wave field (linear, deep water, monochromatic, progressive in $+x$)
-#
-# $$\eta(x,t) = A \cos(kx - \omega t)$$
-# $$u_w(x,z,t) = A\omega \exp(kz) \cos(kx - \omega t)$$
-# $$w_w(x,z,t) = A\omega \exp(kz) \sin(kx - \omega t)$$
-#
-# Dispersion: $\omega^2 = gk$. Stokes drift: $u_\mathrm{St}(z) = A^2 \omega k \exp(2kz)$ for $z \le 0$.
-#
-# ### Four objects
-#
-# **Object 1** (surface tracer): point mass at $z = \eta(x_1, t)$, driven by
-# horizontal drag $-k_p |(\dot{x}_1 - u_w)| (\dot{x}_1 - u_w)$. Single DOF: $x_1$.
-#
-# **Object 2** (deep tracer): Lagrangian fluid parcel at initial depth $-l$.
-# $\dot{x}_2 = u_w(x_2, z_2, t)$, $\dot{z}_2 = w_w(x_2, z_2, t)$.
-#
-# **Object 3** (drogued drifter): buoy at $z_b = \eta(x_b, t)$, rigid pole of
-# length $l$, drogue at $(x_b + l\sin\theta,\; \eta - l\cos\theta)$.
-# DOFs: $(x_b, \theta)$. Euler--Lagrange equations from $L = T - V$ with
-# generalized drag forces.
-#
-# **Object 4** (production `DroguedDrifter`): operational model from `src/`,
-# driven by the steady Stokes drift profile on a flat surface.
+The Stokes drift of a deep-water wave decays exponentially with depth:
+$u_\mathrm{St}(z) = A^2 \omega k \exp(2kz)$. When we say a drogued
+drifter measures "the current at drogue depth", we implicitly assume
+that the Stokes drift contribution equals $u_\mathrm{St}(-l)$ where $l$
+is the pole length. But the buoy sits at the instantaneous free surface
+$z = \eta(x,t)$, not at mean sea level. Does this matter?
 
-# %% papermill={"duration": 0.579672, "end_time": "2026-04-11T15:48:17.439734+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.860062+00:00", "status": "completed"}
+This notebook derives and integrates a Lagrangian mechanics model for
+four objects in a monochromatic deep-water wave:
+
+1. **Surface passive tracer** -- constrained to $z = \eta(x,t)$, driven by horizontal drag.
+2. **Deep passive tracer** -- a true Lagrangian fluid parcel at initial depth $-l$.
+3. **Extended drogued drifter** -- buoy constrained to the free surface, rigid pole to a drogue at depth $\approx -l$.
+4. **Production `DroguedDrifter`** -- the operational model from `src/`, driven by the steady Stokes drift profile on a flat surface.
+
+We compare their mean horizontal drifts to Stokes drift predictions
+evaluated at different reference levels.
+<!-- #endregion -->
+
+<!-- #region papermill={"duration": 0.001165, "end_time": "2026-04-11T15:48:16.858905+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.857740+00:00", "status": "completed"} -->
+## Physics setup
+
+### Wave field (linear, deep water, monochromatic, progressive in $+x$)
+
+$$\eta(x,t) = A \cos(kx - \omega t)$$
+$$u_w(x,z,t) = A\omega \exp(kz) \cos(kx - \omega t)$$
+$$w_w(x,z,t) = A\omega \exp(kz) \sin(kx - \omega t)$$
+
+Dispersion: $\omega^2 = gk$. Stokes drift: $u_\mathrm{St}(z) = A^2 \omega k \exp(2kz)$ for $z \le 0$.
+
+### Four objects
+
+**Object 1** (surface tracer): point mass at $z = \eta(x_1, t)$, driven by
+horizontal drag $-k_p |(\dot{x}_1 - u_w)| (\dot{x}_1 - u_w)$. Single DOF: $x_1$.
+
+**Object 2** (deep tracer): Lagrangian fluid parcel at initial depth $-l$.
+$\dot{x}_2 = u_w(x_2, z_2, t)$, $\dot{z}_2 = w_w(x_2, z_2, t)$.
+
+**Object 3** (drogued drifter): buoy at $z_b = \eta(x_b, t)$, rigid pole of
+length $l$, drogue at $(x_b + l\sin\theta,\; \eta - l\cos\theta)$.
+DOFs: $(x_b, \theta)$. Euler--Lagrange equations from $L = T - V$ with
+generalized drag forces.
+
+**Object 4** (production `DroguedDrifter`): operational model from `src/`,
+driven by the steady Stokes drift profile on a flat surface.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.579672, "end_time": "2026-04-11T15:48:17.439734+00:00", "exception": false, "start_time": "2026-04-11T15:48:16.860062+00:00", "status": "completed"}
 import sympy as sp
 from sympy.physics.mechanics import dynamicsymbols
 import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 
+```
 
-# %% papermill={"duration": 0.011773, "end_time": "2026-04-11T15:48:17.453064+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.441291+00:00", "status": "completed"}
+```python papermill={"duration": 0.011773, "end_time": "2026-04-11T15:48:17.453064+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.441291+00:00", "status": "completed"}
 # Symbolic wave field
 
 t = dynamicsymbols._t
@@ -87,22 +90,24 @@ display(sp.Eq(u_w_label, u_w_sym, evaluate=False))
 display(sp.Eq(w_w_label, w_w_sym, evaluate=False))
 display(sp.Eq(u_St_label, u_St_sym, evaluate=False))
 
+```
 
-# %% [markdown] papermill={"duration": 0.001285, "end_time": "2026-04-11T15:48:17.455843+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.454558+00:00", "status": "completed"}
-# ## Lagrangian derivation for the extended drogued drifter (Object 3)
-#
-# The buoy is constrained to the free surface: $z_b = \eta(x_b, t)$.
-# The drogue hangs from the buoy on a rigid pole of length $l$ at tilt
-# angle $\theta$ from vertical. Degrees of freedom: $q = (x_b, \theta)$.
-#
-# Positions:
-# $$\mathbf{r}_b = (x_b,\; \eta(x_b, t))$$
-# $$\mathbf{r}_d = (x_b + l\sin\theta,\; \eta(x_b, t) - l\cos\theta)$$
-#
-# The vertical buoy velocity follows from the constraint:
-# $$\dot{z}_b = \frac{\partial\eta}{\partial x}\dot{x}_b + \frac{\partial\eta}{\partial t}$$
+<!-- #region papermill={"duration": 0.001285, "end_time": "2026-04-11T15:48:17.455843+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.454558+00:00", "status": "completed"} -->
+## Lagrangian derivation for the extended drogued drifter (Object 3)
 
-# %% papermill={"duration": 0.016184, "end_time": "2026-04-11T15:48:17.473278+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.457094+00:00", "status": "completed"}
+The buoy is constrained to the free surface: $z_b = \eta(x_b, t)$.
+The drogue hangs from the buoy on a rigid pole of length $l$ at tilt
+angle $\theta$ from vertical. Degrees of freedom: $q = (x_b, \theta)$.
+
+Positions:
+$$\mathbf{r}_b = (x_b,\; \eta(x_b, t))$$
+$$\mathbf{r}_d = (x_b + l\sin\theta,\; \eta(x_b, t) - l\cos\theta)$$
+
+The vertical buoy velocity follows from the constraint:
+$$\dot{z}_b = \frac{\partial\eta}{\partial x}\dot{x}_b + \frac{\partial\eta}{\partial t}$$
+<!-- #endregion -->
+
+```python papermill={"duration": 0.016184, "end_time": "2026-04-11T15:48:17.473278+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.457094+00:00", "status": "completed"}
 # Generalized coordinates
 x_b = dynamicsymbols("x_b")
 theta = dynamicsymbols("theta")
@@ -141,8 +146,9 @@ v_d = r_d.diff(t)
 display(sp.Eq(sp.Symbol(r'\dot{r}_b', commutative=False), v_b, evaluate=False))
 display(sp.Eq(sp.Symbol(r'\dot{r}_d', commutative=False), v_d, evaluate=False))
 
+```
 
-# %% papermill={"duration": 0.009196, "end_time": "2026-04-11T15:48:17.484019+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.474823+00:00", "status": "completed"}
+```python papermill={"duration": 0.009196, "end_time": "2026-04-11T15:48:17.484019+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.474823+00:00", "status": "completed"}
 # Kinetic energy
 # T = 1/2 (m_b + m_tilde_b)(xdot_b^2 + zdot_b^2)
 #   + 1/2 m_d (xdot_d^2 + zdot_d^2)
@@ -161,8 +167,9 @@ L = T - V_pot
 
 display(sp.Eq(sp.Symbol('L'), L, evaluate=False))
 
+```
 
-# %% papermill={"duration": 0.030443, "end_time": "2026-04-11T15:48:17.515912+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.485469+00:00", "status": "completed"}
+```python papermill={"duration": 0.030443, "end_time": "2026-04-11T15:48:17.515912+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.485469+00:00", "status": "completed"}
 # Generalized forces from quadratic drag
 # We use symbolic placeholders U_b, W_b, U_d, W_d for wave velocities
 # at the buoy and drogue positions. These will be evaluated numerically.
@@ -193,8 +200,9 @@ Q = sp.Matrix([
 
 display(sp.Eq(sp.Symbol('Q'), Q, evaluate=False))
 
+```
 
-# %% papermill={"duration": 0.086818, "end_time": "2026-04-11T15:48:17.604447+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.517629+00:00", "status": "completed"}
+```python papermill={"duration": 0.086818, "end_time": "2026-04-11T15:48:17.604447+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.517629+00:00", "status": "completed"}
 # Euler-Lagrange equations: d/dt(dL/dqdot_i) - dL/dq_i = Q_i
 eoms = sp.Matrix([
     L.diff(qdj).diff(t) - L.diff(qj) - Qj
@@ -211,8 +219,9 @@ F_sym = F_rhs
 display(sp.Eq(sp.Symbol('M'), M_sym, evaluate=False))
 display(sp.Eq(sp.Symbol('F'), F_sym, evaluate=False))
 
+```
 
-# %% papermill={"duration": 0.048742, "end_time": "2026-04-11T15:48:17.654919+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.606177+00:00", "status": "completed"}
+```python papermill={"duration": 0.048742, "end_time": "2026-04-11T15:48:17.654919+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.606177+00:00", "status": "completed"}
 # Lambdify M and F with sp.lambdify (simple, no CSE)
 
 xb_s, th_s   = sp.symbols("xb th", real=True)
@@ -241,8 +250,9 @@ F_func = sp.lambdify(arg_syms, F_static, modules="numpy")
 
 print("Lambdified M (2×2) and F (2×1).")
 
+```
 
-# %% papermill={"duration": 0.00444, "end_time": "2026-04-11T15:48:17.661036+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.656596+00:00", "status": "completed"} tags=["parameters"]
+```python papermill={"duration": 0.00444, "end_time": "2026-04-11T15:48:17.661036+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.656596+00:00", "status": "completed"} tags=["parameters"]
 # Parameters (primitives only — papermill can override these)
 
 # Drifter (matches DroguedDrifter defaults)
@@ -270,8 +280,9 @@ T_END = 200.0
 N_orb = 13
 T_START = 0.0  # skip initial transient [s]
 
+```
 
-# %% papermill={"duration": 0.005246, "end_time": "2026-04-11T15:48:17.667835+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.662589+00:00", "status": "completed"}
+```python papermill={"duration": 0.005246, "end_time": "2026-04-11T15:48:17.667835+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.662589+00:00", "status": "completed"}
 # Derived quantities and wave field functions
 
 P_A = P_Hs / 2                     # amplitude [m]
@@ -296,18 +307,19 @@ def u_w_num(x, z, t):
 def w_w_num(x, z, t):
     return P_A * P_omega * np.exp(P_k * z) * np.sin(P_k * x - P_omega * t + PHASE_OFFSET)
 
+```
 
+<!-- #region papermill={"duration": 0.001485, "end_time": "2026-04-11T15:48:17.670885+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.669400+00:00", "status": "completed"} -->
+## Object 1: Surface passive tracer
 
-# %% [markdown] papermill={"duration": 0.001485, "end_time": "2026-04-11T15:48:17.670885+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.669400+00:00", "status": "completed"}
-# ## Object 1: Surface passive tracer
-#
-# A point mass constrained to the instantaneous free surface $z = \eta(x_1, t)$.
-# The horizontal wave drag is evaluated at the **free surface** $z = \eta$, not at
-# MSL $z=0$. With strong drag this approximates the surface Lagrangian trajectory;
-# its mean drift approaches $u_\mathrm{St}(0) = A^2 \omega k$ (the surface Stokes
-# drift, referenced to MSL as per linear wave theory).
+A point mass constrained to the instantaneous free surface $z = \eta(x_1, t)$.
+The horizontal wave drag is evaluated at the **free surface** $z = \eta$, not at
+MSL $z=0$. With strong drag this approximates the surface Lagrangian trajectory;
+its mean drift approaches $u_\mathrm{St}(0) = A^2 \omega k$ (the surface Stokes
+drift, referenced to MSL as per linear wave theory).
+<!-- #endregion -->
 
-# %% papermill={"duration": 2.171816, "end_time": "2026-04-11T15:48:19.844173+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.672357+00:00", "status": "completed"}
+```python papermill={"duration": 2.171816, "end_time": "2026-04-11T15:48:19.844173+00:00", "exception": false, "start_time": "2026-04-11T15:48:17.672357+00:00", "status": "completed"}
 # Object 1: surface passive tracer
 # EOM: m_p * x_ddot = -k_p * |xdot - u_w(x, eta(x,t), t)| * (xdot - u_w)
 # We use state = [x, xdot] and strong drag (k_p large relative to m_p)
@@ -341,22 +353,24 @@ mean_drift_surf = (x_surf[half][-1] - x_surf[half][0]) / (t_eval[half][-1] - t_e
 print(f"Object 1 mean drift (2nd half): {mean_drift_surf:.6f} m/s")
 print(f"Stokes drift at z = 0: {u_St_0:.6f} m/s")
 print(f"Relative error: {abs(mean_drift_surf - u_St_0) / u_St_0:.2e}")
+```
 
-# %% [markdown] papermill={"duration": 0.001538, "end_time": "2026-04-11T15:48:19.847534+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.845996+00:00", "status": "completed"}
-# ## Object 2: Deep passive tracer (Lagrangian fluid parcel at z = −l)
-#
-# A passive fluid parcel initialized at mean depth $z = -l$ (MSL reference).
-# It follows the wave velocity exactly: $\dot{x} = u_w(x,z,t)$, $\dot{z} = w_w(x,z,t)$.
-#
-# The orbit center is at $z = -l$ because the Lagrangian mean depth equals the initial
-# depth to leading order. The Stokes drift is $u_\mathrm{St}(-l) = A^2\omega k\,e^{-2kl}$.
-#
-# The relevant question for the drogued drifter is whether the drogue's effective depth
-# is $-l$ (MSL reference) or $\eta(t) - l$ (free-surface reference). The difference
-# is $\eta(t)$, which has zero mean but nonzero RMS — so the *time-mean* Stokes drift
-# seen by the drogue picks up a second-order correction $\propto (kA)^2$.
+<!-- #region papermill={"duration": 0.001538, "end_time": "2026-04-11T15:48:19.847534+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.845996+00:00", "status": "completed"} -->
+## Object 2: Deep passive tracer (Lagrangian fluid parcel at z = −l)
 
-# %% papermill={"duration": 0.092109, "end_time": "2026-04-11T15:48:19.941150+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.849041+00:00", "status": "completed"}
+A passive fluid parcel initialized at mean depth $z = -l$ (MSL reference).
+It follows the wave velocity exactly: $\dot{x} = u_w(x,z,t)$, $\dot{z} = w_w(x,z,t)$.
+
+The orbit center is at $z = -l$ because the Lagrangian mean depth equals the initial
+depth to leading order. The Stokes drift is $u_\mathrm{St}(-l) = A^2\omega k\,e^{-2kl}$.
+
+The relevant question for the drogued drifter is whether the drogue's effective depth
+is $-l$ (MSL reference) or $\eta(t) - l$ (free-surface reference). The difference
+is $\eta(t)$, which has zero mean but nonzero RMS — so the *time-mean* Stokes drift
+seen by the drogue picks up a second-order correction $\propto (kA)^2$.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.092109, "end_time": "2026-04-11T15:48:19.941150+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.849041+00:00", "status": "completed"}
 # Object 2: deep passive tracer at z = -l (MSL reference)
 
 z0_deep = -P_l
@@ -378,17 +392,18 @@ mean_drift_deep = (x_deep[half][-1] - x_deep[half][0]) / (t_eval[half][-1] - t_e
 print(f'Object 2 mean drift (2nd half): {mean_drift_deep:.6f} m/s')
 print(f'u_St(-l) = {u_St_l:.6f} m/s')
 print(f'Relative error: {abs(mean_drift_deep - u_St_l)/u_St_l:.2e}')
+```
 
+<!-- #region papermill={"duration": 0.001583, "end_time": "2026-04-11T15:48:19.944786+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.943203+00:00", "status": "completed"} -->
+## Object 3: Extended drogued drifter
 
-# %% [markdown] papermill={"duration": 0.001583, "end_time": "2026-04-11T15:48:19.944786+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.943203+00:00", "status": "completed"}
-# ## Object 3: Extended drogued drifter
-#
-# The full Lagrangian model with the buoy constrained to the free surface.
-# State vector: $[x_b, \theta, \dot{x}_b, \dot{\theta}]$. The EOM is
-# $M \ddot{q} = F$ where $M$ and $F$ come from the lambdified symbolic
-# derivation above.
+The full Lagrangian model with the buoy constrained to the free surface.
+State vector: $[x_b, \theta, \dot{x}_b, \dot{\theta}]$. The EOM is
+$M \ddot{q} = F$ where $M$ and $F$ come from the lambdified symbolic
+derivation above.
+<!-- #endregion -->
 
-# %% papermill={"duration": 4.393731, "end_time": "2026-04-11T15:48:24.340099+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.946368+00:00", "status": "completed"}
+```python papermill={"duration": 4.393731, "end_time": "2026-04-11T15:48:24.340099+00:00", "exception": false, "start_time": "2026-04-11T15:48:19.946368+00:00", "status": "completed"}
 # Object 3: extended drogued drifter
 # State: [x_b, theta, xb_dot, theta_dot]
 
@@ -445,19 +460,21 @@ mean_drift_drifter = (x_drifter[half][-1] - x_drifter[half][0]) / (
 print(f"Object 3 mean drift (2nd half): {mean_drift_drifter:.6f} m/s")
 print(f"Max theta excursion: {np.degrees(np.max(np.abs(theta_drifter))):.2f} deg")
 print(f"O3 mean theta (2nd half): {np.degrees(np.mean(theta_drifter[half])):.2f} deg")
+```
 
-# %% [markdown] papermill={"duration": 0.001587, "end_time": "2026-04-11T15:48:24.343458+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.341871+00:00", "status": "completed"}
-# ## Object 4: DroguedDrifter driven by the Stokes drift profile
-#
-# The standard operational approach: replace the wave orbital circulation
-# with a steady Stokes drift profile $u_\mathrm{St}(z) = A^2\omega k\,e^{2kz}$
-# on a **flat** mean sea level surface ($\eta = 0$, no vertical motion).
-# This is what `src/drogued_drifters/` does in practice.
-#
-# The `DroguedDrifter.get_full_solution` method gives the full
-# time-resolved trajectory. We compare it to Object 3's measured mean drift.
+<!-- #region papermill={"duration": 0.001587, "end_time": "2026-04-11T15:48:24.343458+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.341871+00:00", "status": "completed"} -->
+## Object 4: DroguedDrifter driven by the Stokes drift profile
 
-# %% papermill={"duration": 0.391728, "end_time": "2026-04-11T15:48:24.736800+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.345072+00:00", "status": "completed"}
+The standard operational approach: replace the wave orbital circulation
+with a steady Stokes drift profile $u_\mathrm{St}(z) = A^2\omega k\,e^{2kz}$
+on a **flat** mean sea level surface ($\eta = 0$, no vertical motion).
+This is what `src/drogued_drifters/` does in practice.
+
+The `DroguedDrifter.get_full_solution` method gives the full
+time-resolved trajectory. We compare it to Object 3's measured mean drift.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.391728, "end_time": "2026-04-11T15:48:24.736800+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.345072+00:00", "status": "completed"}
 # Object 4: DroguedDrifter from src, driven by steady Stokes profile (flat surface)
 from drogued_drifters import DroguedDrifter
 from drogued_drifters.stokes import compute_stokes_profile
@@ -506,16 +523,17 @@ print(f"Object 3 mean drift (wave orbitals, extended model):            {mean_dr
 print(f"Difference (O4 - O3): {(mean_drift_dd_stokes - mean_drift_drifter)*1e3:.2f} mm/s")
 print(f"O4 mean theta_xz (2nd half): {np.degrees(np.mean(theta_xz[half_o4])):.2f} deg")
 print(f"O4 max theta_xz excursion from pi: {np.degrees(np.max(np.abs(theta_xz - np.pi))):.2f} deg")
+```
 
+<!-- #region papermill={"duration": 0.001614, "end_time": "2026-04-11T15:48:24.740314+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.738700+00:00", "status": "completed"} -->
+## Stokes drift at different reference levels
 
-# %% [markdown] papermill={"duration": 0.001614, "end_time": "2026-04-11T15:48:24.740314+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.738700+00:00", "status": "completed"}
-# ## Stokes drift at different reference levels
-#
-# We compute the Stokes drift prediction for the drogued drifter at
-# several possible reference depths and compare to the actual mean drift
-# of Object 3.
+We compute the Stokes drift prediction for the drogued drifter at
+several possible reference depths and compare to the actual mean drift
+of Object 3.
+<!-- #endregion -->
 
-# %% papermill={"duration": 0.006104, "end_time": "2026-04-11T15:48:24.748041+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.741937+00:00", "status": "completed"}
+```python papermill={"duration": 0.006104, "end_time": "2026-04-11T15:48:24.748041+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.741937+00:00", "status": "completed"}
 # Stokes drift function
 def u_St(z):
     return P_A**2 * P_omega * P_k * np.exp(2 * P_k * z)
@@ -552,8 +570,9 @@ print(f"{'Object 1 (surface tracer)':<40s} {'--':>8s} {mean_drift_surf:>10.6f}")
 print(f"{'Object 2 (deep tracer at -l)':<40s} {-P_l:>8.3f} {mean_drift_deep:>10.6f}")
 print(f"{'Object 3 (drogued drifter, wave orbitals)':<40s} {'--':>8s} {mean_drift_drifter:>10.6f}")
 print(f"{'Object 4 (src DD + Stokes profile)':<40s} {'--':>8s} {mean_drift_dd_stokes:>10.6f}")
+```
 
-# %% papermill={"duration": 0.160162, "end_time": "2026-04-11T15:48:24.909835+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.749673+00:00", "status": "completed"}
+```python papermill={"duration": 0.160162, "end_time": "2026-04-11T15:48:24.909835+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.749673+00:00", "status": "completed"}
 # Plot trajectories and z-positions
 
 fig, axes = plt.subplots(3, 1, sharex=True, figsize=(10, 8))
@@ -596,19 +615,21 @@ ax.legend(fontsize=8)
 
 plt.tight_layout()
 plt.show()
+```
 
-# %% [markdown] papermill={"duration": 0.0022, "end_time": "2026-04-11T15:48:24.914495+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.912295+00:00", "status": "completed"}
-# ## Orbital trajectories
-#
-# For a passive fluid parcel at **fixed mean depth** $z_0$, linear wave theory gives circular orbits of radius $A e^{kz_0}$: the horizontal and vertical displacements are both sinusoidal with the same amplitude.
-#
-# The surface tracer is different. Its vertical position is constrained to $z = \eta(x,t) = A\cos(kx - \omega t)$, so the horizontal wave velocity it experiences is
-# $$u_w(x, \eta, t) = A\omega\, e^{k\eta}\cos(kx - \omega t).$$
-# The factor $e^{k\eta}$ is **larger at crests** ($\eta = +A$) and **smaller at troughs** ($\eta = -A$). The tracer therefore moves faster forward (at crests) than backward (at troughs) — this asymmetry is exactly the Stokes drift mechanism, and it also distorts the orbit from a circle into a **prolate trochoid**: the forward arc is wider and faster than the backward arc.
-#
-# With drift not removed, each object traces a forward-spiraling path. The pitch of the spiral (rightward shift per period) equals the Stokes drift times the wave period.
+<!-- #region papermill={"duration": 0.0022, "end_time": "2026-04-11T15:48:24.914495+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.912295+00:00", "status": "completed"} -->
+## Orbital trajectories
 
-# %% papermill={"duration": 0.141568, "end_time": "2026-04-11T15:48:25.058230+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.916662+00:00", "status": "completed"}
+For a passive fluid parcel at **fixed mean depth** $z_0$, linear wave theory gives circular orbits of radius $A e^{kz_0}$: the horizontal and vertical displacements are both sinusoidal with the same amplitude.
+
+The surface tracer is different. Its vertical position is constrained to $z = \eta(x,t) = A\cos(kx - \omega t)$, so the horizontal wave velocity it experiences is
+$$u_w(x, \eta, t) = A\omega\, e^{k\eta}\cos(kx - \omega t).$$
+The factor $e^{k\eta}$ is **larger at crests** ($\eta = +A$) and **smaller at troughs** ($\eta = -A$). The tracer therefore moves faster forward (at crests) than backward (at troughs) — this asymmetry is exactly the Stokes drift mechanism, and it also distorts the orbit from a circle into a **prolate trochoid**: the forward arc is wider and faster than the backward arc.
+
+With drift not removed, each object traces a forward-spiraling path. The pitch of the spiral (rightward shift per period) equals the Stokes drift times the wave period.
+<!-- #endregion -->
+
+```python papermill={"duration": 0.141568, "end_time": "2026-04-11T15:48:25.058230+00:00", "exception": false, "start_time": "2026-04-11T15:48:24.916662+00:00", "status": "completed"}
 # Orbital plot: N_orb wave periods starting at T_START.
 # Drift NOT removed. Trajectories spiral rightward.
 # Drogued drifter: O (buoy) --pole-- O (drogue).
@@ -675,3 +696,4 @@ ax.set_title(f'Orbital trajectories — {N_orb} wave periods (T = {P_Tp} s) from
 ax.legend(fontsize=8, loc='lower right')
 plt.tight_layout()
 plt.show()
+```
