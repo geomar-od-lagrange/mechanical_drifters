@@ -50,12 +50,12 @@ def test_qdd_func_evaluates():
     U_d, V_d = dd.get_uv(t=t, x=0.0, y=0.0, z=-3.0)
 
     state = EOMState(
-        u=0.1,
-        v=0.05,
+        u_stereo=0.1,
+        v_stereo=0.05,
         xd=0.0,
         yd=0.0,
-        ud=0.0,
-        vd=0.0,
+        ud_stereo=0.0,
+        vd_stereo=0.0,
         U_b=U_b,
         V_b=V_b,
         U_d=U_d,
@@ -322,12 +322,12 @@ def test_M_F_func_shapes():
     M_scalar = M_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=0.1,
-            v=0.05,
+            u_stereo=0.1,
+            v_stereo=0.05,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.5,
             V_b=-0.3,
             U_d=0.2,
@@ -339,12 +339,12 @@ def test_M_F_func_shapes():
     F_scalar = F_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=0.1,
-            v=0.05,
+            u_stereo=0.1,
+            v_stereo=0.05,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.5,
             V_b=-0.3,
             U_d=0.2,
@@ -361,12 +361,12 @@ def test_M_F_func_shapes():
     M_batch = M_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=u_batch,
-            v=v_batch,
+            u_stereo=u_batch,
+            v_stereo=v_batch,
             xd=np.zeros(N),
             yd=np.zeros(N),
-            ud=np.zeros(N),
-            vd=np.zeros(N),
+            ud_stereo=np.zeros(N),
+            vd_stereo=np.zeros(N),
             U_b=np.full(N, 0.5),
             V_b=np.full(N, -0.3),
             U_d=np.full(N, 0.2),
@@ -378,12 +378,12 @@ def test_M_F_func_shapes():
     F_batch = F_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=u_batch,
-            v=v_batch,
+            u_stereo=u_batch,
+            v_stereo=v_batch,
             xd=np.zeros(N),
             yd=np.zeros(N),
-            ud=np.zeros(N),
-            vd=np.zeros(N),
+            ud_stereo=np.zeros(N),
+            vd_stereo=np.zeros(N),
             U_b=np.full(N, 0.5),
             V_b=np.full(N, -0.3),
             U_d=np.full(N, 0.2),
@@ -396,33 +396,33 @@ def test_M_F_func_shapes():
 def test_generated_vs_lambdified():
     """M_func and F_func must return consistent results at multiple test points."""
     test_points = [
-        # equilibrium: u=v=0, all velocities zero, no currents
-        dict(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        # equilibrium: u_stereo=v_stereo=0, all velocities zero, no currents
+        dict(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # small tilt
-        dict(u=0.1, v=0.05, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=0.1, v_stereo=0.05, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # nonzero velocities and currents
         dict(
-            u=0.3,
-            v=-0.2,
+            u_stereo=0.3,
+            v_stereo=-0.2,
             xd=0.1,
             yd=-0.05,
-            ud=0.01,
-            vd=-0.02,
+            ud_stereo=0.01,
+            vd_stereo=-0.02,
             U_b=0.5,
             V_b=-0.3,
             U_d=0.2,
             V_d=0.1,
         ),
         # large tilt (theta ~ pi/2)
-        dict(u=2.0, v=0.0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=2.0, v_stereo=0.0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # symmetric case
         dict(
-            u=0.5,
-            v=0.5,
+            u_stereo=0.5,
+            v_stereo=0.5,
             xd=0.1,
             yd=0.1,
-            ud=0.05,
-            vd=0.05,
+            ud_stereo=0.05,
+            vd_stereo=0.05,
             U_b=1.0,
             V_b=1.0,
             U_d=-1.0,
@@ -432,12 +432,12 @@ def test_generated_vs_lambdified():
 
     for pt in test_points:
         state = EOMState(
-            u=pt["u"],
-            v=pt["v"],
+            u_stereo=pt["u_stereo"],
+            v_stereo=pt["v_stereo"],
             xd=pt["xd"],
             yd=pt["yd"],
-            ud=pt["ud"],
-            vd=pt["vd"],
+            ud_stereo=pt["ud_stereo"],
+            vd_stereo=pt["vd_stereo"],
             U_b=pt["U_b"],
             V_b=pt["V_b"],
             U_d=pt["U_d"],
@@ -474,7 +474,7 @@ def test_generated_vectorized():
 
     # Vectorized call
     batch_state = EOMState(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+        u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
     )
     M_vec = M_func(_DEFAULT_PHYSICS, batch_state)
     F_vec = F_func(_DEFAULT_PHYSICS, batch_state)
@@ -486,12 +486,12 @@ def test_generated_vectorized():
     # Scalar calls
     for i in range(N):
         scalar_state = EOMState(
-            u=u[i],
-            v=v[i],
+            u_stereo=u[i],
+            v_stereo=v[i],
             xd=xd[i],
             yd=yd[i],
-            ud=ud[i],
-            vd=vd[i],
+            ud_stereo=ud[i],
+            vd_stereo=vd[i],
             U_b=U_b[i],
             V_b=V_b[i],
             U_d=U_d[i],

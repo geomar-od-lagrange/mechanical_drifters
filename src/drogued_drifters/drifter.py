@@ -9,7 +9,7 @@ from drogued_drifters.lagrange_model import (
     _uv_to_spherical,
 )
 
-# Internal state vector layout: [x, y, u, v, xd, yd, ud, vd].
+# Internal state vector layout: [x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo].
 # These indices are used throughout `rhs`, `_rhs_batch`, and
 # `get_final_drift_batch` to unpack and repack state arrays.
 IX, IY, IU, IV, IXD, IYD, IUD, IVD = range(8)
@@ -95,9 +95,9 @@ class DroguedDrifter:
     formulation (see ``lagrange_model``).
 
     The internal state vector has 8 components:
-    ``[x, y, u, v, xd, yd, ud, vd]``
-    where ``(x, y)`` is the buoy position and ``(u, v)`` are stereographic
-    coordinates for the pole direction (equilibrium at origin).
+    ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``
+    where ``(x, y)`` is the buoy position and ``(u_stereo, v_stereo)`` are
+    stereographic coordinates for the pole direction (equilibrium at origin).
 
     Default parameters are for the Callies et al. drifter geometry
     (rho = 1025 kg/m^3)::
@@ -180,29 +180,31 @@ class DroguedDrifter:
         Args:
             t: Current time [s].
             y: State vector of length 8:
-                ``[x, y, u, v, xd, yd, ud, vd]``.
+                ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
 
         Returns:
             Time derivatives of the state vector (length 8).
         """
         x_b = y[IX]
         y_b = y[IY]
-        u = y[IU]
-        v = y[IV]
+        u_stereo = y[IU]
+        v_stereo = y[IV]
         xd = y[IXD]
         yd = y[IYD]
-        ud = y[IUD]
-        vd = y[IVD]
+        ud_stereo = y[IUD]
+        vd_stereo = y[IVD]
 
-        z_d = float(self._z_eff(np.array([u]), np.array([v]))[0])
+        z_d = float(self._z_eff(np.array([u_stereo]), np.array([v_stereo]))[0])
 
         U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
         U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
 
-        state = EOMState(u, v, xd, yd, ud, vd, U_b, V_b, U_d, V_d)
+        state = EOMState(
+            u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo, U_b, V_b, U_d, V_d
+        )
         qdd = _qdd_func(self.physics, state)  # returns (4,)
 
-        return np.array([xd, yd, ud, vd, *qdd])
+        return np.array([xd, yd, ud_stereo, vd_stereo, *qdd])
 
     def _z_eff(self, u, v):
         """Compute effective drogue vertical position from stereographic (u, v).
@@ -240,25 +242,25 @@ class DroguedDrifter:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
         """
         N = Y.shape[0]
-        u = Y[:, IU]
-        v = Y[:, IV]
+        u_stereo = Y[:, IU]
+        v_stereo = Y[:, IV]
         xd = Y[:, IXD]
         yd = Y[:, IYD]
-        ud = Y[:, IUD]
-        vd = Y[:, IVD]
+        ud_stereo = Y[:, IUD]
+        vd_stereo = Y[:, IVD]
 
         # Sample velocity at buoy (z=0) and drogue (z=z_eff)
         U_b, V_b = sample_uv(np.zeros(N))
-        z_eff = self._z_eff(u, v)
+        z_eff = self._z_eff(u_stereo, v_stereo)
         U_d, V_d = sample_uv(z_eff)
 
         state = EOMState(
-            u=u,
-            v=v,
+            u_stereo=u_stereo,
+            v_stereo=v_stereo,
             xd=xd,
             yd=yd,
-            ud=ud,
-            vd=vd,
+            ud_stereo=ud_stereo,
+            vd_stereo=vd_stereo,
             U_b=U_b,
             V_b=V_b,
             U_d=U_d,
@@ -275,8 +277,8 @@ class DroguedDrifter:
         dY = np.empty_like(Y)
         dY[:, IX] = xd
         dY[:, IY] = yd
-        dY[:, IU] = ud
-        dY[:, IV] = vd
+        dY[:, IU] = ud_stereo
+        dY[:, IV] = vd_stereo
         dY[:, IXD:] = qdd
 
         return dY
@@ -342,7 +344,7 @@ class DroguedDrifter:
         if y0 is not None:
             y0_arr = np.asarray(y0, dtype=float).reshape(N, 8)
             # y0 is in public (x, y, theta, phi, xd, yd, thetad, phid).
-            # Convert to internal (x, y, u, v, xd, yd, ud, vd).
+            # Convert to internal (x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo).
             u0, v0, ud0, vd0 = _spherical_to_uv(
                 y0_arr[:, 2],
                 y0_arr[:, 3],

@@ -120,7 +120,7 @@ def test_zero_drogue_velocity():
     """Drogue velocity stationary, buoy moving: drift should converge."""
 
     def sample_uv_sheared(*, t, x, y, z):
-        """Buoy: v=0.5 m/s, Drogue: v=0.0 m/s."""
+        """Buoy: v_stereo=0.5 m/s, Drogue: v_stereo=0.0 m/s."""
         if z == 0:
             return 0.0, 0.5
         return 0.0, 0.0
@@ -190,12 +190,12 @@ def test_M_func_positive_definite_extreme_angles():
     M_horiz = M_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=5.0,
-            v=0.0,
+            u_stereo=5.0,
+            v_stereo=0.0,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.0,
             V_b=0.0,
             U_d=0.0,
@@ -270,7 +270,7 @@ def test_M_F_continuity_near_zero():
 
     for eps in eps_values:
         state = EOMState(
-            u=eps, v=eps, xd=0, yd=0, ud=0, vd=0, U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0
+            u_stereo=eps, v_stereo=eps, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0
         )
         M = M_func(_DEFAULT_PHYSICS, state)
         F = F_func(_DEFAULT_PHYSICS, state)

@@ -37,12 +37,12 @@ class EOMState(NamedTuple):
     Not part of the public API — fields use stereographic coordinates.
     """
 
-    u: float  # stereographic u
-    v: float  # stereographic v
+    u_stereo: float  # stereographic u
+    v_stereo: float  # stereographic v
     xd: float  # buoy x velocity [m/s]
     yd: float  # buoy y velocity [m/s]
-    ud: float  # stereographic u velocity [1/s]
-    vd: float  # stereographic v velocity [1/s]
+    ud_stereo: float  # stereographic u velocity [1/s]
+    vd_stereo: float  # stereographic v velocity [1/s]
     U_b: float  # current at buoy, east [m/s]
     V_b: float  # current at buoy, north [m/s]
     U_d: float  # current at drogue, east [m/s]
@@ -191,8 +191,8 @@ def _derive_symbolic():
     # back to struct fields. Substituting plain Symbols with names matching
     # our DrifterPhysics/EOMState field names produces named parameters,
     # enabling signature-based argument packing in _build_packer.
-    u_static, v_static = sp.symbols("u v", real=True)
-    ud_static, vd_static = sp.symbols("ud vd", real=True)
+    u_static, v_static = sp.symbols("u_stereo v_stereo", real=True)
+    ud_static, vd_static = sp.symbols("ud_stereo vd_stereo", real=True)
     x_static, y_static = sp.symbols("x_pos y_pos", real=True)
     xd_static, yd_static = sp.symbols("xd yd", real=True)
 
@@ -222,12 +222,12 @@ def _derive_symbolic():
         "g": g,
         "k_b": k_b,
         "k_d": k_d,
-        "u": u_static,
-        "v": v_static,
+        "u_stereo": u_static,
+        "v_stereo": v_static,
         "xd": xd_static,
         "yd": yd_static,
-        "ud": ud_static,
-        "vd": vd_static,
+        "ud_stereo": ud_static,
+        "vd_stereo": vd_static,
         "U_b": U_b,
         "V_b": V_b,
         "U_d": U_d,
@@ -339,7 +339,7 @@ def _qdd_func(physics, state):
     """
     qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
 
-    u_arr = np.asarray(state.u)
+    u_arr = np.asarray(state.u_stereo)
     batch_ndim = u_arr.ndim
 
     result = qdd_raw(*pack_eom_args(physics, state))
@@ -368,8 +368,8 @@ def M_func(physics: DrifterPhysics, state: EOMState):
     """
     _, M_raw, _, _, pack_eom_args = _get_eom_callables()
 
-    # Detect batch size from state.u
-    u_arr = np.asarray(state.u)
+    # Detect batch size from state.u_stereo
+    u_arr = np.asarray(state.u_stereo)
     batch_ndim = u_arr.ndim
 
     # Pack args in the order the lambda expects (derived from its signature)
@@ -427,8 +427,8 @@ def F_func(physics: DrifterPhysics, state: EOMState):
     """
     _, _, F_raw, _, pack_eom_args = _get_eom_callables()
 
-    # Detect batch size from state.u
-    u_arr = np.asarray(state.u)
+    # Detect batch size from state.u_stereo
+    u_arr = np.asarray(state.u_stereo)
     batch_ndim = u_arr.ndim
 
     # Pack args in the order the lambda expects (derived from its signature)

@@ -101,12 +101,12 @@ def test_derived_vs_cached_numerical_agreement():
         k_d=154.0,
     )
     test_state = EOMState(
-        u=0.1,
-        v=0.05,
+        u_stereo=0.1,
+        v_stereo=0.05,
         xd=0.0,
         yd=0.0,
-        ud=0.0,
-        vd=0.0,
+        ud_stereo=0.0,
+        vd_stereo=0.0,
         U_b=0.5,
         V_b=-0.3,
         U_d=0.2,
@@ -209,12 +209,12 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
             k_d=154.0,
         )
         test_state = EOMState(
-            u=0.0,
-            v=0.0,
+            u_stereo=0.0,
+            v_stereo=0.0,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.0,
             V_b=0.0,
             U_d=0.0,

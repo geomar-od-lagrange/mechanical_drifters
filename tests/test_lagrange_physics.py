@@ -98,7 +98,7 @@ def test_mass_matrix_nonsingular_at_equilibrium():
     """
     M = M_func(
         _DEFAULT_PHYSICS,
-        EOMState(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        EOMState(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
     )
     # Should be well-conditioned (no near-zero eigenvalues)
     eigvals = np.linalg.eigvalsh(M)
@@ -115,38 +115,38 @@ def test_mass_matrix_positive_definite_scalar():
     """
     test_points = [
         # Equilibrium
-        dict(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # Small tilt
-        dict(u=0.1, v=0.05, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=0.1, v_stereo=0.05, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # Large tilt
-        dict(u=1.0, v=0.5, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=1.0, v_stereo=0.5, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         # With nonzero velocities
         dict(
-            u=0.2,
-            v=-0.1,
+            u_stereo=0.2,
+            v_stereo=-0.1,
             xd=0.1,
             yd=-0.05,
-            ud=0.01,
-            vd=-0.02,
+            ud_stereo=0.01,
+            vd_stereo=-0.02,
             U_b=0.5,
             V_b=-0.3,
             U_d=0.2,
             V_d=0.1,
         ),
         # Extreme: near-horizontal pole
-        dict(u=2.0, v=1.5, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=2.0, v_stereo=1.5, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
     ]
 
     for pt in test_points:
         M = M_func(
             _DEFAULT_PHYSICS,
             EOMState(
-                u=pt["u"],
-                v=pt["v"],
+                u_stereo=pt["u_stereo"],
+                v_stereo=pt["v_stereo"],
                 xd=pt["xd"],
                 yd=pt["yd"],
-                ud=pt["ud"],
-                vd=pt["vd"],
+                ud_stereo=pt["ud_stereo"],
+                vd_stereo=pt["vd_stereo"],
                 U_b=pt["U_b"],
                 V_b=pt["V_b"],
                 U_d=pt["U_d"],
@@ -179,7 +179,7 @@ def test_mass_matrix_positive_definite_batch():
     M_batch = M_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+            u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
         ),
     )
 
@@ -204,18 +204,18 @@ def test_drag_force_quadratic_scaling():
         F(2*v) / F(v) ~ (2*v)^2 / v^2 = 4
     """
 
-    # Setup: equilibrium pole (u=0, v=0) with varying buoy current
+    # Setup: equilibrium pole (u_stereo=0, v_stereo=0) with varying buoy current
     def test_force_scaling(U_b_test):
         """Helper: compute F at given buoy current."""
         return F_func(
             _DEFAULT_PHYSICS,
             EOMState(
-                u=0.0,
-                v=0.0,  # Equilibrium orientation
+                u_stereo=0.0,
+                v_stereo=0.0,  # Equilibrium orientation
                 xd=0.0,
                 yd=0.0,  # No buoy motion
-                ud=0.0,
-                vd=0.0,
+                ud_stereo=0.0,
+                vd_stereo=0.0,
                 U_b=U_b_test,
                 V_b=0.0,  # Vary buoy current
                 U_d=0.0,
@@ -247,12 +247,12 @@ def test_zero_velocity_zero_force():
     F = F_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=0.0,
-            v=0.0,
+            u_stereo=0.0,
+            v_stereo=0.0,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.0,
             V_b=0.0,
             U_d=0.0,
@@ -339,7 +339,7 @@ def test_uv_to_theta_inversion():
     for theta_expected in test_angles:
         # Convert theta to (u, v) via stereographic projection
         delta = np.pi - theta_expected
-        u = 2 * np.tan(delta / 2)  # phi=0, so v=0
+        u = 2 * np.tan(delta / 2)  # phi=0, so v_stereo=0
         v = 0.0
 
         # Convert back
@@ -363,12 +363,12 @@ def test_no_singularity_at_equilibrium():
     M = M_func(
         _DEFAULT_PHYSICS,
         EOMState(
-            u=0.0,
-            v=0.0,
+            u_stereo=0.0,
+            v_stereo=0.0,
             xd=0.0,
             yd=0.0,
-            ud=0.0,
-            vd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
             U_b=0.0,
             V_b=0.0,
             U_d=0.0,
@@ -395,24 +395,24 @@ def test_no_singularity_at_equilibrium():
 def test_qdd_func_matches_M_F_solve_scalar():
     """_qdd_func must agree with M_func + F_func + np.linalg.solve at several points."""
     test_points = [
-        dict(u=0, v=0, xd=0, yd=0, ud=0, vd=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        dict(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
         dict(
-            u=0.1, v=0.05, xd=0, yd=0, ud=0, vd=0, U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1
+            u_stereo=0.1, v_stereo=0.05, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1
         ),
         dict(
-            u=0.3,
-            v=-0.2,
+            u_stereo=0.3,
+            v_stereo=-0.2,
             xd=0.1,
             yd=-0.05,
-            ud=0.01,
-            vd=-0.02,
+            ud_stereo=0.01,
+            vd_stereo=-0.02,
             U_b=0.5,
             V_b=-0.3,
             U_d=0.2,
             V_d=0.1,
         ),
         dict(
-            u=2.0, v=0.0, xd=0, yd=0, ud=0, vd=0, U_b=1.0, V_b=1.0, U_d=-1.0, V_d=-1.0
+            u_stereo=2.0, v_stereo=0.0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=1.0, V_b=1.0, U_d=-1.0, V_d=-1.0
         ),
     ]
 
@@ -436,12 +436,12 @@ def test_qdd_func_matches_M_F_solve_batch():
     N = 10
     rng = np.random.default_rng(42)
     state = EOMState(
-        u=rng.uniform(-1, 1, N),
-        v=rng.uniform(-1, 1, N),
+        u_stereo=rng.uniform(-1, 1, N),
+        v_stereo=rng.uniform(-1, 1, N),
         xd=rng.uniform(-0.5, 0.5, N),
         yd=rng.uniform(-0.5, 0.5, N),
-        ud=rng.uniform(-0.1, 0.1, N),
-        vd=rng.uniform(-0.1, 0.1, N),
+        ud_stereo=rng.uniform(-0.1, 0.1, N),
+        vd_stereo=rng.uniform(-0.1, 0.1, N),
         U_b=rng.uniform(-0.5, 0.5, N),
         V_b=rng.uniform(-0.5, 0.5, N),
         U_d=rng.uniform(-0.5, 0.5, N),
@@ -472,12 +472,12 @@ def test_qdd_func_matches_M_F_solve_batch():
 def test_lambdify_scalar_input():
     """Scalar args in, scalar results out (baseline)."""
     state = EOMState(
-        u=0.1,
-        v=0.05,
+        u_stereo=0.1,
+        v_stereo=0.05,
         xd=0.0,
         yd=0.0,
-        ud=0.0,
-        vd=0.0,
+        ud_stereo=0.0,
+        vd_stereo=0.0,
         U_b=0.5,
         V_b=-0.3,
         U_d=0.2,
@@ -499,12 +499,12 @@ def test_lambdify_batch_input():
     N = 20
     rng = np.random.default_rng(123)
     state = EOMState(
-        u=rng.uniform(-1, 1, N),
-        v=rng.uniform(-1, 1, N),
+        u_stereo=rng.uniform(-1, 1, N),
+        v_stereo=rng.uniform(-1, 1, N),
         xd=rng.uniform(-0.5, 0.5, N),
         yd=rng.uniform(-0.5, 0.5, N),
-        ud=rng.uniform(-0.1, 0.1, N),
-        vd=rng.uniform(-0.1, 0.1, N),
+        ud_stereo=rng.uniform(-0.1, 0.1, N),
+        vd_stereo=rng.uniform(-0.1, 0.1, N),
         U_b=rng.uniform(-0.5, 0.5, N),
         V_b=rng.uniform(-0.5, 0.5, N),
         U_d=rng.uniform(-0.5, 0.5, N),
@@ -538,18 +538,18 @@ def test_lambdify_batch_matches_scalar_loop():
     V_d = rng.uniform(-0.5, 0.5, N)
 
     batch_state = EOMState(
-        u=u, v=v, xd=xd, yd=yd, ud=ud, vd=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
+        u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
     )
     qdd_batch = _qdd_func(_DEFAULT_PHYSICS, batch_state)
 
     for i in range(N):
         scalar_state = EOMState(
-            u=u[i],
-            v=v[i],
+            u_stereo=u[i],
+            v_stereo=v[i],
             xd=xd[i],
             yd=yd[i],
-            ud=ud[i],
-            vd=vd[i],
+            ud_stereo=ud[i],
+            vd_stereo=vd[i],
             U_b=U_b[i],
             V_b=V_b[i],
             U_d=U_d[i],
@@ -568,12 +568,12 @@ def test_lambdify_mixed_scalar_array_broadcast():
     """Physics args are scalars, state args are (N,) arrays."""
     N = 5
     state = EOMState(
-        u=np.full(N, 0.1),
-        v=np.full(N, 0.05),
+        u_stereo=np.full(N, 0.1),
+        v_stereo=np.full(N, 0.05),
         xd=np.zeros(N),
         yd=np.zeros(N),
-        ud=np.zeros(N),
-        vd=np.zeros(N),
+        ud_stereo=np.zeros(N),
+        vd_stereo=np.zeros(N),
         U_b=np.full(N, 0.5),
         V_b=np.full(N, -0.3),
         U_d=np.full(N, 0.2),
@@ -608,12 +608,12 @@ def test_lambdify_cse_preserves_broadcasting():
     N = 10
     rng = np.random.default_rng(77)
     state = EOMState(
-        u=rng.uniform(-1, 1, N),
-        v=rng.uniform(-1, 1, N),
+        u_stereo=rng.uniform(-1, 1, N),
+        v_stereo=rng.uniform(-1, 1, N),
         xd=rng.uniform(-0.5, 0.5, N),
         yd=rng.uniform(-0.5, 0.5, N),
-        ud=rng.uniform(-0.1, 0.1, N),
-        vd=rng.uniform(-0.1, 0.1, N),
+        ud_stereo=rng.uniform(-0.1, 0.1, N),
+        vd_stereo=rng.uniform(-0.1, 0.1, N),
         U_b=rng.uniform(-0.5, 0.5, N),
         V_b=rng.uniform(-0.5, 0.5, N),
         U_d=rng.uniform(-0.5, 0.5, N),
@@ -635,12 +635,12 @@ def test_lambdify_cse_preserves_broadcasting():
 def test_lambdify_batch_N1():
     """Single-element (N=1) arrays: common source of shape bugs."""
     state = EOMState(
-        u=np.array([0.1]),
-        v=np.array([0.05]),
+        u_stereo=np.array([0.1]),
+        v_stereo=np.array([0.05]),
         xd=np.array([0.0]),
         yd=np.array([0.0]),
-        ud=np.array([0.0]),
-        vd=np.array([0.0]),
+        ud_stereo=np.array([0.0]),
+        vd_stereo=np.array([0.0]),
         U_b=np.array([0.5]),
         V_b=np.array([-0.3]),
         U_d=np.array([0.2]),
