@@ -4,7 +4,7 @@ import numpy as np
 _G = 9.81
 
 
-def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels):
+def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels, g=None):
     """Compute Stokes drift profile at given depth levels.
 
     Uses the deep-water exponential Stokes drift profile (see Liu et al.,
@@ -47,18 +47,21 @@ def compute_stokes_profile(surface_u, surface_v, peak_period, depth_levels):
         depth_levels: Vertical positions [m], positive upward (0 = surface,
             negative = below MSL), shape ``(D,)``.  Must be sorted ascending
             (deepest first, e.g. ``[-20, -10, -5, 0]``).
+        g: Gravitational acceleration [m/s^2]. If None, uses 9.81.
 
     Returns:
         Tuple ``(stokes_u, stokes_v)`` arrays of shape ``(D, ...)`` with
         Stokes drift east and north components at each depth level.
     """
+    if g is None:
+        g = _G
     surface_u = np.asarray(surface_u, dtype=float)
     surface_v = np.asarray(surface_v, dtype=float)
     peak_period = np.asarray(peak_period, dtype=float)
     depth_levels = np.asarray(depth_levels, dtype=float)
 
     omega = 2 * np.pi / peak_period
-    k = omega**2 / _G  # deep-water wavenumber [1/m]
+    k = omega**2 / g  # deep-water wavenumber [1/m]
 
     # Broadcast: depth_levels -> (D, 1, 1, ...) to match (...) inputs
     ndim = surface_u.ndim

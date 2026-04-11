@@ -65,14 +65,26 @@ All items complete. Plans in [done/](done/).
 
 ### E3. Repo cleanup ✓
 
-### E4. Rerun all example notebooks
-- Execute all notebooks in `examples/` with papermill
-- Verify plots, outputs, no errors
+### E4. Rerun all example notebooks ✓
+- All idealized + baltic notebooks pass with papermill
+- Fixed `dd.l` → `dd.physics.l` in `03_drogued_drifter_in_wave_orbitals.ipynb`
+- Fixed `compute_stokes_profile` to accept optional `g=` parameter
 
 ### E5. Full repo review
 - Read all of `src/`, `tests/`, `docs/`, open `plans/`
 - Check for stale references, dead code, naming consistency
+- Review plans:
+  - [review-documentation.md](review-documentation.md)
+  - [review-code-quality.md](review-code-quality.md)
+  - [review-architecture.md](review-architecture.md)
 
 ### E6. Finalize README
 - Final pass after E4/E5: verify all notebook links work, quick start
   examples run, Parcels section is accurate
+
+### E7. Switch jupytext pairing from `py:percent` to `md`
+- Current `ipynb,py:percent` pairing is awkward — `.py` files lose
+  markdown cell richness and aren't useful for review
+- Switch to `ipynb,md` pairing: diffable markdown with full narrative,
+  ipynb for execution/output
+- Remove generated `.py` files, update `.gitignore` if needed
