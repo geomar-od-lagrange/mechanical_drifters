@@ -1,20 +1,16 @@
-"""Tests for Parcels interpolation bridge (make_dd_velocity_interpolator, make_profile_sampler).
+"""Tests for Parcels coupling (DDAdvectEE kernel, make_profile_sampler).
 
 These tests verify:
 - Profile sampler linear interpolation in depth
 - Boundary handling (searchsorted clipping)
-- Spherical ↔ m/s conversion
-- Warm-state warm-starting
-- Particle reordering edge cases
+- DDAdvectEE kernel with synthetic FieldSets (uniform and sheared flow)
 """
 
 import numpy as np
 import pytest
 
-from drogued_drifters.drifter import (
-    DroguedDrifter,
-    make_profile_sampler,
-)
+from drogued_drifters.drifter import DroguedDrifter
+from drogued_drifters.parcels_v4 import DDAdvectEE, make_dd_kernel, make_profile_sampler
 
 
 def test_make_profile_sampler_basic():
@@ -178,54 +174,6 @@ def test_profile_sampler_broadcast_scalar_z():
     assert U.shape == (N,), f"Expected shape ({N},), got {U.shape}"
 
 
-def test_make_dd_velocity_interpolator_exists():
-    """Verify make_dd_velocity_interpolator is callable."""
-    from drogued_drifters.drifter import make_dd_velocity_interpolator
-
-    dd = DroguedDrifter()
-    interp = make_dd_velocity_interpolator(dd, spherical=False)
-
-    assert callable(interp), "make_dd_velocity_interpolator should return a callable"
-
-
-def test_make_dd_velocity_interpolator_warm_state_dict():
-    """Verify warm_state parameter is optional and defaults to empty dict."""
-    from drogued_drifters.drifter import make_dd_velocity_interpolator
-
-    dd = DroguedDrifter()
-
-    # Without warm_state
-    interp1 = make_dd_velocity_interpolator(dd, spherical=False)
-    assert callable(interp1)
-
-    # With warm_state
-    warm_state = {}
-    interp2 = make_dd_velocity_interpolator(dd, warm_state=warm_state, spherical=False)
-    assert callable(interp2)
-
-
-def test_make_dd_velocity_interpolator_spherical_conversion():
-    """Verify that spherical=True requests deg/s conversion."""
-    from drogued_drifters.drifter import make_dd_velocity_interpolator
-
-    dd = DroguedDrifter()
-
-    interp = make_dd_velocity_interpolator(dd, spherical=True)
-    assert callable(interp)
-
-    # The interpolator should be ready to handle Parcels spherical mesh
-
-
-def test_make_dd_velocity_interpolator_spherical_false():
-    """Verify that spherical=False returns drift in m/s."""
-    from drogued_drifters.drifter import make_dd_velocity_interpolator
-
-    dd = DroguedDrifter()
-
-    interp = make_dd_velocity_interpolator(dd, spherical=False)
-    assert callable(interp)
-
-
 def test_profile_sampler_vectorized_batch_z():
     """Sampler should accept vector z and return vector (U, V) (z-up convention)."""
     depth_levels = np.array([-10.0, -5.0, 0.0])
@@ -291,15 +239,131 @@ def test_profile_sampler_nan_handling():
     assert np.isnan(U[1]), "Should preserve NaN from velocity profile"
 
 
-def test_interpolator_parametrization_consistency():
-    """Interpolator with custom DroguedDrifter params should accept them."""
-    from drogued_drifters.drifter import make_dd_velocity_interpolator
+# ---------------------------------------------------------------------------
+# Integration tests for DDAdvectEE kernel with synthetic FieldSets
+# ---------------------------------------------------------------------------
 
-    dd_custom = DroguedDrifter(
-        m_b=1.5,
-        m_d=3.0,
-        l=2.5,
+
+def _make_flat_fieldset(U_data_4d, V_data_4d, x, y, depth, time):
+    """Build a flat-mesh FieldSet from 4-D numpy arrays.
+
+    Args:
+        U_data_4d, V_data_4d: shape (T, Z, Y, X)
+        x, y, depth, time: 1-D coordinate arrays
+    """
+    import xarray as xr
+    from parcels import FieldSet
+
+    ds = xr.Dataset(
+        {
+            "U": (["time", "depth", "y", "x"], U_data_4d),
+            "V": (["time", "depth", "y", "x"], V_data_4d),
+            "grid": xr.DataArray(
+                data=0,
+                attrs={
+                    "cf_role": "grid_topology",
+                    "topology_dimension": 2,
+                    "node_dimensions": "x y",
+                    "face_dimensions": "x:x (padding: none) y:y (padding: none)",
+                    "vertical_dimensions": "depth:depth (padding: none)",
+                    "node_coordinates": "x y",
+                },
+            ),
+        },
+        coords={
+            "x": ("x", x, {"axis": "X"}),
+            "y": ("y", y, {"axis": "Y"}),
+            "depth": ("depth", depth, {"axis": "Z"}),
+            "time": ("time", time, {"axis": "T"}),
+        },
+    )
+    return FieldSet.from_sgrid_conventions(ds, mesh="flat")
+
+
+def test_uniform_flow_dd_kernel():
+    """Uniform flow: buoy and drogue see the same current, drift = current."""
+    from parcels import FieldSet, Particle, ParticleSet, StatusCode
+
+    U_const = 0.5
+    x = np.linspace(0, 1000, 5)
+    y = np.linspace(0, 1000, 5)
+    depth = np.array([0.0, 5.0, 10.0])
+    time = np.array([0.0])
+
+    U_data = np.full((1, len(depth), len(y), len(x)), U_const)
+    V_data = np.zeros_like(U_data)
+
+    fieldset = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
+    dd = DroguedDrifter()
+
+    pset = ParticleSet(
+        fieldset=fieldset,
+        pclass=Particle,
+        lon=[500.0],
+        lat=[500.0],
+        z=[0.0],
     )
 
-    interp = make_dd_velocity_interpolator(dd_custom, spherical=False)
-    assert callable(interp)
+    DT = 60.0  # 1 minute
+    pset.execute(
+        kernels=[make_dd_kernel(dd)],
+        dt=DT,
+        runtime=DT,
+        verbose_progress=False,
+    )
+
+    # After one step: lon should have moved by ~U_const * DT = 0.5 * 60 = 30 m
+    lon_final = float(np.asarray(pset.lon)[0])
+    displacement = lon_final - 500.0
+    expected = U_const * DT
+    np.testing.assert_allclose(displacement, expected, rtol=0.05)
+
+
+def test_sheared_flow_dd_kernel():
+    """Sheared flow: drift velocity should be between surface and bottom current."""
+    from parcels import FieldSet, Particle, ParticleSet, StatusCode
+
+    x = np.linspace(0, 1000, 5)
+    y = np.linspace(0, 1000, 5)
+    depth = np.array([0.0, 1.5, 3.0, 5.0, 10.0])
+    time = np.array([0.0])
+
+    # Linear shear: U=1.0 at surface, U=0.0 at 10m depth
+    U_surface = 1.0
+    U_data = np.zeros((1, len(depth), len(y), len(x)))
+    for iz, d in enumerate(depth):
+        U_data[0, iz, :, :] = U_surface * (1.0 - d / 10.0)
+    V_data = np.zeros_like(U_data)
+
+    fieldset = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
+    dd = DroguedDrifter()  # default drogue depth l=3.0 m
+
+    pset = ParticleSet(
+        fieldset=fieldset,
+        pclass=Particle,
+        lon=[500.0],
+        lat=[500.0],
+        z=[0.0],
+    )
+
+    DT = 60.0
+    pset.execute(
+        kernels=[make_dd_kernel(dd)],
+        dt=DT,
+        runtime=DT,
+        verbose_progress=False,
+    )
+
+    lon_final = float(np.asarray(pset.lon)[0])
+    displacement = lon_final - 500.0
+    drift_speed = displacement / DT
+
+    # Drift should be between 0 (bottom) and 1.0 (surface), strictly
+    assert (
+        0.0 < drift_speed < U_surface
+    ), f"Drift speed {drift_speed:.4f} should be between 0 and {U_surface}"
+    # With drogue at 3m in linear shear, drift should be closer to the
+    # drogue-depth current (0.7 m/s) than to the surface current (1.0 m/s)
+    assert (
+        drift_speed < 0.9
+    ), f"Drift speed {drift_speed:.4f} should be < 0.9 (drogue effect)"
