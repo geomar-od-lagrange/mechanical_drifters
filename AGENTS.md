@@ -41,6 +41,12 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 - Use builtin plotting instead of raw matplotlib if possible.
 - Focus on the data. Use cartopy with Natural Earth or OSM tiles for maps.
 
+## Documentation
+
+`docs/*.md` contains standalone documentation for the current state of the code. Each doc should make sense on its own without referencing previous implementations, changelogs, or development history. Explain design choices by comparing alternatives and their trade-offs, not by narrating what changed. Git history is the changelog; docs describe what *is*, not what *was*.
+
+`plans/*.md` are historical records of intent before implementation. They may be outdated. When a plan is implemented, add a status note at the top pointing to the authoritative doc in `docs/`.
+
 ## Data access
 
 - Use `copernicusmarine.open_dataset` with minimal arguments.

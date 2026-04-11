@@ -63,7 +63,7 @@ def DDAdvectEE(particles, fieldset, *, dd):
     curvilinear, and unstructured grids, including vector rotation and
     spherical mesh conversion).
 
-    Each call cold-starts the ODE from equilibrium.  Spherical/flat
+    Each call cold-starts the ODE from un-sheared equilibrium.  Spherical/flat
     mesh is auto-detected from ``fieldset.U.grid._mesh``.
 
     Only samples depths up to the drogue length plus one grid cell
@@ -123,7 +123,7 @@ def DDAdvectEE(particles, fieldset, *, dd):
 
     sample_uv = make_profile_sampler(depth_up, U_profiles, V_profiles)
 
-    # Cold-start from equilibrium
+    # Cold-start from no-shear equilibrium
     xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
 
     # Position update (Euler forward)

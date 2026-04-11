@@ -1,5 +1,13 @@
 # D-I: Parcels Isolation
 
+> **Status: implemented.** The authoritative documentation is
+> [`docs/parcels-v4-coupling.md`](../docs/parcels-v4-coupling.md).
+> This plan is kept as a historical record.  Notable deviation from
+> plan: `functools.partial(DDAdvectEE, dd=dd)` does not work — Parcels
+> v4 alpha checks `isinstance(f, types.FunctionType)` and rejects
+> `partial` objects.  A `make_dd_kernel(dd)` closure factory is used
+> instead.
+
 ## Goal
 
 Move all Parcels-coupling code out of `drifter.py` into a new

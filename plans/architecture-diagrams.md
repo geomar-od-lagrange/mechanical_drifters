@@ -1,4 +1,4 @@
-# Architecture diagrams (post DW-A through DW-F)
+# Architecture diagrams (post DW-A through DW-F, updated for D-I)
 
 ## Class diagram
 
@@ -63,20 +63,14 @@ classDiagram
     lagrange_model --> DrifterPhysics : arg type
     lagrange_model --> EOMState : arg type
 
-    class make_profile_sampler {
-        <<function>>
-        depth_levels, U_profiles, V_profiles
-        returns sample_uv(z)
+    class parcels_v4 {
+        <<module>>
+        +make_dd_kernel(dd) Callable
+        +DDAdvectEE(particles, fieldset, dd) void
+        +make_profile_sampler(depth_levels, U, V) Callable
     }
 
-    class make_dd_velocity_interpolator {
-        <<function>>
-        dd : DroguedDrifter
-        returns Parcels vector_interp_method
-    }
-
-    make_dd_velocity_interpolator --> DroguedDrifter : uses
-    make_dd_velocity_interpolator --> make_profile_sampler : uses
+    parcels_v4 --> DroguedDrifter : calls get_final_drift_batch
 ```
 
 ## Data flow: parameter passing and argument packing
