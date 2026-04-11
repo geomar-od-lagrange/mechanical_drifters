@@ -136,7 +136,7 @@ def DDAdvectEE(particles, fieldset, *, dd):
         particles.dlat += yd_ms * particles.dt
 
 
-def make_dd_kernel(dd):
+def make_dd_kernel(dd, backend="numpy"):
     """Create a Parcels-compatible kernel function for drogued-drifter advection.
 
     Parcels v4 alpha requires kernel arguments to be ``types.FunctionType``
@@ -146,9 +146,16 @@ def make_dd_kernel(dd):
 
     Args:
         dd: A :class:`~drogued_drifters.drifter.DroguedDrifter` instance.
+        backend: ``"numpy"`` (default) or ``"numba"``.  With ``"numba"``,
+            the lambdified qdd function is JIT-compiled with ``numba.njit``
+            for faster batch evaluation.  numba must be installed; users
+            without numba can still use the default ``"numpy"`` backend.
 
     Returns:
         A kernel function suitable for ``pset.execute(kernels=[...])``.
+
+    Raises:
+        ValueError: If ``backend`` is not ``"numpy"`` or ``"numba"``.
 
     Usage::
 
@@ -158,8 +165,75 @@ def make_dd_kernel(dd):
         kernel = make_dd_kernel(dd)
         pset.execute(kernels=[kernel, DeleteOOB], dt=DT, runtime=RUNTIME)
     """
+    if backend == "numpy":
 
-    def _kernel(particles, fieldset):
-        DDAdvectEE(particles, fieldset, dd=dd)
+        def _kernel(particles, fieldset):
+            DDAdvectEE(particles, fieldset, dd=dd)
 
-    return _kernel
+        return _kernel
+
+    elif backend == "numba":
+        from numba import njit
+
+        from drogued_drifters.lagrange_model import _get_eom_callables
+        import drogued_drifters.drifter as _drifter_mod
+
+        qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
+        qdd_jit = njit(qdd_raw)
+
+        # Warm up the JIT with a single scalar-like call so that the first
+        # real call doesn't pay compilation cost during particle advection.
+        import drogued_drifters.lagrange_model as _lm
+
+        _physics_dummy = _lm.DrifterPhysics(
+            m_b=1.0,
+            m_d=2.7,
+            m_hat_d=1.0,
+            m_tilde_d=101.0,
+            m_tilde_b=1.9,
+            l=3.0,
+            g=9.81,
+            k_b=12.0,
+            k_d=154.0,
+        )
+        _state_dummy = _lm.EOMState(
+            u_stereo=0.0,
+            v_stereo=0.0,
+            xd=0.0,
+            yd=0.0,
+            ud_stereo=0.0,
+            vd_stereo=0.0,
+            U_b=0.0,
+            V_b=0.0,
+            U_d=0.0,
+            V_d=0.0,
+        )
+        try:
+            qdd_jit(*pack_eom_args(_physics_dummy, _state_dummy))
+        except Exception:
+            pass  # warmup best-effort; real call will compile if this fails
+
+        def _qdd_func_numba(physics, state):
+            u_arr = np.asarray(state.u_stereo)
+            batch_ndim = u_arr.ndim
+            result = qdd_jit(*pack_eom_args(physics, state))
+            if batch_ndim == 0:
+                return np.array(result, dtype=float)
+            else:
+                return np.column_stack(result)
+
+        _original_qdd_func = _drifter_mod._qdd_func
+
+        def _kernel(particles, fieldset):
+            _drifter_mod._qdd_func = _qdd_func_numba
+            try:
+                DDAdvectEE(particles, fieldset, dd=dd)
+            finally:
+                _drifter_mod._qdd_func = _original_qdd_func
+
+        return _kernel
+
+    else:
+        raise ValueError(
+            f"Unknown backend {backend!r}. Must be 'numpy' or 'numba'."
+        )

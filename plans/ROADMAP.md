@@ -67,6 +67,15 @@ All items complete. Plans in [done/](done/).
 ### E2. README update ✓
 
 ### E3. Repo cleanup ✓
-- Removed `examples/baltic_drifters_archive/` (~900 MB duplicate CMEMS data)
-- Cleaned profiling artifacts, `__pycache__/`, stale checkpoints
-- Updated `.gitignore` (`__pycache__/`, `*.prof`)
+
+### E4. Rerun all example notebooks
+- Execute all notebooks in `examples/` with papermill
+- Verify plots, outputs, no errors
+
+### E5. Full repo review
+- Read all of `src/`, `tests/`, `docs/`, open `plans/`
+- Check for stale references, dead code, naming consistency
+
+### E6. Finalize README
+- Final pass after E4/E5: verify all notebook links work, quick start
+  examples run, Parcels section is accurate

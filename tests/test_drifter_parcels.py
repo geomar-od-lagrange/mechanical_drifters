@@ -280,7 +280,8 @@ def _make_flat_fieldset(U_data_4d, V_data_4d, x, y, depth, time):
     return FieldSet.from_sgrid_conventions(ds, mesh="flat")
 
 
-def test_uniform_flow_dd_kernel():
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_uniform_flow_dd_kernel(backend):
     """Uniform flow: buoy and drogue see the same current, drift = current."""
     from parcels import FieldSet, Particle, ParticleSet, StatusCode
 
@@ -306,7 +307,7 @@ def test_uniform_flow_dd_kernel():
 
     DT = 60.0  # 1 minute
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_dd_kernel(dd, backend=backend)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -319,7 +320,8 @@ def test_uniform_flow_dd_kernel():
     np.testing.assert_allclose(displacement, expected, rtol=0.05)
 
 
-def test_sheared_flow_dd_kernel():
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_sheared_flow_dd_kernel(backend):
     """Sheared flow: drift velocity should be between surface and bottom current."""
     from parcels import FieldSet, Particle, ParticleSet, StatusCode
 
@@ -348,7 +350,7 @@ def test_sheared_flow_dd_kernel():
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_dd_kernel(dd, backend=backend)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -405,7 +407,8 @@ def _make_spherical_fieldset(U_data_4d, V_data_4d, lon, lat, depth, time):
     return FieldSet.from_sgrid_conventions(ds, mesh="spherical")
 
 
-def test_dd_kernel_spherical_auto():
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_dd_kernel_spherical_auto(backend):
     """Spherical mesh: kernel auto-detects deg/s and converts correctly."""
     from parcels import Particle, ParticleSet
 
@@ -437,7 +440,7 @@ def test_dd_kernel_spherical_auto():
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_dd_kernel(dd, backend=backend)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -456,3 +459,70 @@ def test_dd_kernel_spherical_auto():
     # ~111 km displacement instead of ~30 m).
     np.testing.assert_allclose(dlon, expected_dlon, rtol=0.10)
     np.testing.assert_allclose(dlat, 0.0, atol=1e-8)
+
+
+def test_numba_numpy_kernel_consistency():
+    """numpy and numba backends should produce bitwise-identical results."""
+    from parcels import Particle, ParticleSet
+
+    x = np.linspace(0, 1000, 5)
+    y = np.linspace(0, 1000, 5)
+    depth = np.array([0.0, 1.5, 3.0, 5.0, 10.0])
+    time = np.array([0.0])
+
+    # Linear shear: U=1.0 at surface, U=0.0 at 10m depth
+    U_surface = 1.0
+    U_data = np.zeros((1, len(depth), len(y), len(x)))
+    for iz, d in enumerate(depth):
+        U_data[0, iz, :, :] = U_surface * (1.0 - d / 10.0)
+    V_data = np.zeros_like(U_data)
+
+    dd = DroguedDrifter()
+    DT = 60.0
+    lon0, lat0 = 500.0, 500.0
+
+    # Run with numpy backend
+    fieldset_np = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
+    pset_np = ParticleSet(
+        fieldset=fieldset_np,
+        pclass=Particle,
+        lon=[lon0],
+        lat=[lat0],
+        z=[0.0],
+    )
+    pset_np.execute(
+        kernels=[make_dd_kernel(dd, backend="numpy")],
+        dt=DT,
+        runtime=DT,
+        verbose_progress=False,
+    )
+    lon_np = float(np.asarray(pset_np.lon)[0])
+    lat_np = float(np.asarray(pset_np.lat)[0])
+
+    # Run with numba backend from identical initial position
+    fieldset_nb = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
+    pset_nb = ParticleSet(
+        fieldset=fieldset_nb,
+        pclass=Particle,
+        lon=[lon0],
+        lat=[lat0],
+        z=[0.0],
+    )
+    pset_nb.execute(
+        kernels=[make_dd_kernel(dd, backend="numba")],
+        dt=DT,
+        runtime=DT,
+        verbose_progress=False,
+    )
+    lon_nb = float(np.asarray(pset_nb.lon)[0])
+    lat_nb = float(np.asarray(pset_nb.lat)[0])
+
+    np.testing.assert_allclose(lon_nb, lon_np, rtol=1e-10)
+    np.testing.assert_allclose(lat_nb, lat_np, rtol=1e-10)
+
+
+def test_make_dd_kernel_invalid_backend():
+    """make_dd_kernel should raise ValueError for an unrecognised backend."""
+    dd = DroguedDrifter()
+    with pytest.raises(ValueError):
+        make_dd_kernel(dd, backend="invalid")
