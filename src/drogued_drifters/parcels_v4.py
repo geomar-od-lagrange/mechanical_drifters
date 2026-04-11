@@ -172,6 +172,7 @@ def make_dd_kernel(dd, backend="numpy"):
 
         return _kernel
 
+    # TODO: This logic should live deeper down. We should treat the numpy and numba _qdd eval as two first-class implementations. The asymmetry between the if and the elif branch reveals a problem!
     elif backend == "numba":
         from numba import njit
 
