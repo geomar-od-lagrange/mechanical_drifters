@@ -367,3 +367,92 @@ def test_sheared_flow_dd_kernel():
     assert (
         drift_speed < 0.9
     ), f"Drift speed {drift_speed:.4f} should be < 0.9 (drogue effect)"
+
+
+def _make_spherical_fieldset(U_data_4d, V_data_4d, lon, lat, depth, time):
+    """Build a spherical-mesh FieldSet from 4-D numpy arrays.
+
+    Args:
+        U_data_4d, V_data_4d: shape (T, Z, Y, X)
+        lon, lat, depth, time: 1-D coordinate arrays
+    """
+    import xarray as xr
+    from parcels import FieldSet
+
+    ds = xr.Dataset(
+        {
+            "U": (["time", "depth", "lat", "lon"], U_data_4d),
+            "V": (["time", "depth", "lat", "lon"], V_data_4d),
+            "grid": xr.DataArray(
+                data=0,
+                attrs={
+                    "cf_role": "grid_topology",
+                    "topology_dimension": 2,
+                    "node_dimensions": "lon lat",
+                    "face_dimensions": "lon:lon (padding: none) lat:lat (padding: none)",
+                    "vertical_dimensions": "depth:depth (padding: none)",
+                    "node_coordinates": "lon lat",
+                },
+            ),
+        },
+        coords={
+            "lon": ("lon", lon, {"axis": "X"}),
+            "lat": ("lat", lat, {"axis": "Y"}),
+            "depth": ("depth", depth, {"axis": "Z"}),
+            "time": ("time", time, {"axis": "T"}),
+        },
+    )
+    return FieldSet.from_sgrid_conventions(ds, mesh="spherical")
+
+
+def test_dd_kernel_spherical_auto():
+    """Spherical mesh: kernel auto-detects deg/s and converts correctly."""
+    from parcels import Particle, ParticleSet
+
+    # Uniform 0.5 m/s eastward flow on a spherical grid near the equator
+    U_ms = 0.5
+    lat0 = 5.0  # near equator to keep cos(lat) ~ 1
+    lon0 = 10.0
+
+    lon = np.linspace(lon0 - 1, lon0 + 1, 5)
+    lat = np.linspace(lat0 - 1, lat0 + 1, 5)
+    depth = np.array([0.0, 5.0, 10.0])
+    time = np.array([0.0])
+
+    # Parcels spherical mesh: field values are in m/s, but the interpolator
+    # returns deg/s.  Fill with uniform U_ms.
+    U_data = np.full((1, len(depth), len(lat), len(lon)), U_ms)
+    V_data = np.zeros_like(U_data)
+
+    fieldset = _make_spherical_fieldset(U_data, V_data, lon, lat, depth, time)
+    dd = DroguedDrifter()
+
+    pset = ParticleSet(
+        fieldset=fieldset,
+        pclass=Particle,
+        lon=[lon0],
+        lat=[lat0],
+        z=[0.0],
+    )
+
+    DT = 60.0
+    pset.execute(
+        kernels=[make_dd_kernel(dd)],
+        dt=DT,
+        runtime=DT,
+        verbose_progress=False,
+    )
+
+    # Expected displacement in degrees
+    DEG2M = 1852.0 * 60.0
+    cos_lat = np.cos(np.deg2rad(lat0))
+    expected_dlon = U_ms * DT / (DEG2M * cos_lat)
+
+    dlon = float(np.asarray(pset.lon)[0]) - lon0
+    dlat = float(np.asarray(pset.lat)[0]) - lat0
+
+    # rtol=0.10 accounts for interpolation edge effects on the coarse grid;
+    # the critical check is order-of-magnitude correctness (no conversion →
+    # ~111 km displacement instead of ~30 m).
+    np.testing.assert_allclose(dlon, expected_dlon, rtol=0.10)
+    np.testing.assert_allclose(dlat, 0.0, atol=1e-8)

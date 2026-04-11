@@ -72,18 +72,17 @@ def DDAdvectEE(particles, fieldset, *, dd):
     Args:
         particles: Parcels ParticleSet.
         fieldset: Parcels FieldSet.
-        dd: DroguedDrifter instance (bind via ``functools.partial``).
+        dd: DroguedDrifter instance (bind via ``make_dd_kernel``).
 
     Usage::
 
-        from functools import partial
-        from drogued_drifters.parcels_v4 import DDAdvectEE
+        from drogued_drifters.parcels_v4 import make_dd_kernel
 
         dd = DroguedDrifter()
         fieldset = FieldSet.from_sgrid_conventions(ds, mesh="spherical")
         pset = ParticleSet(fieldset=fieldset, pclass=Particle, ...)
         pset.execute(
-            kernels=[partial(DDAdvectEE, dd=dd), DeleteOOB],
+            kernels=[make_dd_kernel(dd), DeleteOOB],
             dt=DT, runtime=RUNTIME,
         )
     """
