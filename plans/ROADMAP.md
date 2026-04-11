@@ -54,3 +54,16 @@ All items complete. Plans in [done/](done/).
 - D-II: DrifterPhysics naming ✓
 - D-III: u/v → u_stereo/v_stereo ✓
 - Deferred items → [BACKLOG.md](BACKLOG.md)
+
+## Track E: Release wrap-up
+
+### E1. Optional numba backend for qdd evaluation
+- 25x speedup on the lambdified EOM function (105 → 4 µs/call, N=6)
+- 2.1x end-to-end in Baltic simulation (287 → 135s)
+- Implementation: `make_dd_kernel(dd, backend="numba")` raises if
+  numba not installed, no silent fallback
+- Notes: [numba-acceleration.md](numba-acceleration.md)
+
+### E2. README update
+- Current README references old notebook names and doesn't mention
+  the Parcels kernel or `parcels_v4.py`
