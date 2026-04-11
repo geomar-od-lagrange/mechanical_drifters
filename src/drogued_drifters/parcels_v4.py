@@ -1,11 +1,10 @@
 """Parcels v4 coupling for the drogued-drifter model.
 
-All Parcels-facing code lives here.  The kernel ``DDAdvectEE`` replaces
-the old ``make_dd_velocity_interpolator`` factory with a grid-agnostic
-approach: it calls ``fieldset.UV.eval()`` per depth level using Parcels'
-native VectorField interpolator (handles A-grids, C-grids, curvilinear,
-and unstructured grids, including vector rotation and spherical mesh
-conversion).
+All Parcels-facing code lives here.  The kernel helper ``DDAdvectEE``
+advects particles using a grid-agnostic approach: it calls
+``fieldset.UV.eval()`` per depth level using Parcels' native VectorField
+interpolator (handles A-grids, C-grids, curvilinear, and unstructured
+grids, including vector rotation and spherical mesh conversion).
 """
 
 import numpy as np
@@ -54,37 +53,23 @@ def make_profile_sampler(depth_levels, U_profiles, V_profiles):
     return sample_uv
 
 
-def DDAdvectEE(particles, fieldset, *, dd):
-    """Parcels kernel: advect particles using drogued-drifter steady-state
-    drift velocity (Euler forward).
+def _extract_profiles(particles, fieldset, dd):
+    """Extract velocity profiles from the fieldset and build a depth interpolator.
 
-    Profile extraction uses ``fieldset.UV.eval()`` per depth level,
-    leveraging Parcels' native interpolation (handles A-grids, C-grids,
-    curvilinear, and unstructured grids, including vector rotation and
-    spherical mesh conversion).
-
-    Each call cold-starts the ODE from un-sheared equilibrium.  Spherical/flat
-    mesh is auto-detected from ``fieldset.U.grid._mesh``.
-
-    Only samples depths up to the drogue length plus one grid cell
-    to avoid unnecessary work on deep levels.
+    Samples the fieldset at each depth level from the surface down to the
+    drogue depth (plus one grid cell margin).  Converts Parcels' degree-based
+    velocities to m/s on spherical grids.  Returns a ``sample_uv(z)``
+    callable suitable for the ODE integrator.
 
     Args:
         particles: Parcels ParticleSet.
-        fieldset: Parcels FieldSet.
-        dd: DroguedDrifter instance (bind via ``make_dd_kernel``).
+        fieldset: Parcels FieldSet with a ``UV`` VectorField.
+        dd: DroguedDrifter instance.
 
-    Usage::
-
-        from drogued_drifters.parcels_v4 import make_dd_kernel
-
-        dd = DroguedDrifter()
-        fieldset = FieldSet.from_sgrid_conventions(ds, mesh="spherical")
-        pset = ParticleSet(fieldset=fieldset, pclass=Particle, ...)
-        pset.execute(
-            kernels=[make_dd_kernel(dd), DeleteOOB],
-            dt=DT, runtime=RUNTIME,
-        )
+    Returns:
+        Callable ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or
+        ``(N,)`` depth array (m, positive upward) and the return arrays
+        have shape ``(N,)`` in m/s.
     """
     lat = np.asarray(particles.lat)
     lon = np.asarray(particles.lon)
@@ -121,13 +106,26 @@ def DDAdvectEE(particles, fieldset, *, dd):
     U_profiles = U_profiles[::-1]
     V_profiles = V_profiles[::-1]
 
-    sample_uv = make_profile_sampler(depth_up, U_profiles, V_profiles)
+    return make_profile_sampler(depth_up, U_profiles, V_profiles)
 
-    # Cold-start from no-shear equilibrium
-    xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
 
-    # Position update (Euler forward)
+def _position_update(particles, xd_ms, yd_ms, fieldset):
+    """Apply an Euler-forward position update to particle displacements.
+
+    Converts drift velocities (m/s) to degree displacements on spherical
+    grids, or applies them directly on flat grids.  Mutates
+    ``particles.dlon`` and ``particles.dlat`` in place.
+
+    Args:
+        particles: Parcels ParticleSet.  Must have ``dlon``, ``dlat``,
+            ``lat``, and ``dt`` attributes.
+        xd_ms: Eastward drift velocity array, shape ``(N,)``, in m/s.
+        yd_ms: Northward drift velocity array, shape ``(N,)``, in m/s.
+        fieldset: Parcels FieldSet (used to detect spherical vs flat mesh).
+    """
+    is_spherical = fieldset.U.grid._mesh == "spherical"
     if is_spherical:
+        lat = np.asarray(particles.lat)
         cos_lat = np.cos(np.deg2rad(lat))
         particles.dlon += xd_ms / (_DEG2M * cos_lat) * particles.dt
         particles.dlat += yd_ms / _DEG2M * particles.dt
@@ -136,7 +134,31 @@ def DDAdvectEE(particles, fieldset, *, dd):
         particles.dlat += yd_ms * particles.dt
 
 
-def make_dd_kernel(dd, backend="numpy"):
+def DDAdvectEE(particles, fieldset, *, dd):
+    """Advect particles using drogued-drifter steady-state drift (Euler forward).
+
+    This is a helper function, not a Parcels kernel itself.  It has the
+    non-standard signature ``(particles, fieldset, *, dd)`` and is wrapped
+    by ``make_dd_kernel`` to produce a proper ``(particles, fieldset)``
+    kernel closure.
+
+    Each call cold-starts the ODE from un-sheared equilibrium.
+    Spherical/flat mesh is auto-detected from ``fieldset.U.grid._mesh``.
+
+    The function mutates ``particles.dlon`` and ``particles.dlat`` in place
+    (Parcels displacement convention).
+
+    Args:
+        particles: Parcels ParticleSet.
+        fieldset: Parcels FieldSet with a ``UV`` VectorField.
+        dd: DroguedDrifter instance (bind via ``make_dd_kernel``).
+    """
+    sample_uv = _extract_profiles(particles, fieldset, dd)
+    xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
+    _position_update(particles, xd_ms, yd_ms, fieldset)
+
+
+def make_dd_kernel(dd):
     """Create a Parcels-compatible kernel function for drogued-drifter advection.
 
     Parcels v4 alpha requires kernel arguments to be ``types.FunctionType``
@@ -144,63 +166,27 @@ def make_dd_kernel(dd, backend="numpy"):
     directly.  This factory captures ``dd`` in a closure and returns a
     real function with the ``(particles, fieldset)`` signature.
 
+    The computational backend (numpy or numba) is determined by the
+    ``dd.backend`` attribute, which is set at ``DroguedDrifter`` construction
+    time.  This function does not select or modify the backend.
+
     Args:
         dd: A :class:`~drogued_drifters.drifter.DroguedDrifter` instance.
-        backend: ``"numpy"`` (default) or ``"numba"``.  With ``"numba"``,
-            the lambdified qdd function is JIT-compiled with ``numba.njit``
-            for faster batch evaluation.  numba must be installed; users
-            without numba can still use the default ``"numpy"`` backend.
 
     Returns:
-        A kernel function suitable for ``pset.execute(kernels=[...])``.
-
-    Raises:
-        ValueError: If ``backend`` is not ``"numpy"`` or ``"numba"``.
+        A kernel function with signature ``(particles, fieldset)`` suitable
+        for ``pset.execute(kernels=[...])``.
 
     Usage::
 
         from drogued_drifters.parcels_v4 import make_dd_kernel
 
-        dd = DroguedDrifter()
+        dd = DroguedDrifter()  # or DroguedDrifter(backend="numba")
         kernel = make_dd_kernel(dd)
         pset.execute(kernels=[kernel, DeleteOOB], dt=DT, runtime=RUNTIME)
     """
-    if backend == "numpy":
 
-        def _kernel(particles, fieldset):
-            DDAdvectEE(particles, fieldset, dd=dd)
+    def _kernel(particles, fieldset):
+        DDAdvectEE(particles, fieldset, dd=dd)
 
-        return _kernel
-
-    # TODO: This logic should live deeper down. We should treat the numpy and numba _qdd eval as two first-class implementations. The asymmetry between the if and the elif branch reveals a problem!
-    elif backend == "numba":
-        from numba import njit
-
-        from drogued_drifters.lagrange_model import _get_eom_callables
-
-        qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
-        qdd_jit = njit(qdd_raw)
-
-        # Warm up the JIT so the first real call doesn't pay compilation cost.
-        _dummy_args = tuple(
-            np.ones(1) if i >= 9 else 1.0 for i in range(19)
-        )
-        qdd_jit(*_dummy_args)
-
-        def _qdd_func_numba(physics, state):
-            result = qdd_jit(*pack_eom_args(physics, state))
-            if np.ndim(state.u_stereo) == 0:
-                return np.array(result, dtype=float)
-            return np.column_stack(result)
-
-        dd._qdd_func = _qdd_func_numba
-
-        def _kernel(particles, fieldset):
-            DDAdvectEE(particles, fieldset, dd=dd)
-
-        return _kernel
-
-    else:
-        raise ValueError(
-            f"Unknown backend {backend!r}. Must be 'numpy' or 'numba'."
-        )
+    return _kernel

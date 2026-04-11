@@ -303,17 +303,7 @@ def test_batch_drift_between_buoy_and_drogue():
 # ---------------------------------------------------------------------------
 
 
-_DEFAULT_PHYSICS = DrifterPhysics(
-    m_b=1.0,
-    m_d=2.7,
-    m_hat_d=1.0,
-    m_tilde_d=101.0,
-    m_tilde_b=1.9,
-    l=3.0,
-    g=9.81,
-    k_b=12.0,
-    k_d=154.0,
-)
+from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 
 def test_M_F_func_shapes():

@@ -4,7 +4,7 @@ from scipy.integrate import solve_ivp
 from drogued_drifters.lagrange_model import (
     DrifterPhysics,
     EOMState,
-    _qdd_func,
+    _make_qdd_func,
     _spherical_to_uv,
     _uv_to_spherical,
 )
@@ -125,6 +125,12 @@ class DroguedDrifter:
             If None, uses ``_default_uv``.
             Use ``functools.partial`` to bind external data (e.g. an xarray
             dataset) before passing it here.
+        backend: ``"numpy"`` (default) or ``"numba"``.  Selects the
+            computational backend for the generalized-acceleration evaluator
+            ``_qdd_func``.  With ``"numba"``, the raw lambdified function is
+            JIT-compiled at construction time for faster evaluation in both
+            the scalar and batch paths.  numba must be installed; users
+            without numba can use the default ``"numpy"`` backend.
     """
 
     def __init__(
@@ -140,6 +146,7 @@ class DroguedDrifter:
         k_d=154.0,
         g=9.81,
         get_uv=None,
+        backend="numpy",
     ):
         self.physics = DrifterPhysics(
             m_b=m_b,
@@ -153,7 +160,8 @@ class DroguedDrifter:
             k_d=k_d,
         )
 
-        self._qdd_func = _qdd_func
+        self.backend = backend
+        self._qdd_func = _make_qdd_func(backend)
 
         if get_uv is not None:
             self.get_uv = get_uv
@@ -210,6 +218,10 @@ class DroguedDrifter:
 
     def _z_eff(self, u, v):
         """Compute effective drogue vertical position from stereographic (u, v).
+
+        Args:
+            u: Stereographic u coordinate, scalar or ``(N,)`` array.
+            v: Stereographic v coordinate, scalar or ``(N,)`` array.
 
         Returns:
             z_eff: Drogue vertical position [m], positive upward (non-positive),

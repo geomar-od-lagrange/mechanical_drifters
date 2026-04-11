@@ -295,7 +295,7 @@ def test_uniform_flow_dd_kernel(backend):
     V_data = np.zeros_like(U_data)
 
     fieldset = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
-    dd = DroguedDrifter()
+    dd = DroguedDrifter(backend=backend)
 
     pset = ParticleSet(
         fieldset=fieldset,
@@ -307,7 +307,7 @@ def test_uniform_flow_dd_kernel(backend):
 
     DT = 60.0  # 1 minute
     pset.execute(
-        kernels=[make_dd_kernel(dd, backend=backend)],
+        kernels=[make_dd_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -338,7 +338,7 @@ def test_sheared_flow_dd_kernel(backend):
     V_data = np.zeros_like(U_data)
 
     fieldset = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
-    dd = DroguedDrifter()  # default drogue depth l=3.0 m
+    dd = DroguedDrifter(backend=backend)  # default drogue depth l=3.0 m
 
     pset = ParticleSet(
         fieldset=fieldset,
@@ -350,7 +350,7 @@ def test_sheared_flow_dd_kernel(backend):
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd, backend=backend)],
+        kernels=[make_dd_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -428,7 +428,7 @@ def test_dd_kernel_spherical_auto(backend):
     V_data = np.zeros_like(U_data)
 
     fieldset = _make_spherical_fieldset(U_data, V_data, lon, lat, depth, time)
-    dd = DroguedDrifter()
+    dd = DroguedDrifter(backend=backend)
 
     pset = ParticleSet(
         fieldset=fieldset,
@@ -440,7 +440,7 @@ def test_dd_kernel_spherical_auto(backend):
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd, backend=backend)],
+        kernels=[make_dd_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -477,11 +477,11 @@ def test_numba_numpy_kernel_consistency():
         U_data[0, iz, :, :] = U_surface * (1.0 - d / 10.0)
     V_data = np.zeros_like(U_data)
 
-    dd = DroguedDrifter()
     DT = 60.0
     lon0, lat0 = 500.0, 500.0
 
     # Run with numpy backend
+    dd_np = DroguedDrifter(backend="numpy")
     fieldset_np = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
     pset_np = ParticleSet(
         fieldset=fieldset_np,
@@ -491,7 +491,7 @@ def test_numba_numpy_kernel_consistency():
         z=[0.0],
     )
     pset_np.execute(
-        kernels=[make_dd_kernel(dd, backend="numpy")],
+        kernels=[make_dd_kernel(dd_np)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -500,6 +500,7 @@ def test_numba_numpy_kernel_consistency():
     lat_np = float(np.asarray(pset_np.lat)[0])
 
     # Run with numba backend from identical initial position
+    dd_nb = DroguedDrifter(backend="numba")
     fieldset_nb = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
     pset_nb = ParticleSet(
         fieldset=fieldset_nb,
@@ -509,7 +510,7 @@ def test_numba_numpy_kernel_consistency():
         z=[0.0],
     )
     pset_nb.execute(
-        kernels=[make_dd_kernel(dd, backend="numba")],
+        kernels=[make_dd_kernel(dd_nb)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -521,8 +522,7 @@ def test_numba_numpy_kernel_consistency():
     np.testing.assert_allclose(lat_nb, lat_np, rtol=1e-10)
 
 
-def test_make_dd_kernel_invalid_backend():
-    """make_dd_kernel should raise ValueError for an unrecognised backend."""
-    dd = DroguedDrifter()
+def test_invalid_backend():
+    """DroguedDrifter should raise ValueError for an unrecognised backend."""
     with pytest.raises(ValueError):
-        make_dd_kernel(dd, backend="invalid")
+        DroguedDrifter(backend="invalid")

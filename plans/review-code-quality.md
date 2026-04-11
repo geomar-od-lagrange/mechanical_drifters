@@ -253,3 +253,27 @@ These can be done mechanically by a Sonnet/Haiku agent in one pass:
    usage example (D6). Document `make_dd_kernel` numba side effect (D7).
    Fix `_default_uv` description (D8). Fix `_derive_symbolic` return
    description for `F_static` (D9). Add `Args:` section to `_z_eff` (D10).
+
+## Resolved by architecture changes
+
+The following items were resolved as side effects of implementing
+C1+I2+I3+I4 from `review-architecture.md`:
+
+- **D5** (stale module docstring referencing deleted function): Rewritten
+  in `parcels_v4.py` module docstring.
+- **D6** (DDAdvectEE docstring misleading): Rewritten to clarify it is a
+  helper function, documents in-place mutation of `particles.dlon`/`dlat`,
+  and removes the stale `DeleteOOB` usage example.
+- **D7** (make_dd_kernel missing side-effect documentation): No longer
+  applicable -- `make_dd_kernel` no longer has a backend parameter or
+  side effects. Backend selection moved to `DroguedDrifter.__init__`.
+- **S1** (TODO comment in production code): Removed. The TODO at
+  `parcels_v4.py:175` is obsolete now that backend selection lives in
+  `lagrange_model._make_qdd_func` and `DroguedDrifter.__init__`.
+- **S2** (numba branch mutates `dd._qdd_func`): No longer applicable.
+  `_qdd_func` is set once at construction time and never mutated.
+- **N2** (magic number 19 in `parcels_v4.py`): Removed along with the
+  entire numba branch in `make_dd_kernel`. The JIT warmup with computed
+  field count now lives in `lagrange_model._make_qdd_func`.
+- **R1** (duplicated `_DEFAULT_PHYSICS` across test files): Extracted to
+  `tests/conftest.py` as `DEFAULT_PHYSICS` and imported in all three files.

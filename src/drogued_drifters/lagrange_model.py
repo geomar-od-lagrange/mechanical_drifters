@@ -325,10 +325,63 @@ def _get_eom_callables():
     return qdd_raw, M_raw, F_raw, args, pack_eom_args
 
 
-def _qdd_func(physics, state):
-    """Evaluate generalized accelerations qdd = M^{-1}F.
+def _make_qdd_func(backend="numpy"):
+    """Build a qdd evaluator for the given backend.
 
-    Internal function — not part of the public API.
+    Args:
+        backend: ``"numpy"`` (default) or ``"numba"``.  With ``"numba"``,
+            the raw lambdified qdd function is JIT-compiled with
+            ``numba.njit`` for faster evaluation.  numba must be installed;
+            users without numba can use ``"numpy"``.
+
+    Returns:
+        A callable ``qdd_func(physics, state)`` that evaluates the
+        generalized accelerations ``qdd = M^{-1}F``.  Returns a ``(4,)``
+        array for scalar input or an ``(N, 4)`` array for batch input.
+
+    Raises:
+        ValueError: If *backend* is not ``"numpy"`` or ``"numba"``.
+    """
+    qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
+
+    if backend == "numpy":
+        raw = qdd_raw
+    elif backend == "numba":
+        from numba import njit
+
+        raw = njit(qdd_raw)
+
+        # Warm up the JIT so the first real call doesn't pay compilation cost.
+        _n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+        _dummy_args = tuple(
+            np.ones(1) if i >= len(DrifterPhysics._fields) else 1.0
+            for i in range(_n_args)
+        )
+        raw(*_dummy_args)
+    else:
+        raise ValueError(
+            f"Unknown backend {backend!r}. Must be 'numpy' or 'numba'."
+        )
+
+    def qdd_func(physics, state):
+        u_arr = np.asarray(state.u_stereo)
+        batch_ndim = u_arr.ndim
+
+        result = raw(*pack_eom_args(physics, state))
+
+        if batch_ndim == 0:
+            return np.array(result, dtype=float)
+        else:
+            return np.column_stack(result)
+
+    return qdd_func
+
+
+def _qdd_func(physics, state):
+    """Evaluate generalized accelerations qdd = M^{-1}F (numpy backend).
+
+    Convenience wrapper that uses the default numpy backend.  Internal
+    function -- not part of the public API.
 
     Args:
         physics: DrifterPhysics instance.
@@ -337,17 +390,7 @@ def _qdd_func(physics, state):
     Returns:
         (4,) array for scalar input, (N, 4) array for batch input.
     """
-    qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
-
-    u_arr = np.asarray(state.u_stereo)
-    batch_ndim = u_arr.ndim
-
-    result = qdd_raw(*pack_eom_args(physics, state))
-
-    if batch_ndim == 0:
-        return np.array(result, dtype=float)
-    else:
-        return np.column_stack(result)
+    return _make_qdd_func("numpy")(physics, state)
 
 
 def M_func(physics: DrifterPhysics, state: EOMState):
