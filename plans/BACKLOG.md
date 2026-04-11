@@ -10,16 +10,16 @@ the roadmap (and get their own plan file) when they become timely.
   blocking trivial `lru_cache` decorators. A hashable wrapper (or
   keying on `id(data)` + index `.tobytes()`) could cache corner data
   across calls with identical grid cell indices. See
-  `[parcels-interpolation-optimization.md](parcels-interpolation-optimization.md)` for the full analysis.
+  [parcels-interpolation-optimization.md](parcels-interpolation-optimization.md) for the full analysis.
 
 - **Analytical steady-state solution.** Replace the ODE solve with a
   closed-form expression for the steady-state drift velocity. Would
   eliminate the ODE entirely. See
-  `[explorative/analytical_steady_state.md](explorative/analytical_steady_state.md)`.
+  [analytical_steady_state.md](analytical_steady_state.md).
 
 - **fsolve on F=0.** Replace ODE integration with a nonlinear solve
   for the steady state (q_dd = 0). Cheaper than time-stepping but
-  still numerical. See `[explorative/fsolve_steady_state.md](explorative/fsolve_steady_state.md)`.
+  still numerical. See [fsolve_steady_state.md](fsolve_steady_state.md).
 
 - **Time-averaged drift velocity.** The ODE final-step snapshot
   includes buoy oscillation about equilibrium. Averaging xd, yd over
@@ -31,7 +31,7 @@ the roadmap (and get their own plan file) when they become timely.
   Euler/RK4 with short t_span (~10 steps of 1s) would give
   predictable cost. Requires the time-averaged drift velocity work
   above for a meaningful convergence metric. See
-  `[numba-acceleration.md](numba-acceleration.md)` (warm-start section).
+  [numba-acceleration.md](numba-acceleration.md) (warm-start section).
 
 - **Batch depth levels into one `fieldset.UV.eval()` call.** Tile
   lat/lon D times and call eval once with `(D*N,)` arrays instead of
@@ -57,11 +57,11 @@ the roadmap (and get their own plan file) when they become timely.
 - **numpy fast-path in `_get_corner_data_Agrid`.** Skip xr.DataArray
   construction when data is already in memory. ~10-line change, would
   benefit all Parcels users. See
-  `[parcels-interpolation-optimization.md](parcels-interpolation-optimization.md)` Phase 3.
+  [parcels-interpolation-optimization.md](parcels-interpolation-optimization.md) Phase 3.
 
 - **Parcels v4 zarr output bug.** Custom kernels can produce
   incorrect output under certain conditions. See
-  `[explorative/parcels_v4_output_bug.md](explorative/parcels_v4_output_bug.md)`.
+  [parcels_v4_output_bug.md](parcels_v4_output_bug.md).
 
 ## Science
 
@@ -69,4 +69,4 @@ the roadmap (and get their own plan file) when they become timely.
   hourly, A-grid) with BSH-HBMnoku (~900 m, 15 min, C-grid) for the
   Kiel Bight drifter simulations. This would exercise the C-grid
   vector rotation path in the kernel. See
-  `[explorative/outlook_bsh_hbm_integration.md](explorative/outlook_bsh_hbm_integration.md)`.
+  [outlook_bsh_hbm_integration.md](outlook_bsh_hbm_integration.md).
