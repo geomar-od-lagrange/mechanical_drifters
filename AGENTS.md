@@ -45,7 +45,9 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 
 `docs/*.md` contains standalone documentation for the current state of the code. Each doc should make sense on its own without referencing previous implementations, changelogs, or development history. Explain design choices by comparing alternatives and their trade-offs, not by narrating what changed. Git history is the changelog; docs describe what *is*, not what *was*.
 
-`plans/*.md` are historical records of intent before implementation. They may be outdated. When a plan is implemented, add a status note at the top pointing to the authoritative doc in `docs/`.
+`plans/*.md` describe intent before implementation. When a plan is implemented: write a corresponding `docs/` file, move the plan to `plans/done/`, and add a one-liner at the top pointing to the doc. Plans have no frontmatter or structured metadata — roadmap files in `plans/` provide the index. Agents get context by reading `docs/*.md` (what is) + open `plans/*.md` (what's next).
+
+Use markdown relative links when referencing other files in `plans/` and `docs/`. Example: `[parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)` from a plan, `[backlog.md](backlog.md)` within `plans/`.
 
 ## Data access
 
