@@ -57,11 +57,8 @@ All items complete. Plans in [done/](done/).
 
 ## Track E: Release wrap-up
 
-### E1. Optional numba backend for qdd evaluation
-- 25x speedup on the lambdified EOM function (105 → 4 µs/call, N=6)
-- 2.1x end-to-end in Baltic simulation (287 → 135s)
-- Implementation: `make_dd_kernel(dd, backend="numba")` raises if
-  numba not installed, no silent fallback
+### E1. Optional numba backend for qdd evaluation ✓
+- `make_dd_kernel(dd, backend="numba")`
 - Notes: [numba-acceleration.md](numba-acceleration.md)
 
 ### E2. README update ✓

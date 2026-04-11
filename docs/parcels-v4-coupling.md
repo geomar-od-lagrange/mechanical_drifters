@@ -118,6 +118,15 @@ def make_dd_kernel(dd):
 If a future Parcels release relaxes this check, `partial(DDAdvectEE, dd=dd)`
 would work and `make_dd_kernel` could be dropped.
 
+## Numba backend
+
+`make_dd_kernel(dd, backend="numba")` JIT-compiles the lambdified EOM
+function with `numba.njit` for ~25x speedup on the qdd evaluation
+(the dominant cost in the ODE hot path).  numba is imported lazily —
+users without it installed use `backend="numpy"` (default).
+Requesting `backend="numba"` without numba installed raises
+`ImportError`.
+
 ## Spherical vs flat mesh
 
 The kernel auto-detects the mesh type from `fieldset.U.grid._mesh`
