@@ -24,6 +24,8 @@ Use **pixi** for environment management. Run all commands with `pixi run`. Prefe
 
 Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstraction is wrong.
 
+**This is pre-alpha research code. Internal API changes are free.** Changing signatures of private functions (`_rhs_batch`, `_qdd_func`, etc.) is not only acceptable but expected — do not work around internal interfaces with monkey-patches, global state swaps, or closure tricks when passing a parameter through the call chain is cleaner. Even after release, anything prefixed with `_` is internal and can change between minor versions. Prefer clean parameter plumbing over clever hacks.
+
 ## Notebooks
 
 - Markdown cells for narrative; clean code cells for execution.

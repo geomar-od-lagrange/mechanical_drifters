@@ -153,6 +153,8 @@ class DroguedDrifter:
             k_d=k_d,
         )
 
+        self._qdd_func = _qdd_func
+
         if get_uv is not None:
             self.get_uv = get_uv
         else:
@@ -202,7 +204,7 @@ class DroguedDrifter:
         state = EOMState(
             u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo, U_b, V_b, U_d, V_d
         )
-        qdd = _qdd_func(self.physics, state)  # returns (4,)
+        qdd = self._qdd_func(self.physics, state)  # returns (4,)
 
         return np.array([xd, yd, ud_stereo, vd_stereo, *qdd])
 
@@ -267,7 +269,7 @@ class DroguedDrifter:
             V_d=V_d,
         )
 
-        qdd = _qdd_func(self.physics, state)  # returns (N, 4)
+        qdd = self._qdd_func(self.physics, state)  # returns (N, 4)
 
         # Guard NaN/inf
         bad = ~np.isfinite(qdd).all(axis=1)

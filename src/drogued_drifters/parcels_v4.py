@@ -176,60 +176,26 @@ def make_dd_kernel(dd, backend="numpy"):
         from numba import njit
 
         from drogued_drifters.lagrange_model import _get_eom_callables
-        import drogued_drifters.drifter as _drifter_mod
 
         qdd_raw, _, _, _, pack_eom_args = _get_eom_callables()
         qdd_jit = njit(qdd_raw)
 
-        # Warm up the JIT with a single scalar-like call so that the first
-        # real call doesn't pay compilation cost during particle advection.
-        import drogued_drifters.lagrange_model as _lm
-
-        _physics_dummy = _lm.DrifterPhysics(
-            m_b=1.0,
-            m_d=2.7,
-            m_hat_d=1.0,
-            m_tilde_d=101.0,
-            m_tilde_b=1.9,
-            l=3.0,
-            g=9.81,
-            k_b=12.0,
-            k_d=154.0,
+        # Warm up the JIT so the first real call doesn't pay compilation cost.
+        _dummy_args = tuple(
+            np.ones(1) if i >= 9 else 1.0 for i in range(19)
         )
-        _state_dummy = _lm.EOMState(
-            u_stereo=0.0,
-            v_stereo=0.0,
-            xd=0.0,
-            yd=0.0,
-            ud_stereo=0.0,
-            vd_stereo=0.0,
-            U_b=0.0,
-            V_b=0.0,
-            U_d=0.0,
-            V_d=0.0,
-        )
-        try:
-            qdd_jit(*pack_eom_args(_physics_dummy, _state_dummy))
-        except Exception:
-            pass  # warmup best-effort; real call will compile if this fails
+        qdd_jit(*_dummy_args)
 
         def _qdd_func_numba(physics, state):
-            u_arr = np.asarray(state.u_stereo)
-            batch_ndim = u_arr.ndim
             result = qdd_jit(*pack_eom_args(physics, state))
-            if batch_ndim == 0:
+            if np.ndim(state.u_stereo) == 0:
                 return np.array(result, dtype=float)
-            else:
-                return np.column_stack(result)
+            return np.column_stack(result)
 
-        _original_qdd_func = _drifter_mod._qdd_func
+        dd._qdd_func = _qdd_func_numba
 
         def _kernel(particles, fieldset):
-            _drifter_mod._qdd_func = _qdd_func_numba
-            try:
-                DDAdvectEE(particles, fieldset, dd=dd)
-            finally:
-                _drifter_mod._qdd_func = _original_qdd_func
+            DDAdvectEE(particles, fieldset, dd=dd)
 
         return _kernel
 
