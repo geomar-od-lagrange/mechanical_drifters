@@ -14,10 +14,9 @@ jupyter:
 ---
 
 <!-- #region papermill={"duration": 0.006389, "end_time": "2026-04-11T15:57:37.404936+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.398547+00:00", "status": "completed"} -->
-Observations are filtered to science periods from notebook 00.
-
 # Validation plots: trajectory comparison and skill scores
 
+Observations are filtered to science periods from notebook 00.
 Reads simulation output (zarr) from notebook 04 and observed drifter
 tracks, then produces trajectory maps, separation distance curves, and
 summary skill metrics for three simulation types:

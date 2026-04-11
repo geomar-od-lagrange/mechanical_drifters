@@ -1,16 +1,13 @@
 # 2025 Drogued Drifters
 
-Lagrangian model for drogued ocean drifters. A drogued drifter is a surface buoy
-connected by a rigid pole to a subsurface drogue (drag element). The model
-derives equations of motion from a Lagrangian formulation using SymPy, then
-integrates numerically with SciPy.
-
-The state vector internally uses stereographic coordinates for the pole
-direction: `[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]` where
-`(x, y)` is the buoy position, `(u_stereo, v_stereo)` are the stereographic
-coordinates for the pole direction (equilibrium at origin), and
-`(xd, yd, ud_stereo, vd_stereo)` are the time derivatives. The public API
-converts to and from spherical angles `(theta, phi)` for user-facing methods.
+Lagrangian model for drogued ocean drifters. A drogued drifter is an
+oceanographic instrument consisting of a GPS-tracked surface buoy connected by a
+rigid pole to a subsurface drogue (a cross-shaped drag element). The drogue
+anchors the drifter to a target depth so that it measures the current there,
+while the buoy experiences surface drag from wind and waves. The model derives
+equations of motion from a Lagrangian formulation using SymPy, then integrates
+numerically with SciPy. See [docs/drifter-model.md](docs/drifter-model.md) for
+the full physics and API reference.
 
 ## Quick start
 
@@ -59,6 +56,12 @@ See [docs/parcels-v4-coupling.md](docs/parcels-v4-coupling.md) for details.
 
 ## Setup
 
+Requires Python >= 3.11. Parcels is pinned to a specific development version
+(see `pixi.toml` for the exact commit).
+
+This project uses [pixi](https://pixi.sh), a fast package manager for
+reproducible environments based on conda-forge. Install pixi first, then:
+
 ```shell
 $ pixi install
 ```
@@ -77,6 +80,15 @@ $ pixi run pytest -v
 - [`03_drogued_drifter_in_wave_orbitals`](examples/idealized_flow/03_drogued_drifter_in_wave_orbitals.ipynb) -- wave orbital effects
 
 ### Baltic drifters
+
+The Baltic notebooks form a complete validation pipeline. Raw GPS tracks from
+six drifters deployed in the Baltic Sea are cleaned to extract science periods
+(when drogues were attached). CMEMS Eulerian currents and wave fields are
+fetched, then combined with Stokes drift profiles to build effective current
+fields. Drogued drifter and point-particle simulations are run in these fields,
+and the results are validated against the observed trajectories using separation
+distances and short-horizon skill scores.
+
 - [`00_extract_science_periods`](examples/baltic_drifters/00_extract_science_periods.ipynb) -- clean observed drifter data
 - [`01_fetch_cmems_data`](examples/baltic_drifters/01_fetch_cmems_data.ipynb) -- download CMEMS Baltic Sea data
 - [`02_derive_effective_currents`](examples/baltic_drifters/02_derive_effective_currents.ipynb) -- Eulerian + Stokes drift

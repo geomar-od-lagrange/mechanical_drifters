@@ -38,8 +38,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode, Variable
-from parcels._core.statuscodes import FieldOutOfBoundError
+from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode
 from parcels.kernels import AdvectionEE, AdvectionRK4
 from scipy.special import erf
 
@@ -283,7 +282,7 @@ pset_drogue.execute(
 <!-- #region papermill={"duration": 0.001493, "end_time": "2026-04-11T15:46:47.447787+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.446294+00:00", "status": "completed"} -->
 ## Plot trajectories
 
-Streamfunction contours show the flow structure. Surface point particles (red) travel furthest, drogue-depth point particles (green) travel least, and the drogued drifters (blue, dashed) fall in between.
+Streamfunction contours show the flow structure. Surface point particles (blue) travel furthest, drogue-depth point particles (orange) travel least, and the drogued drifters (green) fall in between.
 <!-- #endregion -->
 
 ```python papermill={"duration": 21.836693, "end_time": "2026-04-11T15:47:09.286152+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.449459+00:00", "status": "completed"}

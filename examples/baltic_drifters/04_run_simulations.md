@@ -66,7 +66,9 @@ within the effective currents time window (2023-04-24 onwards).
 df = pd.read_csv(CSV_PATH, parse_dates=["date_UTC"])
 drifter_ids = sorted(df["D_number"].unique())
 
-# First record per drifter within effective-currents time window
+# First record per drifter within effective-currents time window.
+# 2023-04-24 is the start date of the effective current fields
+# (derived in notebook 02 from CMEMS data availability).
 df_window = df[df["date_UTC"] >= "2023-04-24"]
 deployments = {}
 for d_num in drifter_ids:

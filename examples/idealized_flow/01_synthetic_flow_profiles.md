@@ -20,7 +20,7 @@ A drogued drifter consists of a surface buoy connected by a rigid pole to a subs
 <!-- #endregion -->
 
 <!-- #region papermill={"duration": 0.001426, "end_time": "2026-04-11T15:45:15.240595+00:00", "exception": false, "start_time": "2026-04-11T15:45:15.239169+00:00", "status": "completed"} -->
-## Parameters
+## Imports
 <!-- #endregion -->
 
 ```python papermill={"duration": 0.788191, "end_time": "2026-04-11T15:45:16.030225+00:00", "exception": false, "start_time": "2026-04-11T15:45:15.242034+00:00", "status": "completed"}
@@ -29,6 +29,8 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from drogued_drifters.drifter import DroguedDrifter
 ```
+
+## Parameters
 
 ```python papermill={"duration": 0.003508, "end_time": "2026-04-11T15:45:16.034703+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.031195+00:00", "status": "completed"}
 U_0 = 2.0              # peak surface current [m/s]
@@ -64,6 +66,8 @@ u_profile = u_profile * np.cos(rotation_angle)
 
 We create a profile sampler using linear interpolation and then compute the steady-state drift velocity of the drogued drifter. For comparison, we also sample the velocities at the surface (z=0) and at the drogue depth.
 <!-- #endregion -->
+
+The `get_final_drift_batch` method takes a `sample_uv(z)` callback that returns `(u, v)` arrays of shape `(N,)` at the given depths, and returns the steady-state buoy drift velocities after integrating the equations of motion to convergence.
 
 ```python papermill={"duration": 0.315079, "end_time": "2026-04-11T15:45:16.357634+00:00", "exception": false, "start_time": "2026-04-11T15:45:16.042555+00:00", "status": "completed"}
 # Create interpolation functions for u and v profiles
