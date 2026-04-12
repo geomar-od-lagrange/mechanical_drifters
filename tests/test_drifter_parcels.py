@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.parcels_v4 import DDAdvectEE, make_dd_kernel, make_profile_sampler
+from drogued_drifters.parcels_v4 import DDAdvectEE, make_dd_kernel
+from drogued_drifters.velocity import make_profile_sampler
 
 
 def test_make_profile_sampler_basic():

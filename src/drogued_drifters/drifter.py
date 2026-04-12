@@ -1,12 +1,11 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 
+from drogued_drifters.coords import _spherical_to_uv, _uv_to_spherical
 from drogued_drifters.lagrange_model import (
     DrifterPhysics,
     EOMState,
     _make_qdd_func,
-    _spherical_to_uv,
-    _uv_to_spherical,
 )
 
 # Internal state vector layout: [x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo].

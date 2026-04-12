@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.parcels_v4 import make_profile_sampler
+from drogued_drifters.velocity import make_profile_sampler
 from drogued_drifters.stokes import compute_stokes_profile
 
 
