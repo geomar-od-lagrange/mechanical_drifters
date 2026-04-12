@@ -42,8 +42,8 @@ from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode
 from parcels.kernels import AdvectionEE, AdvectionRK4
 from scipy.special import erf
 
-from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.parcels_v4 import make_dd_kernel
+from drogued_drifters import DroguedDrifter
+from drogued_drifters.parcels import make_dd_kernel
 ```
 
 <!-- #region papermill={"duration": 0.001266, "end_time": "2026-04-11T15:45:25.330906+00:00", "exception": false, "start_time": "2026-04-11T15:45:25.329640+00:00", "status": "completed"} -->

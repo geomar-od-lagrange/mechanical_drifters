@@ -52,7 +52,7 @@ functions:
    with common subexpression elimination (`cse=True`).
 
 The symbolic derivation is expensive (~2 min) but cached to a pickle file
-(`data/eom_cache.pkl`). The cache is invalidated automatically when the
+(`data/eom_cache_drogued_drifter.pkl`). The cache is invalidated automatically when the
 derivation source code or the SymPy version changes.
 
 ## Stereographic coordinates
@@ -82,8 +82,9 @@ The public API accepts and returns spherical angles `(theta, phi, thetad, phid)`
 ## Constructor parameters
 
 ```python
-from drogued_drifters import DroguedDrifter
+from drogued_drifters import DroguedDrifter, DrifterPhysics
 
+# Option 1: pass physics parameters as keyword arguments
 dd = DroguedDrifter(
     m_b=1.0,          # buoy dry mass [kg]
     m_d=2.7,          # drogue dry mass [kg]
@@ -94,9 +95,15 @@ dd = DroguedDrifter(
     k_b=12.0,         # buoy drag coefficient [kg/m]
     k_d=154.0,        # drogue drag coefficient [kg/m]
     g=9.81,           # gravitational acceleration [m/s^2]
-    sample_uv=None,   # velocity sampler (see below)
     backend="numpy",  # "numpy" or "numba"
 )
+
+# Option 2: pass a DrifterPhysics instance
+physics = DrifterPhysics(
+    m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+    l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+)
+dd = DroguedDrifter(physics=physics, backend="numpy")
 ```
 
 All defaults match the Callies et al. (2017) drifter geometry at
@@ -107,7 +114,10 @@ from raw dimensions if you have a different drifter design.
 
 ### Velocity sampler (`sample_uv`)
 
-The `sample_uv` callable supplies ocean currents to all methods. Its signature is:
+The `sample_uv` callable supplies ocean currents to solve methods. It is not a
+constructor parameter -- instead, it is passed as the first positional argument
+to each solve method call (`get_full_solution`, `get_final_drift`,
+`get_final_drift_batch`). Its signature is:
 
 ```python
 def sample_uv(z) -> tuple[float | np.ndarray, float | np.ndarray]:
@@ -120,9 +130,7 @@ def sample_uv(z) -> tuple[float | np.ndarray, float | np.ndarray]:
 ```
 
 This single interface is used by both the scalar path (`get_full_solution`,
-`get_final_drift`) and the batch path (`get_final_drift_batch`). If `sample_uv`
-is `None`, a hardcoded test profile is used (surface velocity `(1, 1)`,
-subsurface `(-1, -1)`).
+`get_final_drift`) and the batch path (`get_final_drift_batch`).
 
 ### Backend
 
@@ -141,6 +149,7 @@ acceleration evaluator:
 
 ```python
 ds = dd.get_full_solution(
+    sample_uv,
     t_span=(0, 120),
     t_eval=np.arange(0, 121),
     x=0.0, y=0.0,
@@ -163,13 +172,12 @@ steady state.
 ### `get_final_drift`
 
 ```python
-xd_final, yd_final, max_accel = dd.get_final_drift(t_span=(0, 120))
+xd_final, yd_final, max_accel = dd.get_final_drift(sample_uv, t_span=(0, 120))
 ```
 
 Integrates to steady state and returns only the final buoy drift velocity
 `(xd, yd)` in m/s, plus `max_accel` as a convergence diagnostic (smaller is
-better -- it measures the residual acceleration at the final time). Uses the
-same `sample_uv` callable as `get_full_solution`.
+better -- it measures the residual acceleration at the final time).
 
 Use this for single-particle steady-state queries where you only need the drift
 velocity, not the full trajectory.
@@ -178,7 +186,7 @@ velocity, not the full trajectory.
 
 ```python
 xd_final, yd_final, Y_final, max_accel = dd.get_final_drift_batch(
-    sample_uv=my_sampler,
+    sample_uv,
     t_span=(0, 120),
     y0=None,           # optional initial state (N, 8) for warm-starting
     atol=1e-3,
@@ -190,10 +198,6 @@ Computes steady-state drift for N particles simultaneously. All N particles are
 stacked into a single `(8N,)` ODE system so that `solve_ivp` overhead is paid
 once, and the vectorized RHS evaluates all particles in parallel using NumPy
 broadcasting.
-
-The `sample_uv` callable passed here overrides the instance default for this
-call (the Parcels kernel needs this -- it builds a new sampler each timestep
-from the fieldset). When `None`, uses the instance's `_sample_uv`.
 
 This is the primary method used by the Parcels kernel and by batch-evaluation
 notebooks. The `Y_final` array (shape `(N, 8)`) contains the full final state
@@ -208,9 +212,10 @@ studying the equations of motion at a specific state, validating the physics, or
 building custom integrators.
 
 ```python
-from drogued_drifters import DrifterPhysics, EOMState, qdd_func, M_func, F_func
+from drogued_drifters import DroguedDrifter, DrifterPhysics, EOMState, eval_qdd, eval_M, eval_F
 import numpy as np
 
+dd = DroguedDrifter()
 physics = DrifterPhysics(
     m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
     l=3.0, g=9.81, k_b=12.0, k_d=154.0,
@@ -223,9 +228,9 @@ state = EOMState(
     U_d=-1.0, V_d=0.0,           # drogue current 1 m/s west
 )
 
-qdd = qdd_func(physics, state)   # generalized accelerations, shape (4,)
-M   = M_func(physics, state)     # mass matrix, shape (4, 4)
-F   = F_func(physics, state)     # force vector, shape (4,)
+qdd = eval_qdd(dd, physics, state)   # generalized accelerations, shape (4,)
+M   = eval_M(dd, physics, state)     # mass matrix, shape (4, 4)
+F   = eval_F(dd, physics, state)     # force vector, shape (4,)
 # sanity check: M @ qdd ≈ F
 assert np.allclose(M @ qdd, F)
 ```
@@ -233,7 +238,7 @@ assert np.allclose(M @ qdd, F)
 All three functions accept scalar or batch (shape `(N,)` arrays in `EOMState`)
 input. Batch calls return `(N, 4, 4)`, `(N, 4)`, and `(N, 4)` respectively.
 
-`qdd_func` accepts a `backend=` keyword (`"numpy"` or `"numba"`). For the
+`eval_qdd` accepts a `backend=` keyword (`"numpy"` or `"numba"`). For the
 numba backend, pass `backend="numba"` or construct
 `DroguedDrifter(backend="numba")`, which uses a JIT-compiled evaluator
 internally.

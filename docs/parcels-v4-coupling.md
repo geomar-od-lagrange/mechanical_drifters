@@ -1,9 +1,9 @@
 # Parcels v4 coupling
 
-`drogued_drifters.parcels_v4` provides a single Parcels kernel that
+`drogued_drifters.parcels` provides a single Parcels kernel that
 advects particles using the drogued-drifter steady-state drift velocity.
 All Parcels-specific code is isolated in this module — the core physics
-(`drifter.py`, `eom.py`) has no Parcels dependency.
+(`models/drogued_drifter.py`, `eom.py`) has no Parcels dependency.
 
 ## Quick start
 
@@ -11,8 +11,8 @@ All Parcels-specific code is isolated in this module — the core physics
 import numpy as np
 from parcels import FieldSet, Particle, ParticleSet, StatusCode
 
-from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.parcels_v4 import make_dd_kernel
+from drogued_drifters import DroguedDrifter
+from drogued_drifters.parcels import make_dd_kernel
 
 dd = DroguedDrifter()
 kernel = make_dd_kernel(dd)
@@ -39,7 +39,7 @@ Each timestep, `DDAdvectEE` does four things:
 2. **Build a fast depth interpolator** (`make_profile_sampler`) from
    the sampled profiles.
 
-3. **Run the drifter ODE** via `dd.get_final_drift_batch(sample_uv=...)`
+3. **Run the drifter ODE** via `model.steady_state_batch(sample_uv)`
    to find the steady-state buoy drift velocity. This cold-starts from
    un-sheared equilibrium (pole hanging vertical) every call.
 
@@ -102,21 +102,27 @@ composing with `AdvectionEE`.  Since the DD model finds the steady-state
 drift velocity, the "velocity" is quasi-static and Euler forward is the
 natural scheme.  Upgrade to RK4 later if needed.
 
-## `make_dd_kernel` — why not `functools.partial`
+## `make_kernel` — why not `functools.partial`
 
 Parcels v4 alpha checks `isinstance(kernel, types.FunctionType)` in
 `Kernel.__init__` and rejects `functools.partial` objects.
-`make_dd_kernel(dd)` returns a plain closure instead:
+`make_kernel(model)` returns a plain closure instead:
 
 ```python
-def make_dd_kernel(dd):
+def make_kernel(model):
+    physics = model.physics
+    max_depth = model._max_depth(physics)
     def _kernel(particles, fieldset):
-        DDAdvectEE(particles, fieldset, dd=dd)
+        sample_uv = _extract_profiles(particles, fieldset, max_depth)
+        drift_vel, _, _ = model.steady_state_batch(sample_uv)
+        _position_update(particles, drift_vel[:, 0], drift_vel[:, 1], fieldset)
     return _kernel
 ```
 
-If a future Parcels release relaxes this check, `partial(DDAdvectEE, dd=dd)`
-would work and `make_dd_kernel` could be dropped.
+`make_dd_kernel` is a backward-compatible alias for `make_kernel`.
+
+If a future Parcels release relaxes the `FunctionType` check,
+`functools.partial` would work and the closure wrapper could be dropped.
 
 ## Numba backend
 

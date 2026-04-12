@@ -50,8 +50,8 @@ import xarray as xr
 from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode
 from parcels.kernels import AdvectionEE
 
-from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.parcels_v4 import make_dd_kernel
+from drogued_drifters import DroguedDrifter
+from drogued_drifters.parcels import make_dd_kernel
 ```
 
 <!-- #region papermill={"duration": 0.001273, "end_time": "2026-04-11T16:02:07.380935+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.379662+00:00", "status": "completed"} -->

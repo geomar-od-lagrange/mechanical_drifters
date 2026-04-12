@@ -502,11 +502,10 @@ dd = DroguedDrifter(
     k_b=P_k_b,
     k_d=P_k_d,
     g=P_g,
-    sample_uv=stokes_uv,
 )
 
 # Integrate full trajectory
-ds4 = dd.get_full_solution(t_span=(0, T_END), t_eval=t_eval)
+ds4 = dd.get_full_solution(stokes_uv, t_span=(0, T_END), t_eval=t_eval)
 
 # Project 3D (theta, phi) to effective 2D pole angle in the x-z plane.
 # The 3D pole direction is (sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta)).

@@ -17,7 +17,11 @@ import numpy as np
 
 dd = DroguedDrifter()  # default Callies et al. geometry
 
-ds = dd.get_full_solution(t_span=(0, 120), t_eval=np.arange(0, 121))
+def sample_uv(z):
+    """Return (U, V) velocity at depth z. z=0 is surface, negative is below."""
+    return 0.3, 0.0  # uniform 0.3 m/s eastward
+
+ds = dd.get_full_solution(sample_uv, t_span=(0, 120), t_eval=np.arange(0, 121))
 ds.x.plot()  # buoy x position over time
 ```
 
@@ -27,7 +31,8 @@ stereographic representation).  `get_final_drift` returns just the steady-state
 drift velocity `(xd, yd, max_accel)`.  All initial conditions are keyword
 arguments with sensible defaults (drogue hanging straight down, at rest).
 
-Custom velocity fields are passed as a `sample_uv(z)` callable:
+Ocean currents are supplied as a `sample_uv(z)` callable passed to each solve
+method:
 
 ```python
 import numpy as np
@@ -38,16 +43,16 @@ def my_uv(z):
     ...
     return U, V  # eastward, northward [m/s], same shape as z
 
-dd = DroguedDrifter(sample_uv=my_uv)
+xd, yd, max_accel = dd.get_final_drift(my_uv, t_span=(0, 120))
 ```
 
 ## Parcels integration
 
 For Lagrangian particle tracking with [Parcels v4](https://github.com/OceanParcels/parcels),
-use the `DDAdvectEE` kernel:
+use the `make_dd_kernel` factory:
 
 ```python
-from drogued_drifters.parcels_v4 import make_dd_kernel
+from drogued_drifters.parcels import make_dd_kernel
 
 dd = DroguedDrifter()
 kernel = make_dd_kernel(dd)
