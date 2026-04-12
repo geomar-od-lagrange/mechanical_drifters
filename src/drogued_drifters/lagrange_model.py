@@ -3,6 +3,7 @@ import hashlib
 import inspect
 import os
 import pickle
+import sys
 import warnings
 from pathlib import Path
 from typing import NamedTuple
@@ -37,16 +38,16 @@ class EOMState(NamedTuple):
     Not part of the public API — fields use stereographic coordinates.
     """
 
-    u_stereo: float  # stereographic u
-    v_stereo: float  # stereographic v
-    xd: float  # buoy x velocity [m/s]
-    yd: float  # buoy y velocity [m/s]
-    ud_stereo: float  # stereographic u velocity [1/s]
-    vd_stereo: float  # stereographic v velocity [1/s]
-    U_b: float  # current at buoy, east [m/s]
-    V_b: float  # current at buoy, north [m/s]
-    U_d: float  # current at drogue, east [m/s]
-    V_d: float  # current at drogue, north [m/s]
+    u_stereo: float | np.ndarray  # stereographic u
+    v_stereo: float | np.ndarray  # stereographic v
+    xd: float | np.ndarray  # buoy x velocity [m/s]
+    yd: float | np.ndarray  # buoy y velocity [m/s]
+    ud_stereo: float | np.ndarray  # stereographic u velocity [1/s]
+    vd_stereo: float | np.ndarray  # stereographic v velocity [1/s]
+    U_b: float | np.ndarray  # current at buoy, east [m/s]
+    V_b: float | np.ndarray  # current at buoy, north [m/s]
+    U_d: float | np.ndarray  # current at drogue, east [m/s]
+    V_d: float | np.ndarray  # current at drogue, north [m/s]
 
 
 def _build_packer(raw_func):
@@ -58,6 +59,18 @@ def _build_packer(raw_func):
 
     Raises KeyError immediately if a parameter name doesn't map to
     any struct field — no silent ordering bugs.
+
+    Args:
+        raw_func: A lambdified callable whose parameter names exactly match
+            fields in ``DrifterPhysics`` or ``EOMState``.
+
+    Returns:
+        A callable ``pack_eom_args(physics, state)`` that returns a positional
+        argument tuple suitable for calling ``raw_func(*pack_eom_args(p, s))``.
+
+    Raises:
+        KeyError: If any parameter name in ``raw_func``'s signature is not
+            found in either ``DrifterPhysics._fields`` or ``EOMState._fields``.
     """
     param_names = list(inspect.signature(raw_func).parameters)
     physics_fields = DrifterPhysics._fields
@@ -80,7 +93,7 @@ def _build_packer(raw_func):
     return pack_eom_args
 
 
-def _mag(vec):
+def _sym_norm(vec):
     return sp.sqrt(vec.dot(vec))
 
 
@@ -108,10 +121,11 @@ def _derive_symbolic():
     where theta = pi.
 
     Returns:
-        Tuple ``(M_static, F_static, args)`` where M_static is the 4x4 mass
-        matrix and F_static the 4x1 force vector, both with static (non-dynamic)
-        symbols substituted for the time-dependent ones, and args is the ordered
-        tuple of symbols for lambdification.
+        Tuple ``(M_static, F_static, args)`` where ``M_static`` is the 4x4
+        mass matrix and ``F_static`` is the 4-element RHS vector F such that
+        M·q̈ = F (the result of ``sp.linear_eq_to_matrix(eoms, qdd)``), both
+        with static (non-dynamic) symbols substituted for the time-dependent
+        ones, and ``args`` is the ordered tuple of symbols for lambdification.
     """
     t = dynamicsymbols._t
 
@@ -146,8 +160,8 @@ def _derive_symbolic():
     u_d_vec = sp.Matrix([U_d, V_d, 0])
 
     # Drag forces
-    F_b = -k_b * _mag(v_b - u_b_vec) * (v_b - u_b_vec)
-    F_d = -k_d * _mag(v_d_h - u_d_vec) * (v_d_h - u_d_vec)
+    F_b = -k_b * _sym_norm(v_b - u_b_vec) * (v_b - u_b_vec)
+    F_d = -k_d * _sym_norm(v_d_h - u_d_vec) * (v_d_h - u_d_vec)
 
     # Kinetic energy
     T = (
@@ -193,6 +207,13 @@ def _derive_symbolic():
     # enabling signature-based argument packing in _build_packer.
     u_static, v_static = sp.symbols("u_stereo v_stereo", real=True)
     ud_static, vd_static = sp.symbols("ud_stereo vd_stereo", real=True)
+    # x_pos / y_pos are the static substitution symbols for the buoy position
+    # generalized coordinates (x, y).  They are named "x_pos"/"y_pos" rather
+    # than "x"/"y" to produce valid Python identifiers after lambdification
+    # (plain "x" and "y" can clash with built-ins).  These symbols do NOT
+    # correspond to fields in DrifterPhysics or EOMState because position
+    # (x, y) is a generalized coordinate, not a parameter: M and F depend only
+    # on velocities and currents, not on absolute position.
     x_static, y_static = sp.symbols("x_pos y_pos", real=True)
     xd_static, yd_static = sp.symbols("xd yd", real=True)
 
@@ -245,9 +266,15 @@ _CACHE_PATH = Path(__file__).resolve().parent / "data" / "eom_cache.pkl"
 
 
 def _cache_key():
-    """Hash of _derive_symbolic source + sympy version for cache invalidation."""
+    """Hash of _derive_symbolic source + sympy version + Python version for cache invalidation."""
     source = inspect.getsource(_derive_symbolic)
-    return hashlib.sha256((source + sp.__version__).encode()).hexdigest()[:16]
+    key_data = (
+        source
+        + sp.__version__
+        + str(sys.version_info[:2])
+        + str(pickle.HIGHEST_PROTOCOL)
+    )
+    return hashlib.sha256(key_data.encode()).hexdigest()[:16]
 
 
 def _load_or_derive():
@@ -263,8 +290,8 @@ def _load_or_derive():
             cached = pickle.loads(_CACHE_PATH.read_bytes())
             if cached.get("key") == _cache_key():
                 return cached["M"], cached["F"], cached["qdd"], cached["args"]
-        except Exception:
-            pass  # corrupt or incompatible pickle — re-derive
+        except Exception as e:
+            warnings.warn(f"EOM cache load failed: {e}", stacklevel=2)
 
     # Miss or stale — re-derive (slow, ~2 min)
     warnings.warn(
@@ -389,6 +416,39 @@ def _qdd_func(physics, state):
 
     Returns:
         (4,) array for scalar input, (N, 4) array for batch input.
+    """
+    return _make_qdd_func("numpy")(physics, state)
+
+
+def qdd_func(physics: DrifterPhysics, state: EOMState):
+    """Evaluate generalized accelerations qdd = M^{-1}F (numpy backend).
+
+    Public entry point for direct evaluation of the equations of motion.
+    Use this together with ``M_func`` and ``F_func`` to study the EOM
+    without going through the ODE integrator.
+
+    Example::
+
+        from drogued_drifters import DrifterPhysics, EOMState, qdd_func, M_func, F_func
+
+        physics = DrifterPhysics(...)
+        state = EOMState(...)
+
+        qdd = qdd_func(physics, state)   # generalized accelerations, shape (4,)
+        M   = M_func(physics, state)     # mass matrix, shape (4, 4)
+        F   = F_func(physics, state)     # force vector, shape (4,)
+        # sanity check: M @ qdd ≈ F
+        assert np.allclose(M @ qdd, F)
+
+    Args:
+        physics: ``DrifterPhysics`` instance with physical constants.
+        state: ``EOMState`` instance with current state and forcing.
+            Fields may be scalars or ``(N,)`` arrays for batch evaluation.
+
+    Returns:
+        Generalized accelerations ``qdd = M^{-1}F``:
+        - ``(4,)`` array for scalar input.
+        - ``(N, 4)`` array for batch input.
     """
     return _make_qdd_func("numpy")(physics, state)
 

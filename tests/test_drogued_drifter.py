@@ -35,6 +35,7 @@ def _step_sampler(U_b, V_b, U_d, V_d):
 
 def test_drogued_drifter_instantiation():
     dd = DroguedDrifter()
+    assert dd.physics.l == 3.0
 
 
 def test_MF_callable():

@@ -32,9 +32,9 @@ def make_profile_sampler(depth_levels, U_profiles, V_profiles):
         Callable ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or
         ``(N,)`` array and the return arrays have shape ``(N,)``.
     """
-    depth_levels = np.asarray(depth_levels, dtype=float)
-    U_profiles = np.asarray(U_profiles, dtype=float)  # (D, N)
-    V_profiles = np.asarray(V_profiles, dtype=float)
+    depth_levels = np.asarray(depth_levels, dtype=float).copy()
+    U_profiles = np.asarray(U_profiles, dtype=float).copy()  # (D, N)
+    V_profiles = np.asarray(V_profiles, dtype=float).copy()
     D, N = U_profiles.shape
 
     def sample_uv(z):

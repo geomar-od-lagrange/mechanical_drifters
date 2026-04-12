@@ -204,6 +204,43 @@ notebooks. The `Y_final` array (shape `(N, 8)`) contains the full final state
 in public coordinates `[x, y, theta, phi, xd, yd, thetad, phid]` and can be
 passed back as `y0` for warm-starting subsequent calls.
 
+## Direct EOM evaluation
+
+The mass matrix `M`, force vector `F`, and generalized accelerations `qdd = M^{-1}F`
+can be evaluated directly without running the ODE integrator. This is useful for
+studying the equations of motion at a specific state, validating the physics, or
+building custom integrators.
+
+```python
+from drogued_drifters import DrifterPhysics, EOMState, qdd_func, M_func, F_func
+import numpy as np
+
+physics = DrifterPhysics(
+    m_b=1.0, m_d=2.7, m_hat_d=1.0, m_tilde_d=101.0, m_tilde_b=1.9,
+    l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+)
+state = EOMState(
+    u_stereo=0.0, v_stereo=0.0,  # drogue at equilibrium (hanging straight down)
+    xd=0.0, yd=0.0,              # buoy at rest
+    ud_stereo=0.0, vd_stereo=0.0,
+    U_b=1.0, V_b=0.0,            # surface current 1 m/s east
+    U_d=-1.0, V_d=0.0,           # drogue current 1 m/s west
+)
+
+qdd = qdd_func(physics, state)   # generalized accelerations, shape (4,)
+M   = M_func(physics, state)     # mass matrix, shape (4, 4)
+F   = F_func(physics, state)     # force vector, shape (4,)
+# sanity check: M @ qdd ≈ F
+assert np.allclose(M @ qdd, F)
+```
+
+All three functions accept scalar or batch (shape `(N,)` arrays in `EOMState`)
+input. Batch calls return `(N, 4, 4)`, `(N, 4)`, and `(N, 4)` respectively.
+
+`qdd_func` is a shortcut for `_make_qdd_func("numpy")`. For the numba backend,
+construct `DroguedDrifter(backend="numba")` instead, which uses a JIT-compiled
+evaluator internally.
+
 ## Standalone vs Parcels
 
 Use `DroguedDrifter` standalone (with `get_full_solution`, `get_final_drift`, or

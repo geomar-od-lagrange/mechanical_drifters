@@ -52,6 +52,8 @@ kernel = make_dd_kernel(dd)
 pset.execute(kernels=[kernel, DeleteOOB], dt=300, runtime=86400)
 ```
 
+The DD kernel computes the drift velocity internally and applies its own Euler-forward position update — it does not use Parcels advection schemes like `AdvectionRK4`, which are only relevant for point-particle comparisons.
+
 See [docs/parcels-v4-coupling.md](docs/parcels-v4-coupling.md) for details.
 
 ## Setup

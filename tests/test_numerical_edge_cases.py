@@ -36,9 +36,11 @@ def test_rhs_batch_handles_nan_M():
         """Dummy sampler returning small velocities."""
         return np.ones(N) * 0.1, np.ones(N) * 0.05
 
+    dd._sample_uv = sample_uv_const
+
     # Call _rhs_batch; should not raise, even if some M/F are NaN
     try:
-        dY = dd._rhs_batch(Y, sample_uv_const)
+        dY = dd._rhs_batch(Y)
         # If we get here, NaN handling worked
         assert dY.shape == Y.shape, "dY shape mismatch"
         # The bad particles should have finite dY (identity + zero-force solve)
@@ -62,8 +64,10 @@ def test_rhs_batch_handles_inf_F():
             np.array([1e10, 1e-10, 0.1]),  # V_b
         )
 
+    dd._sample_uv = sample_uv_extreme
+
     try:
-        dY = dd._rhs_batch(Y, sample_uv_extreme)
+        dY = dd._rhs_batch(Y)
         assert dY.shape == Y.shape
         # Should recover by replacing bad rows with identity+zero
         assert np.any(np.isfinite(dY)), "At least some rows should be finite"

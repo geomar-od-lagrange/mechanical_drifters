@@ -86,6 +86,39 @@ def buoy_horizontal_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
     return 0.5 * rho * C_D_b * d_b * h_b
 
 
+def _adapt_get_uv(get_uv):
+    """Wrap a scalar ``get_uv(*, t, x, y, z)`` callback into the ``sample_uv(z)`` protocol.
+
+    The scalar ``get_uv`` callback is called with ``t=0, x=0, y=0`` for each
+    depth value.  This is an internal adapter -- external callers should pass
+    ``sample_uv`` directly when they have profile data.
+
+    Args:
+        get_uv: Scalar velocity callback with signature
+            ``get_uv(*, t, x, y, z) -> (U, V)``.
+
+    Returns:
+        A callable ``sample_uv(z) -> (U, V)`` that calls ``get_uv`` for
+        each depth value.  When ``z`` is scalar, returns scalar floats.
+        When ``z`` is an array, returns ``(N,)`` arrays.
+    """
+
+    def sample_uv(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        N = len(z_arr)
+        U = np.empty(N)
+        V = np.empty(N)
+        for i in range(N):
+            U[i], V[i] = get_uv(t=0.0, x=0.0, y=0.0, z=float(z_arr[i]))
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
+
+    return sample_uv
+
+
 class DroguedDrifter:
     """Simulator for a drogued drifter in ocean currents.
 
@@ -98,6 +131,25 @@ class DroguedDrifter:
     ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``
     where ``(x, y)`` is the buoy position and ``(u_stereo, v_stereo)`` are
     stereographic coordinates for the pole direction (equilibrium at origin).
+
+    Velocity interface
+    ------------------
+    Both the scalar ODE path (``_rhs``, ``get_final_drift``,
+    ``get_full_solution``) and the batch ODE path (``_rhs_batch``,
+    ``get_final_drift_batch``) use a single internal protocol:
+    ``_sample_uv(z) -> (U, V)`` where ``z`` is a scalar or ``(N,)`` depth
+    array (m, positive upward) and ``(U, V)`` are velocities of matching
+    shape.
+
+    There are three ways to supply velocity:
+
+    1. **``sample_uv``** (preferred for batch/profile data): pass a callable
+       with the ``sample_uv(z)`` protocol directly.
+    2. **``get_uv``** (convenience for scalar tests): pass a callback with
+       signature ``get_uv(*, t, x, y, z) -> (U, V)``.  It is wrapped into
+       the ``sample_uv`` protocol automatically (called with ``t=0, x=0,
+       y=0``).
+    3. **Neither**: a built-in step-function default is used.
 
     Default parameters are for the Callies et al. drifter geometry
     (rho = 1025 kg/m^3)::
@@ -117,14 +169,13 @@ class DroguedDrifter:
         k_b: Buoy drag coefficient [kg/m].
         k_d: Drogue drag coefficient [kg/m].
         g: Gravitational acceleration [m/s^2].
-        get_uv: Callback that returns the ocean current at a given position.
-            Must have signature ``get_uv(*, t, x, y, z) -> (U, V)``.
-            ``z`` is vertical position [m], positive upward (0 = surface,
-            negative = below MSL).
-            Called separately at ``z=0`` (buoy) and ``z=z_d`` (drogue).
-            If None, uses ``_default_uv``.
-            Use ``functools.partial`` to bind external data (e.g. an xarray
-            dataset) before passing it here.
+        get_uv: Scalar velocity callback with signature
+            ``get_uv(*, t, x, y, z) -> (U, V)``.  Wrapped into the
+            ``sample_uv`` protocol at construction time (called with
+            ``t=0, x=0, y=0``).  Mutually exclusive with ``sample_uv``.
+        sample_uv: Batch velocity sampler with signature
+            ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or ``(N,)``
+            depth array.  Mutually exclusive with ``get_uv``.
         backend: ``"numpy"`` (default) or ``"numba"``.  Selects the
             computational backend for the generalized-acceleration evaluator
             ``_qdd_func``.  With ``"numba"``, the raw lambdified function is
@@ -146,8 +197,12 @@ class DroguedDrifter:
         k_d=154.0,
         g=9.81,
         get_uv=None,
+        sample_uv=None,
         backend="numpy",
     ):
+        if get_uv is not None and sample_uv is not None:
+            raise ValueError("Pass get_uv or sample_uv, not both.")
+
         self.physics = DrifterPhysics(
             m_b=m_b,
             m_d=m_d,
@@ -163,13 +218,43 @@ class DroguedDrifter:
         self.backend = backend
         self._qdd_func = _make_qdd_func(backend)
 
-        if get_uv is not None:
+        if sample_uv is not None:
+            self._sample_uv = sample_uv
+        elif get_uv is not None:
             self.get_uv = get_uv
+            self._sample_uv = _adapt_get_uv(get_uv)
         else:
             self.get_uv = self._default_uv
+            self._sample_uv = self._default_sample_uv
+
+    @staticmethod
+    def _default_sample_uv(z):
+        """Placeholder velocity sampler for testing.
+
+        Returns ``(1.0, 1.0)`` at the surface (z == 0) and ``(-1.0, -1.0)``
+        at all other depths.  Handles both scalar and array ``z``.
+
+        Args:
+            z: Vertical position [m], scalar or ``(N,)`` array.
+
+        Returns:
+            Tuple ``(U, V)`` current velocity [m/s].
+        """
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 1.0, -1.0)
+        V = np.where(z_arr == 0.0, 1.0, -1.0)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
     def _default_uv(self, *, t, x, y, z):
-        """Default velocity callback for testing. Returns sheared currents.
+        """Placeholder velocity callback for testing. Returns a hardcoded step function.
+
+        Returns ``(1.0, 1.0)`` at the surface (z == 0.0) and ``(-1.0, -1.0)``
+        at all other depths. This is not a physical shear profile -- it exists
+        only to provide a non-trivial default for unit tests and quick checks.
 
         Args:
             t: Time [s].
@@ -187,6 +272,10 @@ class DroguedDrifter:
     def _rhs(self, t, y):
         """Right-hand side of the ODE system for ``solve_ivp``.
 
+        Uses ``self._sample_uv`` to query velocity at the buoy (z=0) and
+        drogue (z=z_eff) depths, going through the same velocity interface
+        as the batch path.
+
         Args:
             t: Current time [s].
             y: State vector of length 8:
@@ -195,8 +284,6 @@ class DroguedDrifter:
         Returns:
             Time derivatives of the state vector (length 8).
         """
-        x_b = y[IX]
-        y_b = y[IY]
         u_stereo = y[IU]
         v_stereo = y[IV]
         xd = y[IXD]
@@ -206,8 +293,8 @@ class DroguedDrifter:
 
         z_d = float(self._z_eff(np.array([u_stereo]), np.array([v_stereo]))[0])
 
-        U_b, V_b = self.get_uv(t=t, x=x_b, y=y_b, z=0.0)
-        U_d, V_d = self.get_uv(t=t, x=x_b, y=y_b, z=z_d)
+        U_b, V_b = self._sample_uv(0.0)
+        U_d, V_d = self._sample_uv(z_d)
 
         state = EOMState(
             u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo, U_b, V_b, U_d, V_d
@@ -240,21 +327,27 @@ class DroguedDrifter:
         # rather than adding per-call warnings on this hot path.
         return np.minimum(0.0, self.physics.l * cos_theta)
 
-    def _rhs_batch(self, Y, sample_uv):
+    def _rhs_batch(self, Y):
         """Vectorized RHS for N particles.
 
-        Uses _qdd_func for fast evaluation. All arithmetic broadcasts
-        over ``(N,)`` arrays, so no per-particle loop is needed.
+        Uses ``self._sample_uv`` for velocity queries and ``self._qdd_func``
+        for fast evaluation.  All arithmetic broadcasts over ``(N,)`` arrays,
+        so no per-particle loop is needed.
 
         Args:
             Y: State array of shape ``(N, 8)``.
-            sample_uv: Callable ``sample_uv(z) -> (U, V)`` that returns
-                eastward and northward velocity arrays of shape ``(N,)``
-                at depth ``z`` (scalar or ``(N,)`` array).
 
         Returns:
             Time derivatives ``dY/dt`` of shape ``(N, 8)``.
+
+        Notes:
+            Non-finite accelerations (NaN or inf) in the qdd output are
+            silently replaced with zero. This prevents solver divergence when
+            the ODE passes through numerically degenerate states (e.g. extreme
+            pole angles), at the cost of temporarily zeroing the forcing for
+            affected particles.
         """
+        sample_uv = self._sample_uv
         N = Y.shape[0]
         u_stereo = Y[:, IU]
         v_stereo = Y[:, IV]
@@ -300,7 +393,7 @@ class DroguedDrifter:
     def get_final_drift_batch(
         self,
         *,
-        sample_uv,
+        sample_uv=None,
         t_span=(0, 120),
         y0=None,
         atol=1e-3,
@@ -312,11 +405,11 @@ class DroguedDrifter:
         ``solve_ivp`` overhead is paid once, and the vectorized RHS
         (``_rhs_batch``) evaluates all particles simultaneously.
 
-        ``sample_uv`` must be a callable ``sample_uv(z) -> (U, V)`` that returns
-        ``(N,)`` velocity arrays at depth ``z`` (scalar or ``(N,)`` array).
-        The ODE solver queries the buoy velocity at z=0 and the drogue velocity
-        at the current effective depth ``z_eff(theta)`` on every RHS evaluation,
-        so the drogue depth tracks the pole tilt dynamically.
+        The velocity sampler ``sample_uv(z) -> (U, V)`` returns ``(N,)``
+        velocity arrays at depth ``z`` (scalar or ``(N,)`` array).  When
+        ``sample_uv`` is passed, it overrides the instance default for this
+        call (the Parcels kernel needs this -- it builds a new sampler each
+        timestep from the fieldset).  When ``None``, uses ``self._sample_uv``.
 
         To use fixed buoy/drogue velocities, pass a step-function sampler::
 
@@ -328,7 +421,8 @@ class DroguedDrifter:
         the caller can use to assess convergence.
 
         Args:
-            sample_uv: Velocity profile sampler (see above).
+            sample_uv: Velocity profile sampler (see above).  If ``None``,
+                uses the instance's ``_sample_uv``.
             t_span: Integration window ``(t_start, t_end)`` in seconds.
             y0: Initial state array of shape ``(N, 8)`` in public format
                 ``(x, y, theta, phi, xd, yd, thetad, phid)``.  If ``None``,
@@ -346,6 +440,22 @@ class DroguedDrifter:
             Column layout of ``Y_final``:
             ``[x, y, theta, phi, xd, yd, thetad, phid]``.
         """
+        # Temporarily override _sample_uv if caller provides one, then restore.
+        saved = self._sample_uv
+        if sample_uv is not None:
+            self._sample_uv = sample_uv
+        try:
+            return self._get_final_drift_batch_impl(t_span, y0, atol, rtol)
+        finally:
+            self._sample_uv = saved
+
+    def _get_final_drift_batch_impl(self, t_span, y0, atol, rtol):
+        """Core implementation for ``get_final_drift_batch``.
+
+        Uses ``self._sample_uv`` for velocity queries.  Separated from the
+        public method to keep the save/restore logic clean.
+        """
+        sample_uv = self._sample_uv
         # Determine N from y0 or by probing the sampler
         if y0 is not None:
             N = np.asarray(y0).reshape(-1, 8).shape[0]
@@ -385,7 +495,7 @@ class DroguedDrifter:
 
         def rhs_flat(t, y_flat):
             Y = y_flat.reshape(N, 8)
-            dY = self._rhs_batch(Y, sample_uv)
+            dY = self._rhs_batch(Y)
             return dY.ravel()
 
         sol = solve_ivp(
@@ -398,7 +508,7 @@ class DroguedDrifter:
         Y_internal = sol.y[:, -1].reshape(N, 8)
 
         # Evaluate convergence diagnostic: max drift acceleration at final state
-        dY_final = self._rhs_batch(Y_internal, sample_uv)
+        dY_final = self._rhs_batch(Y_internal)
         max_accel = float(np.max(np.abs(dY_final[:, IXD : IYD + 1])))
 
         # Convert internal (u, v, ud, vd) state to public (theta, phi, thetad, phid)
@@ -534,7 +644,7 @@ class DroguedDrifter:
                 (same as ``get_full_solution``).
 
         Returns:
-            Tuple ``(xd_final, yd_final, max_accel)`` — the buoy drift velocity
+            Tuple ``(xd_final, yd_final, max_accel)`` -- the buoy drift velocity
             [m/s] at the end of the integration, and the maximum drift
             acceleration ``max(|xdd|, |ydd|)`` at the final state (a convergence
             diagnostic; smaller is better).
