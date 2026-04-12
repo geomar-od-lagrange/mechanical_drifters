@@ -1,11 +1,46 @@
 # Spar buoy as first-class citizen
 
-Elevate the SparBuoy model from "also implemented" to equal standing with
-DroguedDrifter. Add a simple example notebook. Review naming to ensure
-the package presents itself as a multi-model toolkit, not a
-drogued-drifter library with a spar buoy bolted on.
+Elevate the SparBuoy model to equal standing with DroguedDrifter. Rename
+the package from `drogued_drifters` to `mechanical_drifters` so the name
+reflects a multi-model toolkit. Add a simple example notebook.
 
-## 1. Example notebook
+## 1. Package rename: `drogued_drifters` → `mechanical_drifters`
+
+This is pre-alpha research code with no downstream users. Internal API
+changes are free (CLAUDE.md L27). A mechanical rename now is cheaper
+than carrying a misleading name forever.
+
+### What changes
+
+| What | From | To |
+|------|------|----|
+| Package dir | `src/drogued_drifters/` | `src/mechanical_drifters/` |
+| pyproject.toml name | `drogued_drifters` | `mechanical_drifters` |
+| pyproject.toml description | "...drogued ocean drifters" | "...mechanical ocean drifters" |
+| All `from drogued_drifters import` | everywhere | `from mechanical_drifters import` |
+| All `import drogued_drifters` | everywhere | `import mechanical_drifters` |
+| README title | "2025 Drogued Drifters" | "Mechanical Ocean Drifters" |
+
+Files affected: `pyproject.toml`, `__init__.py`, every test file, every
+notebook `.md`, every doc, `AGENTS.md`, `base.py` docstring.
+
+### What does NOT change
+
+- Class names: `DroguedDrifter`, `SparBuoy` stay as-is (they name
+  specific models, not the package).
+- `DrifterPhysics`, `EOMState` stay (they're DroguedDrifter-specific
+  types, correctly named).
+- `make_dd_kernel` stays as a backward-compat alias.
+- The git repo directory name `2025_drogued_drifters/` — that's an
+  external concern (GitHub rename), not part of this PR.
+- `eom_cache_drogued_drifter.pkl` — that's auto-derived from the class
+  name, not the package name.
+
+### Approach
+
+One `git mv` + project-wide find-and-replace. Sync all notebooks after.
+
+## 2. Example notebook
 
 `examples/idealized_flow/04_spar_buoy_in_sheared_flow.md`
 
@@ -25,74 +60,28 @@ flow. The notebook should:
 
 No Parcels, no Stokes drift, no wave orbitals. Pure standalone API.
 
-## 2. Naming review
+## 3. README and docs
 
-### Package name: keep `drogued_drifters`
+- README title: "Mechanical Ocean Drifters"
+- README subtitle: mention both models and the base class.
+- README quick-start: show both models briefly.
+- README examples: add the spar buoy notebook.
+- `docs/drifter-model.md`: keep as DroguedDrifter-specific (it is).
+  Add a note at the top that the package also includes SparBuoy.
+- `docs/parcels-v4-coupling.md`: note that `make_kernel(model)` works
+  for any model including SparBuoy.
+- `base.py` docstring: mention both models as examples.
 
-Renaming the package (`drogued_drifters` → `lagrangian_drifters` or
-`mechanical_drifters`) would break every import in every notebook,
-test, doc, and downstream user. The package started as a drogued
-drifter model and the name is established. Python packages routinely
-outgrow their names (e.g. `requests` does more than HTTP requests,
-`pandas` isn't about pandas). The cost of renaming exceeds the benefit.
+## 4. Checklist
 
-**Decision: keep the package name. Add a one-liner to the README
-explaining it now supports multiple drifter types.**
-
-### README title
-
-Current: `# 2025 Drogued Drifters`
-
-Change to something that signals multi-model scope without renaming:
-`# Mechanical Ocean Drifters` or similar. The "2025" is a project year,
-not a version — drop it. The subtitle should mention both models.
-
-### Docs
-
-- `docs/drifter-model.md` — this doc is specifically about the
-  DroguedDrifter physics. Keep it as-is (it's already correctly scoped
-  to one model). Add a note at the top that the SparBuoy is a separate,
-  simpler model.
-- `docs/parcels-v4-coupling.md` — already generic (`make_kernel` works
-  for any model). Add a sentence noting SparBuoy works with
-  `make_kernel(sb)` too.
-- Consider a short `docs/spar-buoy.md` if there's anything worth
-  explaining beyond "it averages velocity over its length". Probably
-  not — the docstring in `spar_buoy.py` is sufficient.
-
-### Source code
-
-- `base.py`: replace the "See DroguedDrifter for a complete example"
-  with "See DroguedDrifter and SparBuoy for examples."
-- `__init__.py`: SparBuoy is already exported. Good.
-- `parcels.py`: `make_dd_kernel` backward-compat alias stays. The
-  generic entry point is `make_kernel`. Add a `make_sb_kernel` alias
-  for symmetry? Probably not — `make_kernel(sb)` is clear enough.
-  `make_dd_kernel` only exists because the old API used it by name.
-
-### Example notebooks
-
-Current idealized flow notebooks are all DroguedDrifter-titled:
-- `01_synthetic_flow_profiles` — "Drogued Drifter in Synthetic Flow"
-- `02_sheared_jet_parcels` — "Drogued Drifter in an Idealized Sheared Flow"
-- `03_drogued_drifter_in_wave_orbitals` — drogued drifter specific
-
-These are correctly DroguedDrifter-specific. No rename needed — they
-demonstrate that specific model. The new `04_spar_buoy_in_sheared_flow`
-demonstrates the other.
-
-### README examples section
-
-Add the spar buoy notebook to the idealized flow list. Add a brief
-introductory sentence explaining the two model types.
-
-## 3. Checklist
-
+- [ ] `git mv src/drogued_drifters src/mechanical_drifters`
+- [ ] Update `pyproject.toml` (name, description, test command)
+- [ ] Find-and-replace `drogued_drifters` → `mechanical_drifters` in
+      all `.py`, `.md` files (imports, docs, notebooks)
+- [ ] Update README title, subtitle, quick-start, examples
+- [ ] Update `base.py` docstring
+- [ ] Update `docs/parcels-v4-coupling.md`
 - [ ] Write `04_spar_buoy_in_sheared_flow.md` notebook
-- [ ] Sync and execute with jupytext
-- [ ] Update README title and subtitle
-- [ ] Update README examples section (add spar buoy notebook)
-- [ ] Update `base.py` docstring (mention both models)
-- [ ] Update `docs/parcels-v4-coupling.md` (note SparBuoy compatibility)
-- [ ] Run tests to confirm nothing broke
+- [ ] Sync and execute all notebooks with jupytext
+- [ ] Run full test suite
 - [ ] Update PR #15 checklist
