@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from drogued_drifters.coords import _spherical_to_uv, _uv_to_spherical
-from drogued_drifters.eom import (
+from .coords import _spherical_to_uv, _uv_to_spherical
+from .eom import (
     DrifterPhysics,
     EOMState,
     _make_qdd_func,
