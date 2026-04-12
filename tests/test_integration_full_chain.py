@@ -128,16 +128,30 @@ def test_full_chain_shear_increases_drift():
     """Strong velocity shear should increase drift magnitude."""
 
     # No Stokes drift, but velocity shear
-    def sample_uv_weak(*, t, x, y, z):
-        return (0.1, 0.0) if z == 0 else (0.01, 0.0)
+    def sample_uv_weak(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.1, 0.01)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    def sample_uv_strong(*, t, x, y, z):
-        return (0.5, 0.0) if z == 0 else (0.01, 0.0)
+    def sample_uv_strong(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.5, 0.01)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_weak = DroguedDrifter(get_uv=sample_uv_weak)
+    dd_weak = DroguedDrifter(sample_uv=sample_uv_weak)
     xd_weak, yd_weak, _ = dd_weak.get_final_drift(t_span=(0, 120))
 
-    dd_strong = DroguedDrifter(get_uv=sample_uv_strong)
+    dd_strong = DroguedDrifter(sample_uv=sample_uv_strong)
     xd_strong, yd_strong, _ = dd_strong.get_final_drift(t_span=(0, 120))
 
     # Both should have same sign (shear direction)
@@ -227,17 +241,31 @@ def test_full_chain_opposite_shear_direction():
     """Opposite shear directions should produce opposite drift."""
 
     # Eastward shear
-    def sample_uv_east(*, t, x, y, z):
-        return (0.2, 0.0) if z == 0 else (0.1, 0.0)
+    def sample_uv_east(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.2, 0.1)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
     # Westward shear (opposite)
-    def sample_uv_west(*, t, x, y, z):
-        return (-0.2, 0.0) if z == 0 else (-0.1, 0.0)
+    def sample_uv_west(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, -0.2, -0.1)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_east = DroguedDrifter(get_uv=sample_uv_east)
+    dd_east = DroguedDrifter(sample_uv=sample_uv_east)
     xd_east, _, _ma = dd_east.get_final_drift(t_span=(0, 120))
 
-    dd_west = DroguedDrifter(get_uv=sample_uv_west)
+    dd_west = DroguedDrifter(sample_uv=sample_uv_west)
     xd_west, _, _ma = dd_west.get_final_drift(t_span=(0, 120))
 
     # Drifts should be opposite sign
@@ -282,14 +310,19 @@ def test_full_chain_scalar_to_batch_consistency():
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.0, 10.0, depth_levels)
 
-    # Scalar path (using custom get_uv)
+    # Scalar path (using custom sample_uv)
     # depth_levels[-1] = 0.0 (surface), depth_levels[0] = -10.0 (deep)
-    def sample_uv_scalar(*, t, x, y, z):
-        if z == 0:
-            return u_stokes[-1], v_stokes[-1]  # surface (index -1 = z=0)
-        return u_stokes[0], v_stokes[0]  # deep (index 0 = z=-10)
+    def sample_uv_scalar(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, u_stokes[-1], u_stokes[0])
+        V = np.where(z_arr == 0.0, v_stokes[-1], v_stokes[0])
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=sample_uv_scalar)
+    dd = DroguedDrifter(sample_uv=sample_uv_scalar)
     xd_scalar, yd_scalar, _ = dd.get_final_drift(t_span=(0, 120))
 
     # Batch path (N=1)
@@ -314,12 +347,17 @@ def test_full_chain_xarray_output():
 
     u_stokes, v_stokes = compute_stokes_profile(0.05, 0.01, 10.0, depth_levels)
 
-    def sample_uv(*, t, x, y, z):
-        if z == 0:
-            return u_stokes[-1], v_stokes[-1]  # surface (z=0 at last index)
-        return u_stokes[0], v_stokes[0]  # deep (z=-10 at index 0)
+    def sample_uv(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, u_stokes[-1], u_stokes[0])
+        V = np.where(z_arr == 0.0, v_stokes[-1], v_stokes[0])
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=sample_uv)
+    dd = DroguedDrifter(sample_uv=sample_uv)
 
     ds = dd.get_full_solution(
         t_span=(0, 120),

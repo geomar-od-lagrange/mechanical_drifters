@@ -94,8 +94,7 @@ dd = DroguedDrifter(
     k_b=12.0,         # buoy drag coefficient [kg/m]
     k_d=154.0,        # drogue drag coefficient [kg/m]
     g=9.81,           # gravitational acceleration [m/s^2]
-    get_uv=None,      # scalar velocity callback (see below)
-    sample_uv=None,   # batch velocity sampler (see below)
+    sample_uv=None,   # velocity sampler (see below)
     backend="numpy",  # "numpy" or "numba"
 )
 ```
@@ -106,25 +105,24 @@ All defaults match the Callies et al. (2017) drifter geometry at
 `buoy_horizontal_drag_coeff` compute `m_tilde_d`, `m_tilde_b`, `k_d`, and `k_b`
 from raw dimensions if you have a different drifter design.
 
-### Velocity callback (`get_uv`)
+### Velocity sampler (`sample_uv`)
 
-The `get_uv` callback supplies ocean currents to the single-particle methods
-(`get_full_solution`, `get_final_drift`). Its signature is:
+The `sample_uv` callable supplies ocean currents to all methods. Its signature is:
 
 ```python
-def get_uv(*, t, x, y, z) -> tuple[float, float]:
-    """Return (U, V) current velocity [m/s] at position (x, y, z) and time t.
+def sample_uv(z) -> tuple[float | np.ndarray, float | np.ndarray]:
+    """Return (U, V) current velocity [m/s] at depth z.
 
     z is positive upward: 0 = surface, negative = below.
+    z can be a scalar float or a (N,) array.
+    Returns matching scalar or (N,) array.
     """
 ```
 
-Use `functools.partial` to bind external data (e.g., an xarray dataset) before
-passing it to the constructor. If `get_uv` is `None`, a hardcoded test profile
-is used (surface velocity `(1, 1)`, subsurface `(-1, -1)`).
-
-The batch method `get_final_drift_batch` uses a different callback interface
-(`sample_uv(z)`) -- see below.
+This single interface is used by both the scalar path (`get_full_solution`,
+`get_final_drift`) and the batch path (`get_final_drift_batch`). If `sample_uv`
+is `None`, a hardcoded test profile is used (surface velocity `(1, 1)`,
+subsurface `(-1, -1)`).
 
 ### Backend
 
@@ -171,7 +169,7 @@ xd_final, yd_final, max_accel = dd.get_final_drift(t_span=(0, 120))
 Integrates to steady state and returns only the final buoy drift velocity
 `(xd, yd)` in m/s, plus `max_accel` as a convergence diagnostic (smaller is
 better -- it measures the residual acceleration at the final time). Uses the
-same `get_uv` callback as `get_full_solution`.
+same `sample_uv` callable as `get_full_solution`.
 
 Use this for single-particle steady-state queries where you only need the drift
 velocity, not the full trajectory.
@@ -193,12 +191,9 @@ stacked into a single `(8N,)` ODE system so that `solve_ivp` overhead is paid
 once, and the vectorized RHS evaluates all particles in parallel using NumPy
 broadcasting.
 
-The `sample_uv` callback has a different interface from `get_uv`:
-
-```python
-def sample_uv(z) -> tuple[np.ndarray, np.ndarray]:
-    """Return (U, V) arrays of shape (N,) at depth z (scalar or (N,) array)."""
-```
+The `sample_uv` callable passed here overrides the instance default for this
+call (the Parcels kernel needs this -- it builds a new sampler each timestep
+from the fieldset). When `None`, uses the instance's `_sample_uv`.
 
 This is the primary method used by the Parcels kernel and by batch-evaluation
 notebooks. The `Y_final` array (shape `(N, 8)`) contains the full final state

@@ -48,9 +48,8 @@ def test_MF_callable():
 def test_qdd_func_evaluates():
     dd = DroguedDrifter()
 
-    t = 0.0
-    U_b, V_b = dd.get_uv(t=t, x=0.0, y=0.0, z=0.0)
-    U_d, V_d = dd.get_uv(t=t, x=0.0, y=0.0, z=-3.0)
+    U_b, V_b = dd._sample_uv(0.0)
+    U_d, V_d = dd._sample_uv(-3.0)
 
     state = EOMState(
         u_stereo=0.1,
@@ -71,10 +70,17 @@ def test_qdd_func_evaluates():
 
 
 def test_no_drift_for_zero_currents():
-    def _getuv_zero(*, t, x, y, z):
-        return 0.0, 0.0
+    def _sample_uv_zero(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.zeros_like(z_arr)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=_getuv_zero)
+    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
 
     xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0))
 
@@ -85,10 +91,17 @@ def test_no_drift_for_zero_currents():
 def test_no_drift_for_theta_pi_zero_currents():
     """Drogue hangs straight down (theta=pi), no currents: should stay at rest."""
 
-    def _getuv_zero(*, t, x, y, z):
-        return 0.0, 0.0
+    def _sample_uv_zero(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.zeros_like(z_arr)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=_getuv_zero)
+    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
 
     xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi)
 
@@ -117,19 +130,26 @@ def test_parameterization_matches_table1():
 def test_steady_state_independent_of_added_mass():
     """Added mass only affects acceleration, not steady-state drift."""
 
-    def _getuv_sheared(*, t, x, y, z):
-        factor = np.exp(-abs(z) / 2.0)
-        return factor, 0.0
+    def _sample_uv_sheared(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        factor = np.exp(-np.abs(z_arr) / 2.0)
+        U = factor
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
     dd_with = DroguedDrifter(
         m_tilde_d=101.0,
         m_tilde_b=1.9,
-        get_uv=_getuv_sheared,
+        sample_uv=_sample_uv_sheared,
     )
     dd_without = DroguedDrifter(
         m_tilde_d=0.0,
         m_tilde_b=0.0,
-        get_uv=_getuv_sheared,
+        sample_uv=_sample_uv_sheared,
     )
 
     xd_with, yd_with, _ = dd_with.get_final_drift(t_span=(0.0, 600.0))
@@ -163,14 +183,19 @@ def test_get_full_solution_returns_xarray():
 
 
 def _make_const_uv(U_b, V_b, U_d, V_d):
-    """Return a get_uv callback that returns buoy velocity at z=0, drogue otherwise."""
+    """Return a sample_uv callback: buoy velocity at z=0, drogue velocity otherwise."""
 
-    def _getuv(*, t, x, y, z):
-        if z == 0.0:
-            return U_b, V_b
-        return U_d, V_d
+    def _sample_uv(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, U_b, U_d)
+        V = np.where(z_arr == 0.0, V_b, V_d)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    return _getuv
+    return _sample_uv
 
 
 def test_batch_matches_scalar():
@@ -206,7 +231,7 @@ def test_batch_matches_scalar():
 
     for i in range(N):
         dd_i = DroguedDrifter(
-            get_uv=_make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
+            sample_uv=_make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
         )
         ds = dd_i.get_full_solution(t_span=t_span, theta=theta0)
         xd_scalar[i] = float(ds.xd.isel(time=-1))
@@ -731,10 +756,17 @@ def test_state_vector_round_trip():
 def test_max_accel_decreases_with_longer_t_span():
     """Longer integration should yield smaller max_accel (closer to steady state)."""
 
-    def _getuv_sheared(*, t, x, y, z):
-        return (0.3, 0.0) if z == 0 else (0.05, 0.0)
+    def _sample_uv_sheared(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.3, 0.05)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=_getuv_sheared)
+    dd = DroguedDrifter(sample_uv=_sample_uv_sheared)
 
     _, _, max_accel_short = dd.get_final_drift(t_span=(0.0, 10.0))
     _, _, max_accel_long = dd.get_final_drift(t_span=(0.0, 600.0))
@@ -748,10 +780,17 @@ def test_max_accel_decreases_with_longer_t_span():
 def test_max_accel_zero_for_zero_currents():
     """Zero currents from equilibrium: max_accel should be ~0 (no forcing)."""
 
-    def _getuv_zero(*, t, x, y, z):
-        return 0.0, 0.0
+    def _sample_uv_zero(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.zeros_like(z_arr)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=_getuv_zero)
+    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
     _, _, max_accel = dd.get_final_drift(t_span=(0.0, 120.0))
 
     np.testing.assert_allclose(

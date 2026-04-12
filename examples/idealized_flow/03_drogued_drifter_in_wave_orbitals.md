@@ -482,10 +482,15 @@ from drogued_drifters.stokes import compute_stokes_profile
 # Surface Stokes drift (eastward only for this 1-D wave)
 surface_u_St = P_A**2 * P_omega * P_k
 
-def stokes_uv(*, t, x, y, z):
+def stokes_uv(z):
     """Stokes drift profile at depth z, via the centralized library function."""
-    u, v = compute_stokes_profile(surface_u_St, 0.0, P_Tp, np.array([z]))
-    return float(u[0]), float(v[0])
+    z_arr = np.asarray(z, dtype=float)
+    scalar = z_arr.ndim == 0
+    z_arr = np.atleast_1d(z_arr)
+    u, v = compute_stokes_profile(surface_u_St, 0.0, P_Tp, z_arr)
+    if scalar:
+        return float(u[0]), float(v[0])
+    return u, v
 
 dd = DroguedDrifter(
     m_b=P_m_b,
@@ -497,7 +502,7 @@ dd = DroguedDrifter(
     k_b=P_k_b,
     k_d=P_k_d,
     g=P_g,
-    get_uv=stokes_uv,
+    sample_uv=stokes_uv,
 )
 
 # Integrate full trajectory

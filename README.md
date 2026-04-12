@@ -27,17 +27,18 @@ stereographic representation).  `get_final_drift` returns just the steady-state
 drift velocity `(xd, yd, max_accel)`.  All initial conditions are keyword
 arguments with sensible defaults (drogue hanging straight down, at rest).
 
-Custom velocity fields are passed as a callback:
+Custom velocity fields are passed as a `sample_uv(z)` callable:
 
 ```python
-from functools import partial
+import numpy as np
 
-def my_uv(*, t, x, y, z, ocean_data):
-    # look up current from ocean_data at (x, y, z, t)
+def my_uv(z):
+    # z: scalar or (N,) array of depths [m], positive upward
+    # look up current from ocean_data at each depth
     ...
-    return U, V  # eastward, northward [m/s]
+    return U, V  # eastward, northward [m/s], same shape as z
 
-dd = DroguedDrifter(get_uv=partial(my_uv, ocean_data=my_dataset))
+dd = DroguedDrifter(sample_uv=my_uv)
 ```
 
 ## Parcels integration

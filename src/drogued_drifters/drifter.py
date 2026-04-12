@@ -85,37 +85,26 @@ def buoy_horizontal_drag_coeff(*, rho, d_b, h_b, C_D_b=1.0):
     return 0.5 * rho * C_D_b * d_b * h_b
 
 
-def _adapt_get_uv(get_uv):
-    """Wrap a scalar ``get_uv(*, t, x, y, z)`` callback into the ``sample_uv(z)`` protocol.
+def _default_sample_uv(z):
+    """Placeholder velocity sampler for testing.
 
-    The scalar ``get_uv`` callback is called with ``t=0, x=0, y=0`` for each
-    depth value.  This is an internal adapter -- external callers should pass
-    ``sample_uv`` directly when they have profile data.
+    Returns ``(1.0, 1.0)`` at the surface (z == 0) and ``(-1.0, -1.0)``
+    at all other depths.  Handles both scalar and array ``z``.
 
     Args:
-        get_uv: Scalar velocity callback with signature
-            ``get_uv(*, t, x, y, z) -> (U, V)``.
+        z: Vertical position [m], scalar or ``(N,)`` array.
 
     Returns:
-        A callable ``sample_uv(z) -> (U, V)`` that calls ``get_uv`` for
-        each depth value.  When ``z`` is scalar, returns scalar floats.
-        When ``z`` is an array, returns ``(N,)`` arrays.
+        Tuple ``(U, V)`` current velocity [m/s].
     """
-
-    def sample_uv(z):
-        z_arr = np.asarray(z, dtype=float)
-        scalar = z_arr.ndim == 0
-        z_arr = np.atleast_1d(z_arr)
-        N = len(z_arr)
-        U = np.empty(N)
-        V = np.empty(N)
-        for i in range(N):
-            U[i], V[i] = get_uv(t=0.0, x=0.0, y=0.0, z=float(z_arr[i]))
-        if scalar:
-            return float(U[0]), float(V[0])
-        return U, V
-
-    return sample_uv
+    z_arr = np.asarray(z, dtype=float)
+    scalar = z_arr.ndim == 0
+    z_arr = np.atleast_1d(z_arr)
+    U = np.where(z_arr == 0.0, 1.0, -1.0)
+    V = np.where(z_arr == 0.0, 1.0, -1.0)
+    if scalar:
+        return float(U[0]), float(V[0])
+    return U, V
 
 
 class DroguedDrifter:
@@ -140,15 +129,12 @@ class DroguedDrifter:
     array (m, positive upward) and ``(U, V)`` are velocities of matching
     shape.
 
-    There are three ways to supply velocity:
+    There are two ways to supply velocity:
 
-    1. **``sample_uv``** (preferred for batch/profile data): pass a callable
-       with the ``sample_uv(z)`` protocol directly.
-    2. **``get_uv``** (convenience for scalar tests): pass a callback with
-       signature ``get_uv(*, t, x, y, z) -> (U, V)``.  It is wrapped into
-       the ``sample_uv`` protocol automatically (called with ``t=0, x=0,
-       y=0``).
-    3. **Neither**: a built-in step-function default is used.
+    1. **``sample_uv``** (preferred): pass a callable with the
+       ``sample_uv(z) -> (U, V)`` protocol directly, where ``z`` is scalar
+       or ``(N,)`` array.
+    2. **Neither**: a built-in step-function default is used.
 
     Default parameters are for the Callies et al. drifter geometry
     (rho = 1025 kg/m^3)::
@@ -168,13 +154,10 @@ class DroguedDrifter:
         k_b: Buoy drag coefficient [kg/m].
         k_d: Drogue drag coefficient [kg/m].
         g: Gravitational acceleration [m/s^2].
-        get_uv: Scalar velocity callback with signature
-            ``get_uv(*, t, x, y, z) -> (U, V)``.  Wrapped into the
-            ``sample_uv`` protocol at construction time (called with
-            ``t=0, x=0, y=0``).  Mutually exclusive with ``sample_uv``.
-        sample_uv: Batch velocity sampler with signature
+        sample_uv: Velocity sampler with signature
             ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or ``(N,)``
-            depth array.  Mutually exclusive with ``get_uv``.
+            depth array.  If ``None``, uses the built-in step-function
+            default.
         backend: ``"numpy"`` (default) or ``"numba"``.  Selects the
             computational backend for the generalized-acceleration evaluator
             ``_qdd_func``.  With ``"numba"``, the raw lambdified function is
@@ -195,13 +178,9 @@ class DroguedDrifter:
         k_b=12.0,
         k_d=154.0,
         g=9.81,
-        get_uv=None,
         sample_uv=None,
         backend="numpy",
     ):
-        if get_uv is not None and sample_uv is not None:
-            raise ValueError("Pass get_uv or sample_uv, not both.")
-
         self.physics = DrifterPhysics(
             m_b=m_b,
             m_d=m_d,
@@ -217,56 +196,7 @@ class DroguedDrifter:
         self.backend = backend
         self._qdd_func = _make_qdd_func(backend)
 
-        if sample_uv is not None:
-            self._sample_uv = sample_uv
-        elif get_uv is not None:
-            self.get_uv = get_uv
-            self._sample_uv = _adapt_get_uv(get_uv)
-        else:
-            self.get_uv = self._default_uv
-            self._sample_uv = self._default_sample_uv
-
-    @staticmethod
-    def _default_sample_uv(z):
-        """Placeholder velocity sampler for testing.
-
-        Returns ``(1.0, 1.0)`` at the surface (z == 0) and ``(-1.0, -1.0)``
-        at all other depths.  Handles both scalar and array ``z``.
-
-        Args:
-            z: Vertical position [m], scalar or ``(N,)`` array.
-
-        Returns:
-            Tuple ``(U, V)`` current velocity [m/s].
-        """
-        z_arr = np.asarray(z, dtype=float)
-        scalar = z_arr.ndim == 0
-        z_arr = np.atleast_1d(z_arr)
-        U = np.where(z_arr == 0.0, 1.0, -1.0)
-        V = np.where(z_arr == 0.0, 1.0, -1.0)
-        if scalar:
-            return float(U[0]), float(V[0])
-        return U, V
-
-    def _default_uv(self, *, t, x, y, z):
-        """Placeholder velocity callback for testing. Returns a hardcoded step function.
-
-        Returns ``(1.0, 1.0)`` at the surface (z == 0.0) and ``(-1.0, -1.0)``
-        at all other depths. This is not a physical shear profile -- it exists
-        only to provide a non-trivial default for unit tests and quick checks.
-
-        Args:
-            t: Time [s].
-            x: Position x [m].
-            y: Position y [m].
-            z: Vertical position [m], positive upward (0 = surface, negative = below MSL).
-
-        Returns:
-            Tuple ``(U, V)`` current velocity [m/s] at (x, y, z).
-        """
-        if z == 0.0:
-            return 1.0, 1.0
-        return -1.0, -1.0
+        self._sample_uv = sample_uv if sample_uv is not None else _default_sample_uv
 
     def _rhs(self, t, y):
         """Right-hand side of the ODE system for ``solve_ivp``.

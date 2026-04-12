@@ -87,7 +87,6 @@ def test_extreme_vertical_pole():
 
     # Equilibrium: u ≈ 0, v ≈ 0 gives θ ≈ π
     xd, yd, _ = dd.get_final_drift(
-        # No custom get_uv, use default
         t_span=(0, 60),
     )
     assert np.isfinite(xd) and np.isfinite(yd), "Vertical pole should give finite drift"
@@ -113,13 +112,18 @@ def test_extreme_horizontal_pole():
 def test_zero_drogue_velocity():
     """Drogue velocity stationary, buoy moving: drift should converge."""
 
-    def sample_uv_sheared(*, t, x, y, z):
-        """Buoy: v_stereo=0.5 m/s, Drogue: v_stereo=0.0 m/s."""
-        if z == 0:
-            return 0.0, 0.5
-        return 0.0, 0.0
+    def sample_uv_sheared(z):
+        """Buoy: V=0.5 m/s, Drogue: V=0.0 m/s."""
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.zeros_like(z_arr)
+        V = np.where(z_arr == 0.0, 0.5, 0.0)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd = DroguedDrifter(get_uv=sample_uv_sheared)
+    dd = DroguedDrifter(sample_uv=sample_uv_sheared)
     xd, yd, _ = dd.get_final_drift(t_span=(0, 120))
 
     # Drift should be nonzero (shear-driven)
@@ -234,21 +238,31 @@ def test_very_small_perturbation_stability():
     """Tiny perturbations should not cause numerical instability."""
     eps = 1e-12
 
-    def sample_uv_base(*, t, x, y, z):
-        if z == 0:
-            return 0.1, 0.05
-        return 0.05, 0.025
+    def sample_uv_base(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.1, 0.05)
+        V = np.where(z_arr == 0.0, 0.05, 0.025)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_base = DroguedDrifter(get_uv=sample_uv_base)
+    dd_base = DroguedDrifter(sample_uv=sample_uv_base)
     xd_base, yd_base, _ = dd_base.get_final_drift(t_span=(0, 120))
 
     # Integrate with tiny perturbation
-    def sample_uv_pert(*, t, x, y, z):
-        if z == 0:
-            return 0.1 + eps, 0.05 + eps
-        return 0.05 + eps, 0.025 + eps
+    def sample_uv_pert(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.1 + eps, 0.05 + eps)
+        V = np.where(z_arr == 0.0, 0.05 + eps, 0.025 + eps)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_pert = DroguedDrifter(get_uv=sample_uv_pert)
+    dd_pert = DroguedDrifter(sample_uv=sample_uv_pert)
     xd_pert, yd_pert, _ = dd_pert.get_final_drift(t_span=(0, 120))
 
     # Difference should be small relative to base
@@ -296,10 +310,17 @@ def test_spherical_singularity_at_pi():
 def test_large_depth_pole_length():
     """Very long pole should not cause numerical issues."""
 
-    def sample_uv(*, t, x, y, z):
-        return (0.1, 0.0) if z == 0 else (0.05, 0.0)
+    def sample_uv(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.1, 0.05)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_long = DroguedDrifter(l=100.0, get_uv=sample_uv)  # Very long pole
+    dd_long = DroguedDrifter(l=100.0, sample_uv=sample_uv)  # Very long pole
 
     try:
         xd, yd, _ = dd_long.get_final_drift(t_span=(0, 120))
@@ -312,9 +333,16 @@ def test_large_depth_pole_length():
 def test_tiny_pole_length():
     """Very short pole should reduce to point particle."""
 
-    def sample_uv(*, t, x, y, z):
-        return (0.1, 0.0) if z == 0 else (0.05, 0.0)
+    def sample_uv(z):
+        z_arr = np.asarray(z, dtype=float)
+        scalar = z_arr.ndim == 0
+        z_arr = np.atleast_1d(z_arr)
+        U = np.where(z_arr == 0.0, 0.1, 0.05)
+        V = np.zeros_like(z_arr)
+        if scalar:
+            return float(U[0]), float(V[0])
+        return U, V
 
-    dd_short = DroguedDrifter(l=0.01, get_uv=sample_uv)  # Very short pole
+    dd_short = DroguedDrifter(l=0.01, sample_uv=sample_uv)  # Very short pole
     xd, yd, _ = dd_short.get_final_drift(t_span=(0, 120))
     assert np.isfinite(xd) and np.isfinite(yd)
