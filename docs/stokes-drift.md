@@ -1,6 +1,6 @@
 # Stokes drift profile
 
-`drogued_drifters.stokes.compute_stokes_profile` computes a depth-dependent
+`mechanical_drifters.stokes.compute_stokes_profile` computes a depth-dependent
 Stokes drift profile from surface Stokes drift components and a peak wave
 period.  It implements the deep-water monochromatic exponential decay model
 described in Liu et al. (2021) and Breivik et al. (2016).
@@ -81,7 +81,7 @@ wave data to produce effective current fields at each model depth level.
 These fields are the direct input to the drogued-drifter simulations in
 notebook 04.
 
-**Idealized flow — notebook 03** (`03_drogued_drifter_in_wave_orbitals`):
+**Drogued drifter — notebook 04** (`04_wave_orbitals`):
 constructs a velocity field from wave orbital velocities to demonstrate how
 the drogued drifter responds to wave-induced motion at different depths.
 

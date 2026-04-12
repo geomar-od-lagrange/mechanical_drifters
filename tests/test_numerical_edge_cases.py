@@ -12,9 +12,9 @@ import pytest
 
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
-from drogued_drifters.eom import eval_M, eval_F
-from drogued_drifters.coords import _uv_to_theta
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
+from mechanical_drifters.eom import eval_M, eval_F
+from mechanical_drifters.coords import _uv_to_theta
 
 
 def _sample_uv_default(z):
@@ -144,7 +144,7 @@ def test_uv_to_theta_zero_vector():
 
 def test_uv_to_theta_roundtrip_extreme():
     """Round-trip u,v<->theta,phi at extreme angles."""
-    from drogued_drifters.coords import _spherical_to_uv
+    from mechanical_drifters.coords import _spherical_to_uv
 
     theta_in = 0.9999 * np.pi
     phi_in = 0.0
@@ -252,7 +252,7 @@ def test_M_F_continuity_near_zero():
 
 def test_spherical_singularity_at_pi():
     """Spherical (theta, phi) has singularity at theta=pi, but stereographic avoids it."""
-    from drogued_drifters.coords import _uv_to_spherical, _spherical_to_uv
+    from mechanical_drifters.coords import _uv_to_spherical, _spherical_to_uv
 
     u, v, ud, vd = _spherical_to_uv(np.pi, 0.0, 0.0, 0.0)
     assert np.isfinite(u) and np.isfinite(v)

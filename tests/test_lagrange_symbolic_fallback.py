@@ -6,8 +6,8 @@ Marked @pytest.mark.slow because symbolic derivation takes 30-60s.
 import numpy as np
 import pytest
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
-from drogued_drifters.eom import (
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
+from mechanical_drifters.eom import (
     eval_M,
     eval_F,
     _load_or_derive,
@@ -112,7 +112,7 @@ def test_derived_vs_cached_numerical_agreement():
 @pytest.mark.slow
 def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
     """_get_eom_callables should fall back to _derive_symbolic if cache missing."""
-    from drogued_drifters import eom
+    from mechanical_drifters import eom
 
     dd = DroguedDrifter()
 

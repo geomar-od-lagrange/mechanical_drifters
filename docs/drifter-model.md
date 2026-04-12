@@ -1,5 +1,10 @@
 # Drifter model: physics and API
 
+This document covers the `DroguedDrifter` — the primary model. The package also
+includes [PointSurfaceDrifter](point-surface-drifter.md) (a simpler baseline
+model) and supports adding new models via
+[LagrangianMechanicsModel](architecture.md).
+
 The `DroguedDrifter` class models a surface drifter buoy connected by a rigid
 pole to a subsurface drogue. The buoy sits at the sea surface (z = 0) and
 experiences drag from surface currents. The drogue hangs below at depth, feeling
@@ -82,7 +87,7 @@ The public API accepts and returns spherical angles `(theta, phi, thetad, phid)`
 ## Constructor parameters
 
 ```python
-from drogued_drifters import DroguedDrifter, DrifterPhysics
+from mechanical_drifters import DroguedDrifter, DrifterPhysics
 
 # Option 1: pass physics parameters as keyword arguments
 dd = DroguedDrifter(
@@ -212,7 +217,7 @@ studying the equations of motion at a specific state, validating the physics, or
 building custom integrators.
 
 ```python
-from drogued_drifters import DroguedDrifter, DrifterPhysics, EOMState, eval_qdd, eval_M, eval_F
+from mechanical_drifters import DroguedDrifter, DrifterPhysics, EOMState, eval_qdd, eval_M, eval_F
 import numpy as np
 
 dd = DroguedDrifter()
@@ -252,7 +257,7 @@ Use `DroguedDrifter` standalone (with `get_full_solution`, `get_final_drift`, or
 - Computing steady-state drift velocities for a grid of flow conditions.
 - You do not need spatial advection -- just the drift velocity at a point.
 
-Use with Parcels (via `make_dd_kernel`) when:
+Use with Parcels (via `make_kernel`) when:
 
 - Advecting drifters through spatially and temporally varying ocean fields.
 - Comparing drogued drifters against point particles in the same simulation.

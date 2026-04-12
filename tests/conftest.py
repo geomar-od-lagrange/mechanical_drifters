@@ -2,7 +2,7 @@
 
 import pytest
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
 
 DEFAULT_PHYSICS = DrifterPhysics(
     m_b=1.0,

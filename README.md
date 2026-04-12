@@ -1,18 +1,24 @@
-# 2025 Drogued Drifters
+# Mechanical Ocean Drifters
 
-Lagrangian model for drogued ocean drifters. A drogued drifter is an
-oceanographic instrument consisting of a GPS-tracked surface buoy connected by a
-rigid pole to a subsurface drogue (a cross-shaped drag element). The drogue
-anchors the drifter to a target depth so that it measures the current there,
-while the buoy experiences surface drag from wind and waves. The model derives
-equations of motion from a Lagrangian formulation using SymPy, then integrates
-numerically with SciPy. See [docs/drifter-model.md](docs/drifter-model.md) for
-the full physics and API reference.
+Lagrangian mechanics models for ocean drifters. Each model defines a Lagrangian,
+derives equations of motion symbolically with SymPy, and integrates numerically
+with SciPy. The package includes:
+
+- **DroguedDrifter** — a surface buoy connected by a rigid pole to a subsurface
+  drogue (4 generalized coordinates). The primary model. See
+  [docs/drifter-model.md](docs/drifter-model.md).
+- **PointSurfaceDrifter** — a point particle at the surface with quadratic drag
+  (2 generalized coordinates). Baseline comparison model whose steady-state
+  drift equals the surface current. See
+  [docs/point-surface-drifter.md](docs/point-surface-drifter.md).
+
+New models can be added by subclassing `LagrangianMechanicsModel` — see
+[docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
 ```python
-from drogued_drifters import DroguedDrifter
+from mechanical_drifters import DroguedDrifter
 import numpy as np
 
 dd = DroguedDrifter()  # default Callies et al. geometry
@@ -49,24 +55,25 @@ xd, yd, max_accel = dd.get_final_drift(my_uv, t_span=(0, 120))
 ## Parcels integration
 
 For Lagrangian particle tracking with [Parcels v4](https://github.com/OceanParcels/parcels),
-use the `make_dd_kernel` factory:
+use `make_kernel(model)`:
 
 ```python
-from drogued_drifters.parcels import make_dd_kernel
+from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.parcels import make_kernel
 
 dd = DroguedDrifter()
-kernel = make_dd_kernel(dd)
+kernel = make_kernel(dd)  # works for any LagrangianMechanicsModel
 pset.execute(kernels=[kernel, DeleteOOB], dt=300, runtime=86400)
 ```
 
-The DD kernel computes the drift velocity internally and applies its own Euler-forward position update — it does not use Parcels advection schemes like `AdvectionRK4`, which are only relevant for point-particle comparisons.
-
-See [docs/parcels-v4-coupling.md](docs/parcels-v4-coupling.md) for details.
+The kernel computes the steady-state drift velocity internally and applies its
+own Euler-forward position update. See
+[docs/parcels-v4-coupling.md](docs/parcels-v4-coupling.md) for details.
 
 ## Setup
 
 Requires Python >= 3.11. Parcels is pinned to a specific development version
-(see `pixi.toml` for the exact commit).
+(see `pyproject.toml` for the exact commit).
 
 This project uses [pixi](https://pixi.sh), a fast package manager for
 reproducible environments based on conda-forge. Install pixi first, then:
@@ -88,15 +95,16 @@ paired as `.ipynb` + `.md` (Markdown format). The `.md` files are the
 diff-friendly source of truth; the `.ipynb` files carry cell outputs for
 rendering. Edit either — jupytext keeps them in sync.
 
-### Equations of motion
-- [`01_eom_exploration`](examples/eom_study/01_eom_exploration.ipynb) -- mass matrix, force vector, and parameter sensitivity
+### Drogued drifter
+- [`01_eom_exploration`](examples/drogued_drifter/01_eom_exploration.ipynb) -- mass matrix, force vector, and parameter sensitivity
+- [`02_synthetic_flow_profiles`](examples/drogued_drifter/02_synthetic_flow_profiles.ipynb) -- synthetic velocity profiles and DD response
+- [`03_sheared_jet_parcels`](examples/drogued_drifter/03_sheared_jet_parcels.ipynb) -- DD kernel in a sheared jet (Parcels)
+- [`04_wave_orbitals`](examples/drogued_drifter/04_wave_orbitals.ipynb) -- wave orbital effects
 
-### Idealized flow
-- [`01_synthetic_flow_profiles`](examples/idealized_flow/01_synthetic_flow_profiles.ipynb) -- synthetic velocity profiles and DD response
-- [`02_sheared_jet_parcels`](examples/idealized_flow/02_sheared_jet_parcels.ipynb) -- DD kernel in a sheared jet (Parcels)
-- [`03_drogued_drifter_in_wave_orbitals`](examples/idealized_flow/03_drogued_drifter_in_wave_orbitals.ipynb) -- wave orbital effects
+### Point surface drifter
+- [`01_surface_tracking`](examples/point_drifter/01_surface_tracking.ipynb) -- steady-state convergence in uniform and sheared flows
 
-### Baltic drifters
+### Baltic validation
 
 The Baltic notebooks form a complete validation pipeline. Raw GPS tracks from
 six drifters deployed in the Baltic Sea are cleaned to extract science periods
@@ -106,11 +114,11 @@ fields. Drogued drifter and point-particle simulations are run in these fields,
 and the results are validated against the observed trajectories using separation
 distances and short-horizon skill scores.
 
-- [`00_extract_science_periods`](examples/baltic_drifters/00_extract_science_periods.ipynb) -- clean observed drifter data
-- [`01_fetch_cmems_data`](examples/baltic_drifters/01_fetch_cmems_data.ipynb) -- download CMEMS Baltic Sea data
-- [`02_derive_effective_currents`](examples/baltic_drifters/02_derive_effective_currents.ipynb) -- Eulerian + Stokes drift
-- [`03_validate_effective_current_fields`](examples/baltic_drifters/03_validate_effective_current_fields.ipynb) -- field validation
-- [`04_run_simulations`](examples/baltic_drifters/04_run_simulations.ipynb) -- DD and point-particle simulations
-- [`05_validation_plots`](examples/baltic_drifters/05_validation_plots.ipynb) -- comparison with observations
-- [`06_run_short_simulations`](examples/baltic_drifters/06_run_short_simulations.ipynb) -- 12h re-seeded segments
-- [`07_short_horizon_skill`](examples/baltic_drifters/07_short_horizon_skill.ipynb) -- skill scores vs lead time
+- [`00_extract_science_periods`](examples/baltic_validation/00_extract_science_periods.ipynb) -- clean observed drifter data
+- [`01_fetch_cmems_data`](examples/baltic_validation/01_fetch_cmems_data.ipynb) -- download CMEMS Baltic Sea data
+- [`02_derive_effective_currents`](examples/baltic_validation/02_derive_effective_currents.ipynb) -- Eulerian + Stokes drift
+- [`03_validate_effective_current_fields`](examples/baltic_validation/03_validate_effective_current_fields.ipynb) -- field validation
+- [`04_run_simulations`](examples/baltic_validation/04_run_simulations.ipynb) -- DD and point-particle simulations
+- [`05_validation_plots`](examples/baltic_validation/05_validation_plots.ipynb) -- comparison with observations
+- [`06_run_short_simulations`](examples/baltic_validation/06_run_short_simulations.ipynb) -- 12h re-seeded segments
+- [`07_short_horizon_skill`](examples/baltic_validation/07_short_horizon_skill.ipynb) -- skill scores vs lead time

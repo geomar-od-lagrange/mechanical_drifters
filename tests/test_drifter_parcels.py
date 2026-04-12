@@ -9,9 +9,9 @@ These tests verify:
 import numpy as np
 import pytest
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter
-from drogued_drifters.parcels import make_kernel, make_dd_kernel
-from drogued_drifters.velocity import make_profile_sampler
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
+from mechanical_drifters.parcels import make_kernel
+from mechanical_drifters.velocity import make_profile_sampler
 
 
 def test_make_profile_sampler_basic():
@@ -247,7 +247,7 @@ def _make_flat_fieldset(U_data_4d, V_data_4d, x, y, depth, time):
 @pytest.mark.parametrize("backend", ["numpy", "numba"])
 def test_uniform_flow_dd_kernel(backend):
     """Uniform flow: buoy and drogue see the same current, drift = current."""
-    from parcels import FieldSet, Particle, ParticleSet, StatusCode
+    from parcels import FieldSet, Particle, ParticleSet
 
     U_const = 0.5
     x = np.linspace(0, 1000, 5)
@@ -271,7 +271,7 @@ def test_uniform_flow_dd_kernel(backend):
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -286,7 +286,7 @@ def test_uniform_flow_dd_kernel(backend):
 @pytest.mark.parametrize("backend", ["numpy", "numba"])
 def test_sheared_flow_dd_kernel(backend):
     """Sheared flow: drift velocity should be between surface and bottom current."""
-    from parcels import FieldSet, Particle, ParticleSet, StatusCode
+    from parcels import FieldSet, Particle, ParticleSet
 
     x = np.linspace(0, 1000, 5)
     y = np.linspace(0, 1000, 5)
@@ -312,7 +312,7 @@ def test_sheared_flow_dd_kernel(backend):
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -387,7 +387,7 @@ def test_dd_kernel_spherical_auto(backend):
 
     DT = 60.0
     pset.execute(
-        kernels=[make_dd_kernel(dd)],
+        kernels=[make_kernel(dd)],
         dt=DT,
         runtime=DT,
         verbose_progress=False,
@@ -425,14 +425,14 @@ def test_numba_numpy_kernel_consistency():
     dd_np = DroguedDrifter(backend="numpy")
     fieldset_np = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
     pset_np = ParticleSet(fieldset=fieldset_np, pclass=Particle, lon=[lon0], lat=[lat0], z=[0.0])
-    pset_np.execute(kernels=[make_dd_kernel(dd_np)], dt=DT, runtime=DT, verbose_progress=False)
+    pset_np.execute(kernels=[make_kernel(dd_np)], dt=DT, runtime=DT, verbose_progress=False)
     lon_np = float(np.asarray(pset_np.lon)[0])
     lat_np = float(np.asarray(pset_np.lat)[0])
 
     dd_nb = DroguedDrifter(backend="numba")
     fieldset_nb = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
     pset_nb = ParticleSet(fieldset=fieldset_nb, pclass=Particle, lon=[lon0], lat=[lat0], z=[0.0])
-    pset_nb.execute(kernels=[make_dd_kernel(dd_nb)], dt=DT, runtime=DT, verbose_progress=False)
+    pset_nb.execute(kernels=[make_kernel(dd_nb)], dt=DT, runtime=DT, verbose_progress=False)
     lon_nb = float(np.asarray(pset_nb.lon)[0])
     lat_nb = float(np.asarray(pset_nb.lat)[0])
 

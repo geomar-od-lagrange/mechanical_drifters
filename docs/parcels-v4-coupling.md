@@ -1,9 +1,10 @@
 # Parcels v4 coupling
 
-`drogued_drifters.parcels` provides a single Parcels kernel that
-advects particles using the drogued-drifter steady-state drift velocity.
-All Parcels-specific code is isolated in this module — the core physics
-(`models/drogued_drifter.py`, `eom.py`) has no Parcels dependency.
+`mechanical_drifters.parcels` provides a Parcels kernel factory that
+advects particles using the steady-state drift velocity from any
+`LagrangianMechanicsModel` subclass. All Parcels-specific code is
+isolated in this module — the core physics (`models/`, `eom.py`) has
+no Parcels dependency.
 
 ## Quick start
 
@@ -11,11 +12,11 @@ All Parcels-specific code is isolated in this module — the core physics
 import numpy as np
 from parcels import FieldSet, Particle, ParticleSet, StatusCode
 
-from drogued_drifters import DroguedDrifter
-from drogued_drifters.parcels import make_dd_kernel
+from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.parcels import make_kernel
 
 dd = DroguedDrifter()
-kernel = make_dd_kernel(dd)
+kernel = make_kernel(dd)
 
 def DeleteOOB(particles, fieldset):
     state = np.asarray(particles.state)
@@ -30,7 +31,7 @@ pset.execute(kernels=[kernel, DeleteOOB], dt=300, runtime=86400)
 
 ## How the kernel works
 
-Each timestep, `DDAdvectEE` does four things:
+Each timestep, the kernel does four things:
 
 1. **Extract velocity profiles** at the particle position by calling
    `fieldset.UV.eval(time, z, lat, lon)` once per depth level, from
@@ -119,8 +120,6 @@ def make_kernel(model):
     return _kernel
 ```
 
-`make_dd_kernel` is a backward-compatible alias for `make_kernel`.
-
 If a future Parcels release relaxes the `FunctionType` check,
 `functools.partial` would work and the closure wrapper could be dropped.
 
@@ -130,7 +129,7 @@ Backend selection happens at `DroguedDrifter` construction time:
 
 ```python
 dd = DroguedDrifter(backend="numba")
-kernel = make_dd_kernel(dd)
+kernel = make_kernel(dd)
 ```
 
 `backend="numba"` JIT-compiles the lambdified EOM function with
@@ -151,16 +150,16 @@ The kernel auto-detects the mesh type from `fieldset.U.grid._mesh`
 
 ## Cold start vs warm start
 
-Every kernel call starts the ODE from un-sheared equilibrium (pole vertical, at
-rest).  The ODE converges to steady state within the default
-`t_span=(0, 120)` seconds for typical ocean conditions.
+Every kernel call starts the ODE from equilibrium (zero internal state).
+For DroguedDrifter this means pole vertical, at rest. The ODE converges
+to steady state within the default `t_span=(0, 120)` seconds for typical
+ocean conditions.
 
-Warm-starting (reusing the previous pole angle and angular velocity)
-would save ODE integration time but requires storing per-particle state.
-The planned approach is to add custom particle variables on a
-`DDParticle` class — the kernel has full access to `particles` and
-can read/write state directly.  This is deferred until cold-start cost
-is measurable.
+Warm-starting (reusing previous internal state) would save ODE
+integration time but requires storing per-particle state via custom
+particle variables. The kernel has full access to `particles` and can
+read/write state directly. This is deferred until cold-start cost is
+measurable.
 
 ## Error handling
 

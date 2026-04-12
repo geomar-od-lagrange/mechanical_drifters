@@ -11,9 +11,9 @@ import pytest
 
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
-from drogued_drifters.eom import eval_M, eval_F, _make_qdd_func
-from drogued_drifters.coords import _uv_to_theta
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
+from mechanical_drifters.eom import eval_M, eval_F, _make_qdd_func
+from mechanical_drifters.coords import _uv_to_theta
 
 
 dd_singleton = DroguedDrifter()
@@ -23,7 +23,7 @@ _qdd_func = _make_qdd_func(dd_singleton, "numpy")
 def test_packer_covers_all_struct_fields():
     """Every DrifterPhysics and EOMState field must appear in the lambda signature."""
     import inspect
-    from drogued_drifters.eom import _get_eom_callables
+    from mechanical_drifters.eom import _get_eom_callables
 
     dd = DroguedDrifter()
     _qdd_raw, _M_raw, _F_raw, _pack = _get_eom_callables(dd)
@@ -46,7 +46,7 @@ def test_packer_covers_all_struct_fields():
 def test_packer_arg_order_matches_lambda():
     """pack_eom_args must produce values in the order the lambda expects."""
     import inspect
-    from drogued_drifters.eom import _get_eom_callables
+    from mechanical_drifters.eom import _get_eom_callables
 
     dd = DroguedDrifter()
     _qdd_raw, _, _, pack = _get_eom_callables(dd)
@@ -415,7 +415,7 @@ def test_lambdify_mixed_scalar_array_broadcast():
 def test_lambdify_cse_preserves_broadcasting():
     """Compare lambdify(cse=True) vs lambdify(cse=False) on batch input."""
     import sympy as sp
-    from drogued_drifters.eom import _load_or_derive, _build_packer
+    from mechanical_drifters.eom import _load_or_derive, _build_packer
 
     dd = DroguedDrifter()
     _, _, qdd_exprs, args = _load_or_derive(dd)

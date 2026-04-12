@@ -3,14 +3,14 @@
 ## Track A: Parcels integration ✓
 
 ### A1. Polished idealized example ✓
-- `examples/idealized_flow/02_sheared_jet_parcels.ipynb`
+- `examples/drogued_drifter/03_sheared_jet_parcels.ipynb`
 
 ### A2. Point-particle runs in CMEMS data ✓
-- `examples/baltic_drifters/02_cmems_point_particles.ipynb`
+- `examples/baltic_validation/04_run_simulations.ipynb`
 
 ### A3. Drogued drifter kernel in CMEMS data ✓
-- `examples/baltic_drifters/03_cmems_drogued_drifter.ipynb`
-- Parcels v4 coupling via `DDAdvectEE` kernel — [docs/parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)
+- `examples/baltic_validation/04_run_simulations.ipynb`
+- Parcels v4 coupling via `make_kernel` — [docs/parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)
 
 ## Track B: Building the right sheared current ✓
 
@@ -65,7 +65,7 @@ Plan: [done/architecture-v5-simplified.md](done/architecture-v5-simplified.md).
 
 1. `base.py` with `LagrangianMechanicsModel` (steady_state_batch, make_kernel) ✓
 2. `models/drogued_drifter.py` — DroguedDrifter as subclass ✓
-3. `models/spar_buoy.py` — SparBuoy (depth-averaged velocity, no Lagrangian dynamics) ✓
+3. `models/spar_buoy.py` — SparBuoy (dropped — was a depth-average hack, not Lagrangian mechanics) ✓
 4. `eom.py` parameterized on model instance (dict-based caching) ✓
 5. `parcels.py` with generic `make_kernel(model)` ✓
 6. `sample_uv` is a method parameter, not stored on the instance ✓

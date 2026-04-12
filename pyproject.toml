@@ -1,9 +1,9 @@
 [project]
 dependencies = ["sympy", "numpy", "scipy", "xarray", "numba", "parcels @ git+https://github.com/parcels-code/parcels.git@17241585384f9cbb04a796cb3581cb49559df9df"]
-name = "drogued_drifters"
+name = "mechanical_drifters"
 requires-python = ">= 3.11"
 version = "0.1.0"
-description = "Lagrangian mechanics model for drogued ocean drifters"
+description = "Lagrangian mechanics models for ocean drifters"
 license = "MIT"
 authors = [
     { name = "Willi Rath", email = "wrath@geomar.de" },
@@ -21,7 +21,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64"]
 
 [tool.pixi.pypi-dependencies]
-drogued_drifters = { path = ".", editable = true }
+mechanical_drifters = { path = ".", editable = true }
 
 [tool.pytest.ini_options]
 norecursedirs = ["tmp_*"]
@@ -29,7 +29,7 @@ markers = ["slow: marks tests as slow (deselect with '-m \"not slow\"')"]
 addopts = "-m 'not slow'"
 
 [tool.pixi.tasks]
-test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v"
+test-cov = "pytest --cov=mechanical_drifters --cov-report=term-missing -v"
 
 [tool.pixi.dependencies]
 zarr = ">=2.15.0,<3"

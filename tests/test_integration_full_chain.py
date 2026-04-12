@@ -10,9 +10,9 @@ These tests verify that the complete pipeline works end-to-end:
 import numpy as np
 import pytest
 
-from drogued_drifters.models.drogued_drifter import DroguedDrifter
-from drogued_drifters.velocity import make_profile_sampler
-from drogued_drifters.stokes import compute_stokes_profile
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
+from mechanical_drifters.velocity import make_profile_sampler
+from mechanical_drifters.stokes import compute_stokes_profile
 
 
 def test_full_chain_stokes_to_drifter():

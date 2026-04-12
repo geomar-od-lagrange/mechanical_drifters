@@ -11,7 +11,7 @@ Tests cover:
 import numpy as np
 import pytest
 
-from drogued_drifters.stokes import compute_stokes_profile
+from mechanical_drifters.stokes import compute_stokes_profile
 
 
 def test_stokes_single_partition_analytical():

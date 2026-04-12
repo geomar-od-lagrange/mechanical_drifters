@@ -1,18 +1,18 @@
 import numpy as np
 import pytest
 
-from drogued_drifters.models.drogued_drifter import (
+from mechanical_drifters.models.drogued_drifter import (
     DroguedDrifter,
     buoy_horizontal_added_mass,
     buoy_horizontal_drag_coeff,
     drogue_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
 )
-from drogued_drifters.models.drogued_drifter import (
+from mechanical_drifters.models.drogued_drifter import (
     DrifterPhysics,
     EOMState,
 )
-from drogued_drifters.eom import (
+from mechanical_drifters.eom import (
     eval_M,
     eval_F,
     _make_qdd_func,
@@ -484,7 +484,7 @@ def test_cache_loads_successfully():
     """Test that the pickle cache loads and has the expected keys."""
     import pickle
 
-    from drogued_drifters.eom import _cache_key
+    from mechanical_drifters.eom import _cache_key
 
     dd = DroguedDrifter()
     cache_path = dd._cache_path
@@ -501,7 +501,7 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
     """_load_or_derive should re-derive when pickle has wrong key."""
     import pickle
 
-    from drogued_drifters import eom
+    from mechanical_drifters import eom
 
     dd = DroguedDrifter()
 
@@ -563,15 +563,15 @@ class TestHorizontalRename:
         """The new *_horizontal_* names must be importable from model module."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
-            assert hasattr(mod, name), f"{name} not found in drogued_drifters.models.drogued_drifter"
+            assert hasattr(mod, name), f"{name} not found in mechanical_drifters.models.drogued_drifter"
 
     def test_new_names_callable(self):
         """Each renamed function must be callable."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
             assert fn is not None, f"{name} not found"
@@ -581,7 +581,7 @@ class TestHorizontalRename:
         """The old names must NOT exist in the module after rename."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         for name in _OLD_NAMES:
             assert not hasattr(
                 mod, name
@@ -589,35 +589,35 @@ class TestHorizontalRename:
 
     def test_drogue_horizontal_added_mass_value(self):
         import importlib
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         fn = getattr(mod, "drogue_horizontal_added_mass")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
         np.testing.assert_almost_equal(result, 101.0, decimal=0)
 
     def test_buoy_horizontal_added_mass_value(self):
         import importlib
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         fn = getattr(mod, "buoy_horizontal_added_mass")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
         np.testing.assert_almost_equal(result, 1.9, decimal=1)
 
     def test_drogue_horizontal_drag_coeff_value(self):
         import importlib
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         fn = getattr(mod, "drogue_horizontal_drag_coeff")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
         np.testing.assert_almost_equal(result, 154.0, decimal=-1)
 
     def test_buoy_horizontal_drag_coeff_value(self):
         import importlib
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         fn = getattr(mod, "buoy_horizontal_drag_coeff")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
         np.testing.assert_almost_equal(result, 12.0, decimal=0)
 
     def test_docstrings_mention_horizontal(self):
         import importlib
-        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
+        mod = importlib.import_module("mechanical_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
             assert fn is not None, f"{name} not found"
@@ -635,8 +635,8 @@ class TestHorizontalRename:
 
 def test_state_vector_round_trip():
     """Construct a known state, convert public->internal->public, check each component."""
-    from drogued_drifters.coords import _spherical_to_uv, _uv_to_spherical
-    from drogued_drifters.models.drogued_drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
+    from mechanical_drifters.coords import _spherical_to_uv, _uv_to_spherical
+    from mechanical_drifters.models.drogued_drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
 
     x0, y0 = 100.0, -50.0
     theta0, phi0 = 2.8, 0.5
