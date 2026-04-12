@@ -1,14 +1,26 @@
-# Multi-model first-class citizenship
+# Package rename and PointSurfaceDrifter
 
-Rename the package to `mechanical_drifters`. Elevate SparBuoy to equal
-standing. Add a PointSurfaceDrifter as a third model that validates the
-full Lagrangian machinery. Reorganize examples by model type.
+Rename `drogued_drifters` → `mechanical_drifters`. Drop SparBuoy (it was
+a depth-average hack that doesn't belong in the Lagrangian mechanics
+hierarchy). Add PointSurfaceDrifter as a second model that validates the
+full pipeline. Clean up tech debt.
 
-## 1. Package rename: `drogued_drifters` → `mechanical_drifters`
+## 1. Drop SparBuoy
+
+The current SparBuoy doesn't use Lagrangian mechanics — it just averages
+velocity over depth. That forced it to fake the base class contract
+(dummy State, null `_qdd_func`, duplicated `__init__` validation). When
+real SparBuoy physics arrive (with actual EOM), it enters as a proper
+`LagrangianMechanicsModel` subclass. Until then, depth-averaged drift is
+a utility, not a model.
+
+- Delete `models/spar_buoy.py`
+- Delete `tests/test_spar_buoy.py`
+- Remove SparBuoy exports from `__init__.py`
+
+## 2. Package rename: `drogued_drifters` → `mechanical_drifters`
 
 Pre-alpha, no downstream users, internal API changes are free.
-
-### What changes
 
 | What | From | To |
 |------|------|----|
@@ -20,48 +32,28 @@ Pre-alpha, no downstream users, internal API changes are free.
 One `git mv` + project-wide find-and-replace in all `.py` and `.md`
 files. Sync all notebooks after.
 
-## 2. Drop backward-compat aliases
+## 3. Tech debt cleanup
 
-Delete `make_dd_kernel`. The generic entry point is `make_kernel(model)`.
-No backward compatibility is needed.
-
-## 3. Naming sweep: model-specific types
-
-`DrifterPhysics` and `EOMState` are DroguedDrifter-specific. The SparBuoy
-will eventually have its own full Lagrangian derivation with its own
-Physics and State types. Current naming is fine (`DrifterPhysics` clearly
-belongs to the drogued drifter), but ensure:
-
-- They are NOT re-exported from `__init__.py` as if they were
-  package-wide types. They should be importable from
-  `mechanical_drifters.models.drogued_drifter` or from the top-level
-  for convenience, but documented as DroguedDrifter-specific.
-- The `__init__.py` groups exports by model so it's clear which types
-  belong to which model.
-- `base.py` never references `DrifterPhysics` or `EOMState` — it
-  works with `model.Physics` and `model.State` generically. (Already
-  true.)
+- Delete `make_dd_kernel` from `parcels.py`. Use `make_kernel(model)`
+  everywhere.
+- Fix unused `StatusCode` imports in `test_drifter_parcels.py`.
+- Narrow `except Exception` → `except (OSError, pickle.UnpicklingError,
+  KeyError)` in `eom.py` cache loading.
+- Group `__init__.py` exports by model so DroguedDrifter-specific types
+  (`DrifterPhysics`, `EOMState`) are clearly scoped.
 
 ## 4. Add PointSurfaceDrifter
 
-A point particle at the surface. No pole, no drogue, no tilt dynamics.
-Drifts with the surface current. Useful as:
+A point particle at the surface with quadratic drag. Validates that the
+full Lagrangian machinery works for a model other than DroguedDrifter.
 
-- A baseline for comparison ("what would a point particle do?").
-- A validation that the full Lagrangian machinery (symbolic derivation,
-  cache, lambdify, qdd_func, steady_state_batch, make_kernel) works
-  for a model other than DroguedDrifter.
-
-Physics: trivial. One body with mass `m` and drag coefficient `k` at
-z = 0. Two generalized coordinates (x, y). The Lagrangian is
-`L = ½(m + m_tilde) (xd² + yd²)`, the drag force is
-`F = -k |v - u| (v - u)`. The EOM reduce to
-`(m + m_tilde) qdd = -k |v - u| (v - u)` which at steady state gives
-`v = u` (the particle tracks the current exactly).
+Physics: one body with mass `m` and drag coefficient `k` at z = 0.
+Two generalized coordinates (x, y). The Lagrangian is
+`L = ½(m + m_tilde)(xd² + yd²)`, drag force `F = -k|v-u|(v-u)`.
+At steady state: drift = surface current (trivially verifiable).
 
 Goes through the full `_derive_symbolic` → cache → `_make_qdd_func`
-pipeline. The steady-state result is trivially verifiable: drift = surface
-current.
+pipeline.
 
 `models/point_surface_drifter.py` with `PointSurfacePhysics`,
 `PointSurfaceState`, `PointSurfaceDrifter`.
@@ -73,7 +65,7 @@ Current:
 examples/
   eom_study/             # DroguedDrifter EOM exploration
   idealized_flow/        # DroguedDrifter in idealized flows
-  baltic_drifters/       # DroguedDrifter validation with real data
+  baltic_drifters/       # DroguedDrifter validation pipeline
 ```
 
 Proposed:
@@ -84,48 +76,41 @@ examples/
     02_synthetic_flow_profiles
     03_sheared_jet_parcels
     04_wave_orbitals
-  spar_buoy/             # SparBuoy examples
-    01_sheared_flow
   point_drifter/         # PointSurfaceDrifter examples
     01_surface_tracking
-  baltic_validation/     # multi-model validation with real data
+  baltic_validation/     # validation pipeline with real data
     00_extract_science_periods
     01_fetch_cmems_data
     ...
 ```
 
-The drogued drifter examples merge `eom_study/` and `idealized_flow/`
-into one directory. Baltic validation stays separate (it's a pipeline,
-not a single-model demo) but gets a model-neutral name.
-
-Each model's example directory has a self-contained notebook that
-demonstrates the model standalone — no Parcels, no real data. Parcels
-integration examples go in the model directory or in the validation
-pipeline.
+Merge `eom_study/` and `idealized_flow/` into `drogued_drifter/`.
+Rename `baltic_drifters/` → `baltic_validation/` (it's a validation
+pipeline, not a model demo).
 
 ## 6. README and docs
 
-- README: title "Mechanical Ocean Drifters", subtitle mentions all
-  three models, quick-start shows DroguedDrifter and SparBuoy side by
-  side.
-- `docs/drifter-model.md`: stays DroguedDrifter-specific. Add a note
-  at the top that the package includes other models.
-- `docs/parcels-v4-coupling.md`: note that `make_kernel(model)` works
-  for any model. Drop references to `make_dd_kernel`.
-- `base.py` docstring: mention all three models.
+- README title: "Mechanical Ocean Drifters"
+- README subtitle: mention DroguedDrifter and PointSurfaceDrifter.
+- `docs/drifter-model.md`: stays DroguedDrifter-specific.
+- `docs/parcels-v4-coupling.md`: drop `make_dd_kernel` references,
+  note `make_kernel(model)` works for any model.
+- `base.py` docstring: mention both models.
 
 ## 7. Checklist
 
+- [ ] Delete `models/spar_buoy.py`, `tests/test_spar_buoy.py`
+- [ ] Remove SparBuoy from `__init__.py`
 - [ ] `git mv src/drogued_drifters src/mechanical_drifters`
 - [ ] Find-and-replace `drogued_drifters` → `mechanical_drifters`
 - [ ] Update `pyproject.toml`
-- [ ] Delete `make_dd_kernel` from `parcels.py`
-- [ ] Implement `PointSurfaceDrifter` in `models/point_surface_drifter.py`
+- [ ] Delete `make_dd_kernel` from `parcels.py` and all call sites
+- [ ] Fix `StatusCode` imports, narrow exception handler
+- [ ] Implement `PointSurfaceDrifter`
 - [ ] Write tests for `PointSurfaceDrifter`
 - [ ] Restructure `examples/` directories
-- [ ] Write `examples/spar_buoy/01_sheared_flow.md`
 - [ ] Write `examples/point_drifter/01_surface_tracking.md`
-- [ ] Update README, docs, base.py docstring
+- [ ] Update README, docs, `base.py` docstring
 - [ ] Sync and execute all notebooks
 - [ ] Run full test suite
 - [ ] Update PR #15 checklist
