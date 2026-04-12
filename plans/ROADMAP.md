@@ -15,76 +15,58 @@
 ## Track B: Building the right sheared current ✓
 
 ### B1. Wave and current analysis ✓
-- `examples/baltic_drifters/04_stokes_analysis.ipynb`
-
 ### B2. Wave orbital effects ✓
-- `examples/baltic_drifters/05_wave_orbital_effects.ipynb`
-
 ### B3. Stokes drift profile builder ✓
-- `examples/baltic_drifters/06_effective_current_fields.ipynb`
 
 ## Track C: Bringing it together
 
 ### C1. Clean drifter dataset ✓
-- `examples/baltic_drifters/07_clean_drifter_data.ipynb`
-
 ### C2. Drifter simulations in effective currents ✓
-- `examples/baltic_drifters/08_drifter_in_effective_currents.ipynb`
-
 ### C3. Validation: deployment simulations ✓
-- `examples/baltic_drifters/09a_simulation.ipynb` (simulation)
-- `examples/baltic_drifters/09b_validation_plots.ipynb` (plots + metrics)
-- DD: 0.96 km avg separation over ~44h
-
-### C4. Validation: re-seeded simulations
-- Plan: [c4-reseeded-validation.md](c4-reseeded-validation.md)
-
-### C5. Parameter sensitivity
-- Plan: [c5-parameter-sensitivity.md](c5-parameter-sensitivity.md)
-
 ### C6. Along-track velocity validation ✓
-- `examples/baltic_drifters/10_along_track_validation.ipynb`
-- α = √k_b/(√k_b+√k_d) is the best velocity predictor (0.197 m/s RMSE)
+
+C4 (re-seeded validation) and C5 (parameter sensitivity) moved to
+[BACKLOG.md](BACKLOG.md).
 
 ## Track D: Code quality ✓
 
 All items complete. Plans in [done/](done/).
 
-- D-I: Parcels isolation — [docs/parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)
-- D-II: DrifterPhysics naming ✓
-- D-III: u/v → u_stereo/v_stereo ✓
-- Deferred items → [BACKLOG.md](BACKLOG.md)
+## Track E: Release wrap-up ✓
 
-## Track E: Release wrap-up
-
-### E1. Optional numba backend for qdd evaluation ✓
-- `DroguedDrifter(backend="numba")` + `make_dd_kernel(dd)`
-- Notes: [numba-acceleration.md](numba-acceleration.md)
-
+### E1. Optional numba backend ✓
 ### E2. README update ✓
-
 ### E3. Repo cleanup ✓
-
 ### E4. Rerun all example notebooks ✓
-- All idealized + baltic notebooks pass with papermill
-- Fixed `dd.l` → `dd.physics.l` in `03_drogued_drifter_in_wave_orbitals.ipynb`
-- Fixed `compute_stokes_profile` to accept optional `g=` parameter
+### E5. Full repo review ✓
+### E6. Finalize README ✓
+### E7. Switch jupytext pairing to md ✓
 
-### E5. Full repo review
-- Read all of `src/`, `tests/`, `docs/`, open `plans/`
-- Check for stale references, dead code, naming consistency
-- Review plans:
-  - [review-documentation.md](review-documentation.md)
-  - [review-code-quality.md](review-code-quality.md)
-  - [review-architecture.md](review-architecture.md)
+## Track F: Architecture refactor A ✓
 
-### E6. Finalize README
-- Final pass after E4/E5: verify all notebook links work, quick start
-  examples run, Parcels section is accurate
+Conservative rewire for v0.1.0 release. Plan:
+[done/implement-A.md](done/implement-A.md).
 
-### E7. Switch jupytext pairing from `py:percent` to `md`
-- Current `ipynb,py:percent` pairing is awkward — `.py` files lose
-  markdown cell richness and aren't useful for review
-- Switch to `ipynb,md` pairing: diffable markdown with full narrative,
-  ipynb for execution/output
-- Remove generated `.py` files, update `.gitignore` if needed
+1. Extract `coords.py` (coordinate transforms) ✓
+2. Extract `velocity.py` (`make_profile_sampler`) ✓
+3. Rename `lagrange_model.py` → `eom.py` ✓
+4. Cache `_make_qdd_func`, delete `_qdd_func` ✓
+5. Add `backend=` to public `qdd_func` ✓
+6. Kill `_adapt_get_uv`, unify on `sample_uv` protocol ✓
+7. Extract `_rhs`, `_rhs_batch`, `_z_eff` to module-level functions ✓
+8. Slim `_extract_profiles` to take `drogue_depth` ✓
+9. Export `compute_stokes_profile` from `__init__` ✓
+10. New EOM exploration example notebook ✓
+
+## Future: multi-object generalization
+
+Architecture proposals for supporting additional Lagrangian mechanics
+models (e.g. SparBuoy) alongside DroguedDrifter:
+
+- [architecture-v2.md](architecture-v2.md) — B: function-first radical restructure
+- [architecture-v3-multi-object.md](architecture-v3-multi-object.md) — C: ModelSpec dataclass
+- [architecture-v4-class-based.md](architecture-v4-class-based.md) — D: LagrangianMechanicsModel base class
+- [architecture-v5-simplified.md](architecture-v5-simplified.md) — D variant
+
+Decision: D (class-based) is the preferred direction. Implement after
+v0.1.0 release.

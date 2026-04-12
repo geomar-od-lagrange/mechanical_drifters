@@ -3,6 +3,15 @@ dependencies = ["sympy", "numpy", "scipy", "xarray", "parcels @ git+https://gith
 name = "drogued_drifters"
 requires-python = ">= 3.11"
 version = "0.1.0"
+description = "Lagrangian mechanics model for drogued ocean drifters"
+license = "MIT"
+authors = [
+    { name = "Willi Rath", email = "wrath@geomar.de" },
+    { name = "Merle Friederichsen", email = "mfriederichsen@geomar.de" },
+]
+
+[project.optional-dependencies]
+numba = ["numba"]
 
 [build-system]
 build-backend = "hatchling.build"
@@ -12,7 +21,7 @@ requires = ["hatchling"]
 allow-direct-references = true
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
 
 [tool.pixi.pypi-dependencies]
 drogued_drifters = { path = ".", editable = true }
@@ -26,6 +35,7 @@ addopts = "-m 'not slow'"
 test-cov = "pytest --cov=drogued_drifters --cov-report=term-missing -v"
 
 [tool.pixi.dependencies]
+zarr = ">=2.15.0,<3"
 ipython = ">=9.9.0,<10"
 jupyterlab = ">=4.5.3,<5"
 matplotlib = ">=3.10.8,<4"
