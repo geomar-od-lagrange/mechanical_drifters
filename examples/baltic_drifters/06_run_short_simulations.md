@@ -13,19 +13,15 @@ jupyter:
     name: python3
 ---
 
-<!-- #region papermill={"duration": 0.00128, "end_time": "2026-04-11T16:02:02.304807+00:00", "exception": false, "start_time": "2026-04-11T16:02:02.303527+00:00", "status": "completed"} -->
 # Short-horizon simulations: 12 h segments every 12 h
 
 Like notebook 04, but re-initialized from observed positions every 12 hours.
 Each segment runs for 12 hours. This gives many independent forecast segments
 for computing skill scores as a function of lead time.
-<!-- #endregion -->
 
-<!-- #region papermill={"duration": 0.000731, "end_time": "2026-04-11T16:02:02.306516+00:00", "exception": false, "start_time": "2026-04-11T16:02:02.305785+00:00", "status": "completed"} -->
 ## Parameters
-<!-- #endregion -->
 
-```python papermill={"duration": 0.004205, "end_time": "2026-04-11T16:02:02.311481+00:00", "exception": false, "start_time": "2026-04-11T16:02:02.307276+00:00", "status": "completed"} tags=["parameters"]
+```python tags=["parameters"]
 CSV_SCIENCE = "data/drifters_science.csv"
 EFFECTIVE_CURRENTS_PATH = "data/cmems/effective_currents.nc"
 OUTPUT_DIR = "output"
@@ -36,11 +32,9 @@ RESTART_HOURS = 12
 OUTPUTDT = 3600.0
 ```
 
-<!-- #region papermill={"duration": 0.000708, "end_time": "2026-04-11T16:02:02.312958+00:00", "exception": false, "start_time": "2026-04-11T16:02:02.312250+00:00", "status": "completed"} -->
 ## Imports
-<!-- #endregion -->
 
-```python papermill={"duration": 5.064292, "end_time": "2026-04-11T16:02:07.377980+00:00", "exception": false, "start_time": "2026-04-11T16:02:02.313688+00:00", "status": "completed"}
+```python
 import shutil
 from pathlib import Path
 
@@ -54,15 +48,13 @@ from drogued_drifters import DroguedDrifter
 from drogued_drifters.parcels import make_dd_kernel
 ```
 
-<!-- #region papermill={"duration": 0.001273, "end_time": "2026-04-11T16:02:07.380935+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.379662+00:00", "status": "completed"} -->
 ## Build release schedule
 
 From the science-period observations, extract positions at every
 `RESTART_HOURS` interval for each drifter. Each position becomes a
 release point for a `SEGMENT_HOURS` simulation.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.064574, "end_time": "2026-04-11T16:02:07.446721+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.382147+00:00", "status": "completed"}
+```python
 df = pd.read_csv(CSV_SCIENCE, parse_dates=["date_UTC"])
 drifter_ids = sorted(df["D_number"].unique())
 
@@ -91,11 +83,9 @@ print(f"{len(release_df)} release points across {len(drifter_ids)} drifters")
 print(release_df.groupby("D_number").size())
 ```
 
-<!-- #region papermill={"duration": 0.001277, "end_time": "2026-04-11T16:02:07.449517+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.448240+00:00", "status": "completed"} -->
 ## Build FieldSets
-<!-- #endregion -->
 
-```python papermill={"duration": 0.350143, "end_time": "2026-04-11T16:02:07.801130+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.450987+00:00", "status": "completed"}
+```python
 ds_eff_raw = xr.open_dataset(EFFECTIVE_CURRENTS_PATH)[["U_eff", "V_eff"]].load()
 
 # Prepend z=0 surface layer
@@ -134,11 +124,9 @@ print(f"Segment runtime: {SEGMENT_HOURS} h")
 print(f"FieldSet built.")
 ```
 
-<!-- #region papermill={"duration": 0.001262, "end_time": "2026-04-11T16:02:07.803930+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.802668+00:00", "status": "completed"} -->
 ## Helper kernel
-<!-- #endregion -->
 
-```python papermill={"duration": 0.004288, "end_time": "2026-04-11T16:02:07.809458+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.805170+00:00", "status": "completed"}
+```python
 def DeleteOOB(particles, fieldset):
     state = np.asarray(particles.state)
     oob = (state == StatusCode.ErrorOutOfBounds) | (state == StatusCode.ErrorThroughSurface)
@@ -150,15 +138,13 @@ output_dir = Path(OUTPUT_DIR)
 output_dir.mkdir(parents=True, exist_ok=True)
 ```
 
-<!-- #region papermill={"duration": 0.001259, "end_time": "2026-04-11T16:02:07.812074+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.810815+00:00", "status": "completed"} -->
 ## Run all segments
 
 Loop over unique release times. At each release time, launch one
 particle per drifter (up to 6) and run for `SEGMENT_HOURS`. Collect
 all trajectories into a single xarray Dataset per simulation type.
-<!-- #endregion -->
 
-```python papermill={"duration": 251.412279, "end_time": "2026-04-11T16:06:19.225613+00:00", "exception": false, "start_time": "2026-04-11T16:02:07.813334+00:00", "status": "completed"}
+```python
 def run_segments(fieldset, release_df, depth, label, kernel):
     """Run segments grouped by release time, collect into one zarr."""
     all_results = []
@@ -205,14 +191,12 @@ ds_short_3m = run_segments(fieldset, release_df, DROGUE_DEPTH_LEVEL, "3m", Advec
 print("Done.")
 ```
 
-<!-- #region papermill={"duration": 0.003643, "end_time": "2026-04-11T16:06:19.233342+00:00", "exception": false, "start_time": "2026-04-11T16:06:19.229699+00:00", "status": "completed"} -->
 ## Save release metadata
 
 Store the release schedule so notebook 07 can match trajectories
 back to drifter IDs and release times.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.007945, "end_time": "2026-04-11T16:06:19.244898+00:00", "exception": false, "start_time": "2026-04-11T16:06:19.236953+00:00", "status": "completed"}
+```python
 release_df.to_csv(output_dir / "short_releases.csv", index=False)
 print(f"Saved release metadata: {output_dir / 'short_releases.csv'}")
 ```

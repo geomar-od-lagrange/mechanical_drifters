@@ -13,7 +13,6 @@ jupyter:
     name: python3
 ---
 
-<!-- #region papermill={"duration": 0.007833, "end_time": "2026-04-11T15:53:18.149142+00:00", "exception": false, "start_time": "2026-04-11T15:53:18.141309+00:00", "status": "completed"} -->
 # Simulation: drogued drifter and point particle runs
 
 Run drogued drifter and point particle simulations from observed
@@ -21,13 +20,10 @@ deployment positions. Six drifters (D298–D303) with 3 m drogues are
 simulated in effective currents (Eulerian + Stokes) using
 `data/cmems/effective_currents.nc`. Surface and 3 m point particles
 provide baselines. All output is saved as zarr for fast downstream use.
-<!-- #endregion -->
 
-<!-- #region papermill={"duration": 0.002766, "end_time": "2026-04-11T15:53:18.156529+00:00", "exception": false, "start_time": "2026-04-11T15:53:18.153763+00:00", "status": "completed"} -->
 ## Parameters
-<!-- #endregion -->
 
-```python papermill={"duration": 0.008698, "end_time": "2026-04-11T15:53:18.168570+00:00", "exception": false, "start_time": "2026-04-11T15:53:18.159872+00:00", "status": "completed"} tags=["parameters"]
+```python tags=["parameters"]
 CSV_PATH = "data/drifters_science.csv"
 EFFECTIVE_CURRENTS_PATH = "data/cmems/effective_currents.nc"
 OUTPUT_DIR = "output"
@@ -37,11 +33,9 @@ RUNTIME_HOURS = 288
 OUTPUTDT = 3600.0
 ```
 
-<!-- #region papermill={"duration": 0.001792, "end_time": "2026-04-11T15:53:18.172383+00:00", "exception": false, "start_time": "2026-04-11T15:53:18.170591+00:00", "status": "completed"} -->
 ## Imports
-<!-- #endregion -->
 
-```python papermill={"duration": 4.758609, "end_time": "2026-04-11T15:53:22.932812+00:00", "exception": false, "start_time": "2026-04-11T15:53:18.174203+00:00", "status": "completed"}
+```python
 import shutil
 from pathlib import Path
 
@@ -55,14 +49,12 @@ from drogued_drifters import DroguedDrifter
 from drogued_drifters.parcels import make_dd_kernel
 ```
 
-<!-- #region papermill={"duration": 0.001477, "end_time": "2026-04-11T15:53:22.936094+00:00", "exception": false, "start_time": "2026-04-11T15:53:22.934617+00:00", "status": "completed"} -->
 ## Load science observations
 
 Extract deployment position and time as the first record per drifter
 within the effective currents time window (2023-04-24 onwards).
-<!-- #endregion -->
 
-```python papermill={"duration": 0.055943, "end_time": "2026-04-11T15:53:22.993548+00:00", "exception": false, "start_time": "2026-04-11T15:53:22.937605+00:00", "status": "completed"}
+```python
 df = pd.read_csv(CSV_PATH, parse_dates=["date_UTC"])
 drifter_ids = sorted(df["D_number"].unique())
 
@@ -83,15 +75,13 @@ for d_num, dep in deployments.items():
     print(f"  {d_num}: ({dep['lat']:.4f}N, {dep['lon']:.4f}E) at {dep['time']}")
 ```
 
-<!-- #region papermill={"duration": 0.001412, "end_time": "2026-04-11T15:53:22.996666+00:00", "exception": false, "start_time": "2026-04-11T15:53:22.995254+00:00", "status": "completed"} -->
 ## Load effective currents and build FieldSet
 
 The pre-computed effective currents (`U_eff`, `V_eff`) already include
 Eulerian + Stokes drift. A z=0 surface layer is prepended by copying
 the shallowest level so that Parcels can interpolate from the surface.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.236849, "end_time": "2026-04-11T15:53:23.234860+00:00", "exception": false, "start_time": "2026-04-11T15:53:22.998011+00:00", "status": "completed"}
+```python
 ds_eff_raw = xr.open_dataset(EFFECTIVE_CURRENTS_PATH)[["U_eff", "V_eff"]].load()
 
 # Prepend z=0 surface layer (copy of shallowest level)
@@ -104,7 +94,7 @@ print(ds_eff)
 print("depth levels:", ds_eff.depth.values)
 ```
 
-```python papermill={"duration": 0.007241, "end_time": "2026-04-11T15:53:23.243830+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.236589+00:00", "status": "completed"}
+```python
 # Attach sgrid topology attribute required by FieldSet.from_sgrid_conventions
 ds_eff["grid"] = xr.DataArray(
     data=0,
@@ -125,26 +115,22 @@ fieldset = FieldSet.from_sgrid_conventions(ds_eff, mesh="spherical")
 print("FieldSet built.")
 ```
 
-<!-- #region papermill={"duration": 0.001502, "end_time": "2026-04-11T15:53:23.246863+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.245361+00:00", "status": "completed"} -->
 ## Set up drogued drifter kernel
 
 The `DDAdvectEE` kernel extracts the full velocity profile at each
 particle position using `fieldset.UV.eval()` and runs
 `DroguedDrifter.get_final_drift_batch` to obtain the steady-state drift
 velocity. Spherical mesh is auto-detected.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.004067, "end_time": "2026-04-11T15:53:23.252417+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.248350+00:00", "status": "completed"}
+```python
 dd = DroguedDrifter()
 dd_kernel = make_dd_kernel(dd)
 print("DroguedDrifter kernel created.")
 ```
 
-<!-- #region papermill={"duration": 0.001453, "end_time": "2026-04-11T15:53:23.255455+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.254002+00:00", "status": "completed"} -->
 ## Helper kernel and release arrays
-<!-- #endregion -->
 
-```python papermill={"duration": 0.005352, "end_time": "2026-04-11T15:53:23.262233+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.256881+00:00", "status": "completed"}
+```python
 def DeleteOOB(particles, fieldset):
     state = np.asarray(particles.state)
     oob = (state == StatusCode.ErrorOutOfBounds) | (state == StatusCode.ErrorThroughSurface)
@@ -168,11 +154,9 @@ print(f"Drogue depth level: {DROGUE_DEPTH_LEVEL} m")
 print(f"Runtime: {RUNTIME_HOURS} h = {RUNTIME} s")
 ```
 
-<!-- #region papermill={"duration": 0.001444, "end_time": "2026-04-11T15:53:23.265167+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.263723+00:00", "status": "completed"} -->
 ## Run drogued drifter simulation
-<!-- #endregion -->
 
-```python papermill={"duration": 233.795041, "end_time": "2026-04-11T15:57:17.061716+00:00", "exception": false, "start_time": "2026-04-11T15:53:23.266675+00:00", "status": "completed"}
+```python
 dd_store = str(output_dir / "sim_drogued_drifter.zarr")
 shutil.rmtree(dd_store, ignore_errors=True)
 
@@ -194,11 +178,9 @@ pset_dd.execute(
 print(f"Saved: {dd_store}")
 ```
 
-<!-- #region papermill={"duration": 0.001602, "end_time": "2026-04-11T15:57:17.065090+00:00", "exception": false, "start_time": "2026-04-11T15:57:17.063488+00:00", "status": "completed"} -->
 ## Run surface point particle simulation
-<!-- #endregion -->
 
-```python papermill={"duration": 5.738524, "end_time": "2026-04-11T15:57:22.805336+00:00", "exception": false, "start_time": "2026-04-11T15:57:17.066812+00:00", "status": "completed"}
+```python
 surface_store = str(output_dir / "sim_surface.zarr")
 shutil.rmtree(surface_store, ignore_errors=True)
 
@@ -220,11 +202,9 @@ pset_surface.execute(
 print(f"Saved: {surface_store}")
 ```
 
-<!-- #region papermill={"duration": 0.001569, "end_time": "2026-04-11T15:57:22.808729+00:00", "exception": false, "start_time": "2026-04-11T15:57:22.807160+00:00", "status": "completed"} -->
 ## Run drogue-depth point particle simulation
-<!-- #endregion -->
 
-```python papermill={"duration": 5.6119, "end_time": "2026-04-11T15:57:28.422190+00:00", "exception": false, "start_time": "2026-04-11T15:57:22.810290+00:00", "status": "completed"}
+```python
 drogue_store = str(output_dir / "sim_3m.zarr")
 shutil.rmtree(drogue_store, ignore_errors=True)
 
@@ -246,11 +226,9 @@ pset_drogue.execute(
 print(f"Saved: {drogue_store}")
 ```
 
-<!-- #region papermill={"duration": 0.001653, "end_time": "2026-04-11T15:57:28.425770+00:00", "exception": false, "start_time": "2026-04-11T15:57:28.424117+00:00", "status": "completed"} -->
 ## Summary
-<!-- #endregion -->
 
-```python papermill={"duration": 0.050326, "end_time": "2026-04-11T15:57:28.477722+00:00", "exception": false, "start_time": "2026-04-11T15:57:28.427396+00:00", "status": "completed"}
+```python
 import os
 
 stores = [

@@ -13,7 +13,6 @@ jupyter:
     name: python3
 ---
 
-<!-- #region papermill={"duration": 0.001578, "end_time": "2026-04-11T15:46:13.126448+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.124870+00:00", "status": "completed"} -->
 # Validate effective current fields along drifter tracks
 
 Sample CMEMS effective currents (Eulerian + Stokes drift) along observed drifter
@@ -21,24 +20,19 @@ trajectories and compare model-predicted velocity against observed drifter
 velocity. No forward simulation -- just field interpolation at drifter positions.
 
 Validation is restricted to science periods extracted in notebook 00.
-<!-- #endregion -->
 
-<!-- #region papermill={"duration": 0.000833, "end_time": "2026-04-11T15:46:13.128326+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.127493+00:00", "status": "completed"} -->
 ## Parameters
-<!-- #endregion -->
 
-```python papermill={"duration": 0.004206, "end_time": "2026-04-11T15:46:13.133351+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.129145+00:00", "status": "completed"} tags=["parameters"]
+```python tags=["parameters"]
 CSV_PATH = "data/drifters_science.csv"
 EFFECTIVE_CURRENTS_PATH = "data/cmems/effective_currents.nc"
 WAVE_PATH = "data/cmems/cmems_mod_bal_wav_anfc_PT1H-i.nc"
 RESAMPLE_INTERVAL = "1h"
 ```
 
-<!-- #region papermill={"duration": 0.000884, "end_time": "2026-04-11T15:46:13.135187+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.134303+00:00", "status": "completed"} -->
 ## Imports
-<!-- #endregion -->
 
-```python papermill={"duration": 0.471193, "end_time": "2026-04-11T15:46:13.607218+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.136025+00:00", "status": "completed"}
+```python
 import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 import matplotlib.pyplot as plt
@@ -47,11 +41,9 @@ import pandas as pd
 import xarray as xr
 ```
 
-<!-- #region papermill={"duration": 0.000858, "end_time": "2026-04-11T15:46:13.609222+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.608364+00:00", "status": "completed"} -->
 ## Load and resample science observations
-<!-- #endregion -->
 
-```python papermill={"duration": 0.058871, "end_time": "2026-04-11T15:46:13.668924+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.610053+00:00", "status": "completed"}
+```python
 # CSV_PATH points to drifters_science.csv, which contains only science-period
 # positions (extracted in notebook 00). No additional filtering needed.
 df_raw = pd.read_csv(CSV_PATH, parse_dates=["date_UTC"])
@@ -71,18 +63,16 @@ print(f"Resampled observations (science periods only): {len(df)} rows, {df['D_nu
 df.head()
 ```
 
-<!-- #region papermill={"duration": 0.000943, "end_time": "2026-04-11T15:46:13.670992+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.670049+00:00", "status": "completed"} -->
 ## Load effective currents
-<!-- #endregion -->
 
-```python papermill={"duration": 0.179278, "end_time": "2026-04-11T15:46:13.851178+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.671900+00:00", "status": "completed"}
+```python
 ds = xr.open_dataset(EFFECTIVE_CURRENTS_PATH)
 print(ds)
 # Available depths
 print("Depths:", ds.depth.values)
 ```
 
-```python papermill={"duration": 25.91983, "end_time": "2026-04-11T15:46:39.773635+00:00", "exception": false, "start_time": "2026-04-11T15:46:13.853805+00:00", "status": "completed"}
+```python
 # Extrapolate onto land: rolling mean fills NaN coastal cells
 # Apply along latitude, then longitude (width=3, min_periods=1)
 ds_vars = ["U_eff", "V_eff", "uo", "vo", "u_stokes", "v_stokes"]
@@ -98,13 +88,11 @@ for _ in range(3):  # iterate to propagate further into land
 print(f"Extrapolated {ds_vars} onto land (3 passes, rolling width=3)")
 ```
 
-<!-- #region papermill={"duration": 0.000971, "end_time": "2026-04-11T15:46:39.775900+00:00", "exception": false, "start_time": "2026-04-11T15:46:39.774929+00:00", "status": "completed"} -->
 ## Interpolate fields to drifter positions
 
 Interpolate U_eff, uo, vo at surface (~0.5 m) and drogue depth (3.0 m) along each drifter track.
-<!-- #endregion -->
 
-```python papermill={"duration": 7.636873, "end_time": "2026-04-11T15:46:47.413704+00:00", "exception": false, "start_time": "2026-04-11T15:46:39.776831+00:00", "status": "completed"}
+```python
 DEPTH_SURFACE = float(ds.depth.isel(depth=0))   # ~0.5 m
 DEPTH_DROGUE = 3.0                           # interpolated to exactly 3 m
 
@@ -143,13 +131,11 @@ print(f"Surface depth: {DEPTH_SURFACE:.2f} m, drogue depth: {DEPTH_DROGUE:.1f} m
 df_sampled.head()
 ```
 
-<!-- #region papermill={"duration": 0.001061, "end_time": "2026-04-11T15:46:47.416113+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.415052+00:00", "status": "completed"} -->
 ## Compute observed drift speed
 
 Estimate observed speed from consecutive hourly positions using the haversine formula.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.014505, "end_time": "2026-04-11T15:46:47.431659+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.417154+00:00", "status": "completed"}
+```python
 def haversine_speed(lats, lons, times):
     """Compute speed in m/s from arrays of lat, lon (degrees) and times (datetime64)."""
     R = 6371e3
@@ -190,13 +176,11 @@ df_sampled["euler_speed_drog"] = np.sqrt(df_sampled["uo_drog"]**2 + df_sampled["
 print(df_sampled[["obs_speed", "eff_speed_surf", "eff_speed_drog", "euler_speed_surf", "euler_speed_drog"]].describe())
 ```
 
-<!-- #region papermill={"duration": 0.001056, "end_time": "2026-04-11T15:46:47.433920+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.432864+00:00", "status": "completed"} -->
 ## Along-track speed comparison
 
 Time series of observed drift speed versus model effective current speed (surface and drogue depth) per drifter.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.377347, "end_time": "2026-04-11T15:46:47.812271+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.434924+00:00", "status": "completed"}
+```python
 drifter_ids = sorted(df_sampled["D_number"].unique())
 n = len(drifter_ids)
 
@@ -221,13 +205,11 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- #region papermill={"duration": 0.002625, "end_time": "2026-04-11T15:46:47.818072+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.815447+00:00", "status": "completed"} -->
 ## Along-track U/V component comparison
 
 Eastward (U) and northward (V) velocity components per drifter: observed from finite differences vs model fields.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.567333, "end_time": "2026-04-11T15:46:48.387759+00:00", "exception": false, "start_time": "2026-04-11T15:46:47.820426+00:00", "status": "completed"}
+```python
 fig, axes = plt.subplots(n, 2, figsize=(14, 2.5 * n), sharex=False)
 
 for i, did in enumerate(drifter_ids):

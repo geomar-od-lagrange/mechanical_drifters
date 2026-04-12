@@ -13,19 +13,15 @@ jupyter:
     name: python3
 ---
 
-<!-- #region papermill={"duration": 0.00489, "end_time": "2026-04-11T16:06:25.803427+00:00", "exception": false, "start_time": "2026-04-11T16:06:25.798537+00:00", "status": "completed"} -->
 # Short-horizon skill scores
 
 Analyse the 12 h simulation segments from notebook 06.
 Compute separation distance as a function of lead time (0–12 h),
 averaged over all release times and drifters.
-<!-- #endregion -->
 
-<!-- #region papermill={"duration": 0.002337, "end_time": "2026-04-11T16:06:25.808979+00:00", "exception": false, "start_time": "2026-04-11T16:06:25.806642+00:00", "status": "completed"} -->
 ## Parameters
-<!-- #endregion -->
 
-```python papermill={"duration": 0.007791, "end_time": "2026-04-11T16:06:25.818995+00:00", "exception": false, "start_time": "2026-04-11T16:06:25.811204+00:00", "status": "completed"} tags=["parameters"]
+```python tags=["parameters"]
 ZARR_DD = "output/short_dd.zarr"
 ZARR_SURFACE = "output/short_surface.zarr"
 ZARR_3M = "output/short_3m.zarr"
@@ -34,11 +30,9 @@ CSV_SCIENCE = "data/drifters_science.csv"
 SEGMENT_HOURS = 12
 ```
 
-<!-- #region papermill={"duration": 0.001741, "end_time": "2026-04-11T16:06:25.822497+00:00", "exception": false, "start_time": "2026-04-11T16:06:25.820756+00:00", "status": "completed"} -->
 ## Imports
-<!-- #endregion -->
 
-```python papermill={"duration": 0.545916, "end_time": "2026-04-11T16:06:26.369953+00:00", "exception": false, "start_time": "2026-04-11T16:06:25.824037+00:00", "status": "completed"}
+```python
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -47,11 +41,9 @@ import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 ```
 
-<!-- #region papermill={"duration": 0.000764, "end_time": "2026-04-11T16:06:26.371740+00:00", "exception": false, "start_time": "2026-04-11T16:06:26.370976+00:00", "status": "completed"} -->
 ## Load data
-<!-- #endregion -->
 
-```python papermill={"duration": 0.761712, "end_time": "2026-04-11T16:06:27.134235+00:00", "exception": false, "start_time": "2026-04-11T16:06:26.372523+00:00", "status": "completed"}
+```python
 release_df = pd.read_csv(RELEASES_CSV, parse_dates=["time"])
 obs_df = pd.read_csv(CSV_SCIENCE, parse_dates=["date_UTC"])
 
@@ -64,11 +56,9 @@ print(f"Releases: {len(release_df)}, drifters: {drifter_ids}")
 print(f"DD dims: {dict(ds_dd.sizes)}")
 ```
 
-<!-- #region papermill={"duration": 0.000836, "end_time": "2026-04-11T16:06:27.136197+00:00", "exception": false, "start_time": "2026-04-11T16:06:27.135361+00:00", "status": "completed"} -->
 ## Helpers
-<!-- #endregion -->
 
-```python papermill={"duration": 0.003893, "end_time": "2026-04-11T16:06:27.140927+00:00", "exception": false, "start_time": "2026-04-11T16:06:27.137034+00:00", "status": "completed"}
+```python
 def haversine_km(lon1, lat1, lon2, lat2):
     R = 6371.0
     dlat = np.deg2rad(lat2 - lat1)
@@ -80,15 +70,13 @@ def haversine_km(lon1, lat1, lon2, lat2):
     return R * 2 * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
 ```
 
-<!-- #region papermill={"duration": 0.000816, "end_time": "2026-04-11T16:06:27.142598+00:00", "exception": false, "start_time": "2026-04-11T16:06:27.141782+00:00", "status": "completed"} -->
 ## Compute separation vs lead time
 
 For each segment, interpolate observed positions to simulated output
 times and compute haversine separation. Collect as (lead_time_h, sep_km)
 for each simulation type.
-<!-- #endregion -->
 
-```python papermill={"duration": 1.05664, "end_time": "2026-04-11T16:06:28.200033+00:00", "exception": false, "start_time": "2026-04-11T16:06:27.143393+00:00", "status": "completed"}
+```python
 def compute_separations(ds_sim, release_df, obs_df):
     """Return DataFrame with columns: D_number, release_time, lead_h, sep_km."""
     m_per_deg = 111120.0
@@ -145,13 +133,11 @@ print(f"Total separation records: {len(sep_all)}")
 print(sep_all.groupby("sim").size())
 ```
 
-<!-- #region papermill={"duration": 0.000843, "end_time": "2026-04-11T16:06:28.202023+00:00", "exception": false, "start_time": "2026-04-11T16:06:28.201180+00:00", "status": "completed"} -->
 ## Separation vs lead time
 
 Individual segment lines (thin) and per-drifter mean (thick), one panel per drifter.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.429722, "end_time": "2026-04-11T16:06:28.632520+00:00", "exception": false, "start_time": "2026-04-11T16:06:28.202798+00:00", "status": "completed"}
+```python
 sep_all["lead_h_bin"] = sep_all["lead_h"].round()
 
 sim_names = ["Drogued drifter", "Surface pp", "3 m pp"]
@@ -185,14 +171,12 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- #region papermill={"duration": 0.002509, "end_time": "2026-04-11T16:06:28.637844+00:00", "exception": false, "start_time": "2026-04-11T16:06:28.635335+00:00", "status": "completed"} -->
 ## Trajectory maps
 
 One panel per drifter showing the full observed track (black) with
 all short simulation segments overlaid.
-<!-- #endregion -->
 
-```python papermill={"duration": 12.436898, "end_time": "2026-04-11T16:06:41.077290+00:00", "exception": false, "start_time": "2026-04-11T16:06:28.640392+00:00", "status": "completed"}
+```python
 PAD = 0.1
 lon_min = obs_df["Longitude"].min() - PAD
 lon_max = obs_df["Longitude"].max() + PAD
@@ -249,11 +233,9 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- #region papermill={"duration": 0.005578, "end_time": "2026-04-11T16:06:41.088712+00:00", "exception": false, "start_time": "2026-04-11T16:06:41.083134+00:00", "status": "completed"} -->
 ## Summary statistics
-<!-- #endregion -->
 
-```python papermill={"duration": 0.024058, "end_time": "2026-04-11T16:06:41.118300+00:00", "exception": false, "start_time": "2026-04-11T16:06:41.094242+00:00", "status": "completed"}
+```python
 # Mean separation at selected lead times
 for lead in [1, 3, 6]:
     sub = sep_all[sep_all["lead_h_bin"] == lead]

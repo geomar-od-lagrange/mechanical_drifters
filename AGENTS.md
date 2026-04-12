@@ -34,8 +34,11 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 - **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
 - Use xarray, pandas etc. _public_ API. Example: `ds.lon.isel(traj=0)` instead of `ds.lon.values[0, :]` etc.
 - After fixing bugs, rerun immediately without asking.
-- **Execute notebooks with papermill**: `cd <notebook-dir> && pixi run papermill <nb.ipynb> <nb.ipynb>` (in-place, cwd = notebook directory). Use `--execution-timeout 600` for notebooks with symbolic derivations. Do not use `jupyter nbconvert --execute`.
-- Ensure all parameters are in a parameters cell close to the beginning of the notebook. The parameters cell neesd to be tagged "parameters" and only declare and assign primitives. All calculations, transformations, etc. of these parameters have to happen outside of the parameters cell.
+- Notebooks are paired `.md` + `.ipynb` via jupytext. The `.md` is the source of truth — always edit the `.md`, never the `.ipynb` directly.
+- **Execute notebooks with jupytext**: `cd <notebook-dir> && pixi run jupytext --sync --execute <nb>.md`. This syncs .md → .ipynb, executes, and saves outputs. This is the default for all notebooks.
+- **Papermill is only needed when injecting parameter overrides** (e.g. running the same experiment for a range of different parameter sets). Don't reach for papermill by default.
+- Do not use `jupyter nbconvert --execute`.
+- Every notebook must have one early parameters cell tagged `"parameters"` containing only primitive assignments. All calculations and transformations of those parameters happen in subsequent cells. This keeps notebooks papermill-compatible if parameter sweeps are needed later.
 
 ## Plotting
 

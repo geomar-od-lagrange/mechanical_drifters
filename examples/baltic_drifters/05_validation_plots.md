@@ -13,7 +13,6 @@ jupyter:
     name: python3
 ---
 
-<!-- #region papermill={"duration": 0.006389, "end_time": "2026-04-11T15:57:37.404936+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.398547+00:00", "status": "completed"} -->
 # Validation plots: trajectory comparison and skill scores
 
 Observations are filtered to science periods from notebook 00.
@@ -24,24 +23,19 @@ summary skill metrics for three simulation types:
 - **Drogued drifter (DD)** — steady-state tilt + effective currents
 - **Surface point particle** — z = 0, effective currents
 - **3 m point particle** — z = 3 m, effective currents
-<!-- #endregion -->
 
-<!-- #region papermill={"duration": 0.002569, "end_time": "2026-04-11T15:57:37.411536+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.408967+00:00", "status": "completed"} -->
 ## Parameters
-<!-- #endregion -->
 
-```python papermill={"duration": 0.008257, "end_time": "2026-04-11T15:57:37.422266+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.414009+00:00", "status": "completed"} tags=["parameters"]
+```python tags=["parameters"]
 ZARR_DD = "output/sim_drogued_drifter.zarr"
 ZARR_SURFACE = "output/sim_surface.zarr"
 ZARR_3M = "output/sim_3m.zarr"
 CSV_SCIENCE = "data/drifters_science.csv"
 ```
 
-<!-- #region papermill={"duration": 0.001823, "end_time": "2026-04-11T15:57:37.426042+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.424219+00:00", "status": "completed"} -->
 ## Imports
-<!-- #endregion -->
 
-```python papermill={"duration": 0.469009, "end_time": "2026-04-11T15:57:37.896643+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.427634+00:00", "status": "completed"}
+```python
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -50,11 +44,9 @@ import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 ```
 
-<!-- #region papermill={"duration": 0.000757, "end_time": "2026-04-11T15:57:37.898430+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.897673+00:00", "status": "completed"} -->
 ## Load data
-<!-- #endregion -->
 
-```python papermill={"duration": 0.035227, "end_time": "2026-04-11T15:57:37.934425+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.899198+00:00", "status": "completed"}
+```python
 # Science-period observations at 1-min resolution from notebook 00
 obs_df = pd.read_csv(CSV_SCIENCE, parse_dates=["date_UTC"])
 
@@ -64,7 +56,7 @@ print("Obs date range:", obs_df["date_UTC"].min(), "to", obs_df["date_UTC"].max(
 print(f"Science observations: {len(obs_df)}")
 ```
 
-```python papermill={"duration": 0.805792, "end_time": "2026-04-11T15:57:38.741143+00:00", "exception": false, "start_time": "2026-04-11T15:57:37.935351+00:00", "status": "completed"}
+```python
 ds_dd = xr.open_zarr(ZARR_DD).load()
 ds_surface = xr.open_zarr(ZARR_SURFACE).load()
 ds_3m = xr.open_zarr(ZARR_3M).load()
@@ -75,7 +67,7 @@ print("Surface dims:", dict(ds_surface.sizes))
 print("3m dims:", dict(ds_3m.sizes))
 ```
 
-```python papermill={"duration": 0.006923, "end_time": "2026-04-11T15:57:38.749242+00:00", "exception": false, "start_time": "2026-04-11T15:57:38.742319+00:00", "status": "completed"}
+```python
 def ds_to_dicts(ds, drifter_ids):
     """Convert zarr dataset to dict keyed by drifter ID.
 
@@ -102,11 +94,9 @@ for did in drifter_ids:
           f"3m {len(sim_3m[did]['lon'])} pts")
 ```
 
-<!-- #region papermill={"duration": 0.000858, "end_time": "2026-04-11T15:57:38.751053+00:00", "exception": false, "start_time": "2026-04-11T15:57:38.750195+00:00", "status": "completed"} -->
 ## Helper functions
-<!-- #endregion -->
 
-```python papermill={"duration": 0.004113, "end_time": "2026-04-11T15:57:38.755991+00:00", "exception": false, "start_time": "2026-04-11T15:57:38.751878+00:00", "status": "completed"}
+```python
 def haversine_km(lon1, lat1, lon2, lat2):
     """Great-circle distance in km."""
     R = 6371.0
@@ -128,15 +118,13 @@ def interp_sim_to_obs(sim_time, sim_lon, sim_lat, obs_time):
     return lon_i, lat_i
 ```
 
-<!-- #region papermill={"duration": 0.000871, "end_time": "2026-04-11T15:57:38.757784+00:00", "exception": false, "start_time": "2026-04-11T15:57:38.756913+00:00", "status": "completed"} -->
 ## Trajectory map
 
 Observed tracks and all three simulation types plotted on an OSM tile
 background. One panel per drifter. Use `ccrs.Geodetic()` as transform
 for OSM tiles to avoid the ~43 km offset that PlateCarree produces.
-<!-- #endregion -->
 
-```python papermill={"duration": 11.805766, "end_time": "2026-04-11T15:57:50.564396+00:00", "exception": false, "start_time": "2026-04-11T15:57:38.758630+00:00", "status": "completed"}
+```python
 # Derive bounding box from science-period observations with ~0.1 deg padding
 PAD = 0.1
 lon_min = obs_df["Longitude"].min() - PAD
@@ -183,15 +171,13 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- #region papermill={"duration": 0.001731, "end_time": "2026-04-11T15:57:50.568219+00:00", "exception": false, "start_time": "2026-04-11T15:57:50.566488+00:00", "status": "completed"} -->
 ## Separation distance
 
 Great-circle (haversine) distance between observed and simulated
 positions as a function of time since simulation start. Simulated
 positions are interpolated to observed timestamps.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.177647, "end_time": "2026-04-11T15:57:50.747502+00:00", "exception": false, "start_time": "2026-04-11T15:57:50.569855+00:00", "status": "completed"}
+```python
 tab_colors = plt.cm.tab10(range(len(drifter_ids)))
 
 fig, ax = plt.subplots()
@@ -238,14 +224,12 @@ plt.tight_layout()
 plt.show()
 ```
 
-<!-- #region papermill={"duration": 0.002093, "end_time": "2026-04-11T15:57:50.752395+00:00", "exception": false, "start_time": "2026-04-11T15:57:50.750302+00:00", "status": "completed"} -->
 ## Summary statistics
 
 Mean and maximum separation distance per drifter per simulation type,
 computed over the full overlapping time window.
-<!-- #endregion -->
 
-```python papermill={"duration": 0.029532, "end_time": "2026-04-11T15:57:50.783923+00:00", "exception": false, "start_time": "2026-04-11T15:57:50.754391+00:00", "status": "completed"}
+```python
 rows = []
 
 for did in drifter_ids:
