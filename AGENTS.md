@@ -1,5 +1,7 @@
 # Agent guidelines for this project
 
+(This file is `AGENTS.md` on disk and symlinked to `CLAUDE.md`.)
+
 ## Principles
 
 **This is pre-alpha research code.** No installed base, no backwards compat, no users to migrate. Internal API changes are free — changing signatures of private functions (`_rhs_batch`, `_make_qdd_func`, etc.) is expected, not exceptional. Even after release, anything prefixed with `_` is internal and can change between minor versions.
