@@ -164,25 +164,60 @@ This replaces the architectural knowledge currently buried in the plan
 files and in code comments. Per CLAUDE.md: agents get context by reading
 `docs/*.md`.
 
-## 7. Checklist
+## 7. Execution phasing
 
-- [ ] Delete `models/spar_buoy.py`, `tests/test_spar_buoy.py`
-- [ ] Remove SparBuoy from `__init__.py`
-- [ ] `git mv src/drogued_drifters src/mechanical_drifters`
-- [ ] Find-and-replace `drogued_drifters` → `mechanical_drifters`
-- [ ] Update `pyproject.toml`
-- [ ] Delete `make_dd_kernel` from `parcels.py` and all call sites
-- [ ] Fix `StatusCode` imports, narrow exception handler
-- [ ] Implement `PointSurfaceDrifter`
-- [ ] Write tests for `PointSurfaceDrifter`
-- [ ] Restructure `examples/` directories
-- [ ] Write `examples/point_drifter/01_surface_tracking.md`
+Each phase depends on the previous one completing. Within a phase,
+steps run sequentially unless noted otherwise.
+
+### Phase 1 — Cleanup and restructure (Sonnet subagents, sequential)
+
+Mechanical changes. Run tests after each step to confirm nothing broke.
+
+- [ ] **1a. Drop SparBuoy** — delete `models/spar_buoy.py`,
+  `tests/test_spar_buoy.py`, remove SparBuoy exports from `__init__.py`
+- [ ] **1b. Package rename** — `git mv src/drogued_drifters
+  src/mechanical_drifters`, find-and-replace in all `.py`, `.md`,
+  `pyproject.toml`
+- [ ] **1c. Tech debt** — delete `make_dd_kernel` from `parcels.py` and
+  all call sites, fix `StatusCode` imports, narrow `except Exception` in
+  `eom.py`
+- [ ] **1d. Examples restructure** — merge `eom_study/` +
+  `idealized_flow/` → `examples/drogued_drifter/`, rename
+  `baltic_drifters/` → `examples/baltic_validation/`, update all
+  cross-references in notebooks and docs
+
+### Phase 2 — PointSurfaceDrifter (TDD, two rounds)
+
+Red/Green agents, Opus reviews. Two rounds: interface then behavior.
+Directory structure is final (Phase 1d done), so the notebook lands in
+its permanent location.
+
+- [ ] **2a. Red 1 (interface)** — write tests: class exists, has
+  `PointSurfacePhysics`/`PointSurfaceState`, correct `n_q=2`,
+  `_drift_velocity_indices`, `state_size`, constructs with default physics
+- [ ] **2b. Green 1** — implement skeleton: class, dataclasses, class
+  attributes. No physics yet. Tests from 2a pass.
+- [ ] **2c. Red 2 (behavior + integration)** — write tests:
+  `_derive_symbolic` produces correct EOM, `steady_state_batch` returns
+  surface current exactly, `make_kernel` produces a callable. Also write
+  `examples/point_drifter/01_surface_tracking.md` as an integration test
+  (notebook must execute and produce correct results).
+- [ ] **2d. Green 2** — implement `_derive_symbolic` (the trivial
+  Lagrangian), `_rhs_batch`, `_max_depth`. Unit tests and notebook pass.
+- [ ] **2e. Blue (review)** — Opus review of the full
+  PointSurfaceDrifter implementation.
+
+### Phase 3 — Documentation and final pass (Opus, main agent)
+
+Judgment calls on content and framing. After Phases 2–3 are done.
+
 - [ ] Rewrite README.md
-- [ ] Update `docs/drifter-model.md` (import paths, add note)
-- [ ] Update `docs/parcels-v4-coupling.md` (drop `make_dd_kernel`, import paths)
-- [ ] Update `docs/stokes-drift.md` (import path)
-- [ ] Write `docs/point-surface-drifter.md`
 - [ ] Write `docs/architecture.md`
+- [ ] Write `docs/point-surface-drifter.md`
+- [ ] Update `docs/drifter-model.md` (import paths, add PSD note)
+- [ ] Update `docs/parcels-v4-coupling.md` (drop `make_dd_kernel`,
+  import paths)
+- [ ] Update `docs/stokes-drift.md` (import path)
 - [ ] Update `base.py` docstring
 - [ ] Sync and execute all notebooks
 - [ ] Run full test suite
