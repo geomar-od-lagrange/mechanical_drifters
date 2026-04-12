@@ -62,6 +62,28 @@ the roadmap (and get their own plan file) when they become timely.
   incorrect output under certain conditions. See
   [parcels_v4_output_bug.md](parcels_v4_output_bug.md).
 
+## Architecture
+
+- **Parcels-integrated EOM stepping.** The current kernel solves the
+  internal ODE to steady state each Parcels timestep, then hands back a
+  drift velocity. An alternative mode would expose the EOM accelerations
+  directly and let Parcels handle the time integration — the kernel
+  evaluates `qdd` from the current state, updates generalized velocities
+  via particle attributes (e.g. `pv_u`, `pv_v`, `qd_*`), and sets
+  `dlon`/`dlat` for position. This keeps the full transient dynamics
+  (no steady-state assumption) and lets Parcels control the timestep.
+  Requires custom particle classes with velocity/state attributes.
+  Interesting for inertial particles that never reach steady state, or
+  for models where the steady-state assumption breaks down (fast-changing
+  currents relative to the drifter response time).
+
+- **SparBuoy with real Lagrangian mechanics.** The current SparBuoy was
+  dropped (it was a depth-average hack that faked the base class
+  contract). When real spar buoy EOM are derived — tilt dynamics of a
+  vertical cylinder with float and keel — it enters as a proper
+  `LagrangianMechanicsModel` subclass with `_derive_symbolic` and the
+  full pipeline.
+
 ## Science
 
 - **BSH-HBM integration.** Replace CMEMS Nemo-Nordic (~1.85 km,
