@@ -8,7 +8,7 @@ from drogued_drifters.drifter import (
     drogue_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
 )
-from drogued_drifters.lagrange_model import (
+from drogued_drifters.eom import (
     DrifterPhysics,
     EOMState,
     F_func,
@@ -513,7 +513,7 @@ def test_generated_vectorized():
 
 def test_cache_file_exists():
     """Test that the pickle cache file exists."""
-    from drogued_drifters.lagrange_model import _CACHE_PATH
+    from drogued_drifters.eom import _CACHE_PATH
 
     assert _CACHE_PATH.exists(), f"Cache file not found at {_CACHE_PATH}"
 
@@ -522,7 +522,7 @@ def test_cache_loads_successfully():
     """Test that the pickle cache loads and has the expected keys."""
     import pickle
 
-    from drogued_drifters.lagrange_model import _CACHE_PATH, _cache_key
+    from drogued_drifters.eom import _CACHE_PATH, _cache_key
 
     cached = pickle.loads(_CACHE_PATH.read_bytes())
     assert "key" in cached
@@ -537,7 +537,7 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
     """_load_or_derive should re-derive when pickle has wrong key."""
     import pickle
 
-    from drogued_drifters import lagrange_model
+    from drogued_drifters import eom
 
     # Write a pickle with a wrong key
     stale_cache = tmp_path / "stale.pkl"
@@ -548,22 +548,22 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
     )
 
     with monkeypatch.context() as mp:
-        mp.setattr(lagrange_model, "_CACHE_PATH", stale_cache)
-        lagrange_model._get_eom_callables.cache_clear()
+        mp.setattr(eom, "_CACHE_PATH", stale_cache)
+        eom._get_eom_callables.cache_clear()
 
         # Should re-derive (will warn about cache miss)
         import warnings
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            qdd_raw, M_raw, F_raw, args, pack = lagrange_model._get_eom_callables()
+            qdd_raw, M_raw, F_raw, args, pack = eom._get_eom_callables()
 
         assert callable(qdd_raw)
         assert callable(M_raw)
         assert callable(F_raw)
 
     # Restore
-    lagrange_model._get_eom_callables.cache_clear()
+    eom._get_eom_callables.cache_clear()
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +678,7 @@ def test_state_vector_round_trip():
     Public format:   (x, y, theta, phi, xd, yd, thetad, phid)
     Internal format: (x, y, u, v, xd, yd, ud, vd)
     """
-    from drogued_drifters.lagrange_model import _spherical_to_uv, _uv_to_spherical
+    from drogued_drifters.eom import _spherical_to_uv, _uv_to_spherical
     from drogued_drifters.drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
 
     # Known public state

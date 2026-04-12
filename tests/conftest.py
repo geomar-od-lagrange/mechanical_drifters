@@ -3,7 +3,7 @@
 import pytest
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.lagrange_model import DrifterPhysics, EOMState
+from drogued_drifters.eom import DrifterPhysics, EOMState
 
 DEFAULT_PHYSICS = DrifterPhysics(
     m_b=1.0,

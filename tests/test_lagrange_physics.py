@@ -12,7 +12,7 @@ import pytest
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.lagrange_model import (
+from drogued_drifters.eom import (
     DrifterPhysics,
     EOMState,
     F_func,
@@ -30,7 +30,7 @@ def test_packer_covers_all_struct_fields():
     stale .srepr cache, or fields added to one side but not the other.
     """
     import inspect
-    from drogued_drifters.lagrange_model import _get_eom_callables
+    from drogued_drifters.eom import _get_eom_callables
 
     _qdd_raw, _M_raw, _F_raw, _args, _pack = _get_eom_callables()
     lambda_params = set(inspect.signature(_qdd_raw).parameters)
@@ -59,7 +59,7 @@ def test_packer_arg_order_matches_lambda():
     the result matches what the lambda signature demands.
     """
     import inspect
-    from drogued_drifters.lagrange_model import _get_eom_callables
+    from drogued_drifters.eom import _get_eom_callables
 
     _qdd_raw, _, _, _, pack = _get_eom_callables()
     lambda_params = list(inspect.signature(_qdd_raw).parameters)
@@ -584,14 +584,14 @@ def test_lambdify_cse_preserves_broadcasting():
     If CSE breaks broadcasting, this catches it.
     """
     import sympy as sp
-    from drogued_drifters.lagrange_model import _load_or_derive
+    from drogued_drifters.eom import _load_or_derive
 
     _, _, qdd_exprs, args = _load_or_derive()
 
     qdd_cse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
     qdd_nocse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=False)
 
-    from drogued_drifters.lagrange_model import _build_packer
+    from drogued_drifters.eom import _build_packer
 
     pack = _build_packer(qdd_cse)
 

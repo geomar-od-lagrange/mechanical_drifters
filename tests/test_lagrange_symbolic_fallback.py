@@ -9,7 +9,7 @@ Marked @pytest.mark.slow because symbolic derivation takes 30-60s.
 import numpy as np
 import pytest
 
-from drogued_drifters.lagrange_model import (
+from drogued_drifters.eom import (
     DrifterPhysics,
     EOMState,
     F_func,
@@ -130,7 +130,7 @@ def test_derived_vs_cached_numerical_agreement():
     F_raw_fresh = sp.lambdify(args, f_exprs, modules="numpy", cse=True)
 
     # Call with same parameters using packer from _build_packer
-    from drogued_drifters.lagrange_model import _build_packer
+    from drogued_drifters.eom import _build_packer
 
     packer = _build_packer(M_raw_fresh)
     params_tuple = packer(test_physics, test_state)
@@ -173,20 +173,20 @@ def test_derived_vs_cached_numerical_agreement():
 @pytest.mark.slow
 def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
     """_get_eom_callables should fall back to _derive_symbolic if cache missing."""
-    from drogued_drifters import lagrange_model
+    from drogued_drifters import eom
 
     # Patch _CACHE_PATH to non-existent file in temp dir
     temp_cache = tmp_path / "missing.pkl"
     assert not temp_cache.exists(), "Cache file should not exist"
 
     with monkeypatch.context() as mp:
-        mp.setattr(lagrange_model, "_CACHE_PATH", temp_cache)
+        mp.setattr(eom, "_CACHE_PATH", temp_cache)
 
         # Clear cache so it re-evaluates
-        lagrange_model._get_eom_callables.cache_clear()
+        eom._get_eom_callables.cache_clear()
 
         # Should fall back to _derive_symbolic and work
-        qdd_raw, M_raw, F_raw, args, pack_eom_args = lagrange_model._get_eom_callables()
+        qdd_raw, M_raw, F_raw, args, pack_eom_args = eom._get_eom_callables()
 
         assert callable(qdd_raw), "qdd_raw should be callable (fallback)"
         assert callable(M_raw), "M_raw should be callable (fallback)"

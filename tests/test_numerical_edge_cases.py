@@ -13,7 +13,7 @@ import pytest
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.lagrange_model import (
+from drogued_drifters.eom import (
     DrifterPhysics,
     EOMState,
     F_func,
@@ -164,7 +164,7 @@ def test_uv_to_theta_zero_vector():
 
 def test_uv_to_theta_roundtrip_extreme():
     """Round-trip u,v↔θ,φ at extreme angles."""
-    from drogued_drifters.lagrange_model import _spherical_to_uv
+    from drogued_drifters.eom import _spherical_to_uv
 
     # Near-vertical pole
     theta_in = 0.9999 * np.pi
@@ -280,7 +280,7 @@ def test_M_F_continuity_near_zero():
 
 def test_spherical_singularity_at_pi():
     """Spherical (θ, φ) has singularity at θ=π, but stereographic (u, v) avoids it."""
-    from drogued_drifters.lagrange_model import _uv_to_spherical, _spherical_to_uv
+    from drogued_drifters.eom import _uv_to_spherical, _spherical_to_uv
 
     # At θ=π, φ is undefined, but (u, v) = (0, 0) should always map correctly
     u, v, ud, vd = _spherical_to_uv(np.pi, 0.0, 0.0, 0.0)
