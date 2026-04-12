@@ -14,7 +14,7 @@ from .velocity import make_profile_sampler  # re-exported for backward compatibi
 _DEG2M = 1852.0 * 60.0
 
 
-def _extract_profiles(particles, fieldset, dd):
+def _extract_profiles(particles, fieldset, drogue_depth):
     """Extract velocity profiles from the fieldset and build a depth interpolator.
 
     Samples the fieldset at each depth level from the surface down to the
@@ -25,7 +25,7 @@ def _extract_profiles(particles, fieldset, dd):
     Args:
         particles: Parcels ParticleSet.
         fieldset: Parcels FieldSet with a ``UV`` VectorField.
-        dd: DroguedDrifter instance.
+        drogue_depth: Pole length (m) — the depth to which the drogue extends.
 
     Returns:
         Callable ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or
@@ -38,7 +38,6 @@ def _extract_profiles(particles, fieldset, dd):
     N = len(lat)
 
     is_spherical = fieldset.U.grid._mesh == "spherical"
-    drogue_depth = dd.physics.l
 
     # Depth levels: surface to first level beyond drogue depth (or all if
     # drogue covers the full water column).  At least 2 for interpolation.
@@ -114,7 +113,7 @@ def DDAdvectEE(particles, fieldset, *, dd):
         fieldset: Parcels FieldSet with a ``UV`` VectorField.
         dd: DroguedDrifter instance (bind via ``make_dd_kernel``).
     """
-    sample_uv = _extract_profiles(particles, fieldset, dd)
+    sample_uv = _extract_profiles(particles, fieldset, dd.physics.l)
     xd_ms, yd_ms, _, _ = dd.get_final_drift_batch(sample_uv=sample_uv)
     _position_update(particles, xd_ms, yd_ms, fieldset)
 

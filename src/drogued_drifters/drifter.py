@@ -107,6 +107,138 @@ def _default_sample_uv(z):
     return U, V
 
 
+def _z_eff(l, u, v):
+    """Effective drogue depth from stereographic coordinates.
+
+    Args:
+        l: Pole length [m].
+        u: Stereographic u coordinate, scalar or ``(N,)`` array.
+        v: Stereographic v coordinate, scalar or ``(N,)`` array.
+
+    Returns:
+        z_eff: Drogue vertical position [m], positive upward (non-positive),
+            shape ``(N,)``.  At equilibrium (pole vertical) returns ``-l``.
+            Clamped to ``<= 0`` (drogue cannot be above the surface).
+    """
+    s = u**2 + v**2
+    cos_theta = (s - 4) / (s + 4)
+    # At equilibrium cos_theta = -1, so l * cos_theta = -l (below surface).
+    # The clamp to z_eff <= 0 is a safety net: with extreme initial
+    # conditions (e.g. very large lateral velocity relative to water) the
+    # pole could theoretically swing past horizontal (theta < pi/2),
+    # placing the drogue above the surface.  This is outside the physical
+    # operating regime of the model, and the uv callback will likely fail
+    # on positive z anyway.  We accept this edge case and clamp silently
+    # rather than adding per-call warnings on this hot path.
+    return np.minimum(0.0, l * cos_theta)
+
+
+def _rhs(t, y, *, physics, qdd_func, sample_uv):
+    """Scalar ODE RHS for solve_ivp.
+
+    Uses ``sample_uv`` to query velocity at the buoy (z=0) and drogue
+    (z=z_eff) depths.
+
+    Args:
+        t: Current time [s].
+        y: State vector of length 8:
+            ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
+        physics: ``DrifterPhysics`` instance with model parameters.
+        qdd_func: Callable returning generalized accelerations from physics
+            and state.
+        sample_uv: Velocity sampler ``sample_uv(z) -> (U, V)``.
+
+    Returns:
+        Time derivatives of the state vector (length 8).
+    """
+    u_stereo = y[IU]
+    v_stereo = y[IV]
+    xd = y[IXD]
+    yd = y[IYD]
+    ud_stereo = y[IUD]
+    vd_stereo = y[IVD]
+
+    z_d = float(_z_eff(physics.l, np.array([u_stereo]), np.array([v_stereo]))[0])
+
+    U_b, V_b = sample_uv(0.0)
+    U_d, V_d = sample_uv(z_d)
+
+    state = EOMState(
+        u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo, U_b, V_b, U_d, V_d
+    )
+    qdd = qdd_func(physics, state)  # returns (4,)
+
+    return np.array([xd, yd, ud_stereo, vd_stereo, *qdd])
+
+
+def _rhs_batch(Y, *, physics, qdd_func, sample_uv):
+    """Vectorized RHS for N particles.
+
+    Uses ``sample_uv`` for velocity queries and ``qdd_func`` for fast
+    evaluation.  All arithmetic broadcasts over ``(N,)`` arrays, so no
+    per-particle loop is needed.
+
+    Args:
+        Y: State array of shape ``(N, 8)``.
+        physics: ``DrifterPhysics`` instance with model parameters.
+        qdd_func: Callable returning generalized accelerations from physics
+            and state.
+        sample_uv: Velocity sampler ``sample_uv(z) -> (U, V)`` where ``z``
+            is a scalar or ``(N,)`` array.
+
+    Returns:
+        Time derivatives ``dY/dt`` of shape ``(N, 8)``.
+
+    Notes:
+        Non-finite accelerations (NaN or inf) in the qdd output are
+        silently replaced with zero. This prevents solver divergence when
+        the ODE passes through numerically degenerate states (e.g. extreme
+        pole angles), at the cost of temporarily zeroing the forcing for
+        affected particles.
+    """
+    N = Y.shape[0]
+    u_stereo = Y[:, IU]
+    v_stereo = Y[:, IV]
+    xd = Y[:, IXD]
+    yd = Y[:, IYD]
+    ud_stereo = Y[:, IUD]
+    vd_stereo = Y[:, IVD]
+
+    # Sample velocity at buoy (z=0) and drogue (z=z_eff)
+    U_b, V_b = sample_uv(np.zeros(N))
+    z_eff = _z_eff(physics.l, u_stereo, v_stereo)
+    U_d, V_d = sample_uv(z_eff)
+
+    state = EOMState(
+        u_stereo=u_stereo,
+        v_stereo=v_stereo,
+        xd=xd,
+        yd=yd,
+        ud_stereo=ud_stereo,
+        vd_stereo=vd_stereo,
+        U_b=U_b,
+        V_b=V_b,
+        U_d=U_d,
+        V_d=V_d,
+    )
+
+    qdd = qdd_func(physics, state)  # returns (N, 4)
+
+    # Guard NaN/inf
+    bad = ~np.isfinite(qdd).all(axis=1)
+    if np.any(bad):
+        qdd[bad] = 0.0
+
+    dY = np.empty_like(Y)
+    dY[:, IX] = xd
+    dY[:, IY] = yd
+    dY[:, IU] = ud_stereo
+    dY[:, IV] = vd_stereo
+    dY[:, IXD:] = qdd
+
+    return dY
+
+
 class DroguedDrifter:
     """Simulator for a drogued drifter in ocean currents.
 
@@ -198,126 +330,20 @@ class DroguedDrifter:
 
         self._sample_uv = sample_uv if sample_uv is not None else _default_sample_uv
 
-    def _rhs(self, t, y):
-        """Right-hand side of the ODE system for ``solve_ivp``.
-
-        Uses ``self._sample_uv`` to query velocity at the buoy (z=0) and
-        drogue (z=z_eff) depths, going through the same velocity interface
-        as the batch path.
-
-        Args:
-            t: Current time [s].
-            y: State vector of length 8:
-                ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
-
-        Returns:
-            Time derivatives of the state vector (length 8).
-        """
-        u_stereo = y[IU]
-        v_stereo = y[IV]
-        xd = y[IXD]
-        yd = y[IYD]
-        ud_stereo = y[IUD]
-        vd_stereo = y[IVD]
-
-        z_d = float(self._z_eff(np.array([u_stereo]), np.array([v_stereo]))[0])
-
-        U_b, V_b = self._sample_uv(0.0)
-        U_d, V_d = self._sample_uv(z_d)
-
-        state = EOMState(
-            u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo, U_b, V_b, U_d, V_d
-        )
-        qdd = self._qdd_func(self.physics, state)  # returns (4,)
-
-        return np.array([xd, yd, ud_stereo, vd_stereo, *qdd])
-
     def _z_eff(self, u, v):
-        """Compute effective drogue vertical position from stereographic (u, v).
+        """Delegate to module-level ``_z_eff`` with ``self.physics.l``."""
+        return _z_eff(self.physics.l, u, v)
 
-        Args:
-            u: Stereographic u coordinate, scalar or ``(N,)`` array.
-            v: Stereographic v coordinate, scalar or ``(N,)`` array.
+    def _rhs(self, t, y):
+        """Delegate to module-level ``_rhs`` with instance physics and samplers."""
+        return _rhs(t, y, physics=self.physics,
+                    qdd_func=self._qdd_func, sample_uv=self._sample_uv)
 
-        Returns:
-            z_eff: Drogue vertical position [m], positive upward (non-positive),
-                shape ``(N,)``.  At equilibrium (pole vertical) returns ``-l``.
-                Clamped to ``<= 0`` (drogue cannot be above the surface).
-        """
-        s = u**2 + v**2
-        cos_theta = (s - 4) / (s + 4)
-        # At equilibrium cos_theta = -1, so l * cos_theta = -l (below surface).
-        # The clamp to z_eff <= 0 is a safety net: with extreme initial
-        # conditions (e.g. very large lateral velocity relative to water) the
-        # pole could theoretically swing past horizontal (theta < pi/2),
-        # placing the drogue above the surface.  This is outside the physical
-        # operating regime of the model, and the uv callback will likely fail
-        # on positive z anyway.  We accept this edge case and clamp silently
-        # rather than adding per-call warnings on this hot path.
-        return np.minimum(0.0, self.physics.l * cos_theta)
-
-    def _rhs_batch(self, Y):
-        """Vectorized RHS for N particles.
-
-        Uses ``self._sample_uv`` for velocity queries and ``self._qdd_func``
-        for fast evaluation.  All arithmetic broadcasts over ``(N,)`` arrays,
-        so no per-particle loop is needed.
-
-        Args:
-            Y: State array of shape ``(N, 8)``.
-
-        Returns:
-            Time derivatives ``dY/dt`` of shape ``(N, 8)``.
-
-        Notes:
-            Non-finite accelerations (NaN or inf) in the qdd output are
-            silently replaced with zero. This prevents solver divergence when
-            the ODE passes through numerically degenerate states (e.g. extreme
-            pole angles), at the cost of temporarily zeroing the forcing for
-            affected particles.
-        """
-        sample_uv = self._sample_uv
-        N = Y.shape[0]
-        u_stereo = Y[:, IU]
-        v_stereo = Y[:, IV]
-        xd = Y[:, IXD]
-        yd = Y[:, IYD]
-        ud_stereo = Y[:, IUD]
-        vd_stereo = Y[:, IVD]
-
-        # Sample velocity at buoy (z=0) and drogue (z=z_eff)
-        U_b, V_b = sample_uv(np.zeros(N))
-        z_eff = self._z_eff(u_stereo, v_stereo)
-        U_d, V_d = sample_uv(z_eff)
-
-        state = EOMState(
-            u_stereo=u_stereo,
-            v_stereo=v_stereo,
-            xd=xd,
-            yd=yd,
-            ud_stereo=ud_stereo,
-            vd_stereo=vd_stereo,
-            U_b=U_b,
-            V_b=V_b,
-            U_d=U_d,
-            V_d=V_d,
-        )
-
-        qdd = self._qdd_func(self.physics, state)  # returns (N, 4)
-
-        # Guard NaN/inf
-        bad = ~np.isfinite(qdd).all(axis=1)
-        if np.any(bad):
-            qdd[bad] = 0.0
-
-        dY = np.empty_like(Y)
-        dY[:, IX] = xd
-        dY[:, IY] = yd
-        dY[:, IU] = ud_stereo
-        dY[:, IV] = vd_stereo
-        dY[:, IXD:] = qdd
-
-        return dY
+    def _rhs_batch(self, Y, sample_uv=None):
+        """Delegate to module-level ``_rhs_batch`` with instance physics and samplers."""
+        return _rhs_batch(Y, physics=self.physics,
+                          qdd_func=self._qdd_func,
+                          sample_uv=sample_uv or self._sample_uv)
 
     def get_final_drift_batch(
         self,
@@ -369,22 +395,19 @@ class DroguedDrifter:
             Column layout of ``Y_final``:
             ``[x, y, theta, phi, xd, yd, thetad, phid]``.
         """
-        # Temporarily override _sample_uv if caller provides one, then restore.
-        saved = self._sample_uv
-        if sample_uv is not None:
-            self._sample_uv = sample_uv
-        try:
-            return self._get_final_drift_batch_impl(t_span, y0, atol, rtol)
-        finally:
-            self._sample_uv = saved
+        uv = sample_uv if sample_uv is not None else self._sample_uv
+        return self._get_final_drift_batch_impl(t_span, y0, atol, rtol, uv)
 
-    def _get_final_drift_batch_impl(self, t_span, y0, atol, rtol):
+    def _get_final_drift_batch_impl(self, t_span, y0, atol, rtol, sample_uv):
         """Core implementation for ``get_final_drift_batch``.
 
-        Uses ``self._sample_uv`` for velocity queries.  Separated from the
-        public method to keep the save/restore logic clean.
+        Args:
+            t_span: Integration window ``(t_start, t_end)`` in seconds.
+            y0: Initial state array or ``None``.
+            atol: Absolute tolerance for the ODE solver.
+            rtol: Relative tolerance for the ODE solver.
+            sample_uv: Velocity sampler to use for this call.
         """
-        sample_uv = self._sample_uv
         # Determine N from y0 or by probing the sampler
         if y0 is not None:
             N = np.asarray(y0).reshape(-1, 8).shape[0]
@@ -424,7 +447,7 @@ class DroguedDrifter:
 
         def rhs_flat(t, y_flat):
             Y = y_flat.reshape(N, 8)
-            dY = self._rhs_batch(Y)
+            dY = self._rhs_batch(Y, sample_uv=sample_uv)
             return dY.ravel()
 
         sol = solve_ivp(
@@ -437,7 +460,7 @@ class DroguedDrifter:
         Y_internal = sol.y[:, -1].reshape(N, 8)
 
         # Evaluate convergence diagnostic: max drift acceleration at final state
-        dY_final = self._rhs_batch(Y_internal)
+        dY_final = self._rhs_batch(Y_internal, sample_uv=sample_uv)
         max_accel = float(np.max(np.abs(dY_final[:, IXD : IYD + 1])))
 
         # Convert internal (u, v, ud, vd) state to public (theta, phi, thetad, phid)
