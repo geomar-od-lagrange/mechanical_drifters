@@ -3437,14 +3437,14 @@ packages:
 - pypi: ./
   name: drogued-drifters
   version: 0.1.0
-  sha256: 16f6a0539a5f4a64f0d8c3d7072d70fd964c4270d433f94391ffc7173af84e56
+  sha256: 7c1f9c9e44528320d4d696c07b78076d0d28feda2239ebb257afcb0c90ed7eb1
   requires_dist:
   - sympy
   - numpy
   - scipy
   - xarray
+  - numba
   - parcels @ git+https://github.com/parcels-code/parcels.git@17241585384f9cbb04a796cb3581cb49559df9df
-  - numba ; extra == 'numba'
   requires_python: '>=3.11'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/entrypoints-0.4-pyhd8ed1ab_1.conda
