@@ -78,6 +78,11 @@ $ pixi run pytest -v
 
 ## Examples
 
+Notebooks are managed with [jupytext](https://jupytext.readthedocs.io/) and
+paired as `.ipynb` + `.md` (Markdown format). The `.md` files are the
+diff-friendly source of truth; the `.ipynb` files carry cell outputs for
+rendering. Edit either — jupytext keeps them in sync.
+
 ### Equations of motion
 - [`01_eom_exploration`](examples/eom_study/01_eom_exploration.ipynb) -- mass matrix, force vector, and parameter sensitivity
 
