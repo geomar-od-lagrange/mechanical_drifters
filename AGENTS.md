@@ -28,17 +28,17 @@ Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstract
 
 ## Notebooks
 
+See the **jupytext skill** (`.agents/skills/jupytext/SKILL.md`) for the full workflow: creating, syncing, executing, and fixing notebooks.
+
 - Markdown cells for narrative; clean code cells for execution.
 - Well-scoped cells — don't mix imports, parameters, and calculations.
 - Use `display()` for sympy output.
 - **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
 - Use xarray, pandas etc. _public_ API. Example: `ds.lon.isel(traj=0)` instead of `ds.lon.values[0, :]` etc.
 - After fixing bugs, rerun immediately without asking.
-- Notebooks are paired `.md` + `.ipynb` via jupytext. The `.md` is the source of truth — always edit the `.md`, never the `.ipynb` directly.
-- **Execute notebooks with jupytext**: `cd <notebook-dir> && pixi run jupytext --sync --execute <nb>.md`. This syncs .md → .ipynb, executes, and saves outputs. This is the default for all notebooks.
-- **Papermill is only needed when injecting parameter overrides** (e.g. running the same experiment for a range of different parameter sets). Don't reach for papermill by default.
+- The `.md` is the source of truth. Execute with `pixi run jupytext --sync --execute <nb>.md`. Papermill only for parameter injection.
 - Do not use `jupyter nbconvert --execute`.
-- Every notebook must have one early parameters cell tagged `"parameters"` containing only primitive assignments. All calculations and transformations of those parameters happen in subsequent cells. This keeps notebooks papermill-compatible if parameter sweeps are needed later.
+- Every notebook must have one early parameters cell tagged `"parameters"` containing only primitive assignments (`int`, `float`, `str`, `bool`, `None`). All calculations, transformations, and derived values belong in subsequent cells. This keeps notebooks papermill-compatible for parameter sweeps.
 
 ## Plotting
 
