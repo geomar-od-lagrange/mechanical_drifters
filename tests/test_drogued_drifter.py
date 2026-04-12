@@ -1,22 +1,22 @@
 import numpy as np
 import pytest
 
-from drogued_drifters.drifter import (
+from drogued_drifters.models.drogued_drifter import (
     DroguedDrifter,
     buoy_horizontal_added_mass,
     buoy_horizontal_drag_coeff,
     drogue_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
 )
-from drogued_drifters.eom import (
+from drogued_drifters.models.drogued_drifter import (
     DrifterPhysics,
     EOMState,
-    F_func,
-    M_func,
+)
+from drogued_drifters.eom import (
+    eval_M,
+    eval_F,
     _make_qdd_func,
 )
-
-_qdd_func = _make_qdd_func("numpy")
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):
@@ -35,21 +35,46 @@ def _step_sampler(U_b, V_b, U_d, V_d):
     return sample_uv
 
 
+def _sample_uv_zero(z):
+    z_arr = np.asarray(z, dtype=float)
+    scalar = z_arr.ndim == 0
+    z_arr = np.atleast_1d(z_arr)
+    U = np.zeros_like(z_arr)
+    V = np.zeros_like(z_arr)
+    if scalar:
+        return float(U[0]), float(V[0])
+    return U, V
+
+
+def _default_sample_uv(z):
+    """Placeholder velocity sampler for testing."""
+    z_arr = np.asarray(z, dtype=float)
+    scalar = z_arr.ndim == 0
+    z_arr = np.atleast_1d(z_arr)
+    U = np.where(z_arr == 0.0, 1.0, -1.0)
+    V = np.where(z_arr == 0.0, 1.0, -1.0)
+    if scalar:
+        return float(U[0]), float(V[0])
+    return U, V
+
+
 def test_drogued_drifter_instantiation():
     dd = DroguedDrifter()
     assert dd.physics.l == 3.0
 
 
 def test_MF_callable():
-    assert callable(M_func)
-    assert callable(F_func)
+    dd = DroguedDrifter()
+    assert callable(lambda p, s: eval_M(dd, p, s))
+    assert callable(lambda p, s: eval_F(dd, p, s))
 
 
 def test_qdd_func_evaluates():
     dd = DroguedDrifter()
+    _qdd_func = _make_qdd_func(dd, "numpy")
 
-    U_b, V_b = dd._sample_uv(0.0)
-    U_d, V_d = dd._sample_uv(-3.0)
+    U_b, V_b = _default_sample_uv(0.0)
+    U_d, V_d = _default_sample_uv(-3.0)
 
     state = EOMState(
         u_stereo=0.1,
@@ -70,19 +95,9 @@ def test_qdd_func_evaluates():
 
 
 def test_no_drift_for_zero_currents():
-    def _sample_uv_zero(z):
-        z_arr = np.asarray(z, dtype=float)
-        scalar = z_arr.ndim == 0
-        z_arr = np.atleast_1d(z_arr)
-        U = np.zeros_like(z_arr)
-        V = np.zeros_like(z_arr)
-        if scalar:
-            return float(U[0]), float(V[0])
-        return U, V
+    dd = DroguedDrifter()
 
-    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
-
-    xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0))
+    xd, yd, _ = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 30.0))
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -90,20 +105,9 @@ def test_no_drift_for_zero_currents():
 
 def test_no_drift_for_theta_pi_zero_currents():
     """Drogue hangs straight down (theta=pi), no currents: should stay at rest."""
+    dd = DroguedDrifter()
 
-    def _sample_uv_zero(z):
-        z_arr = np.asarray(z, dtype=float)
-        scalar = z_arr.ndim == 0
-        z_arr = np.atleast_1d(z_arr)
-        U = np.zeros_like(z_arr)
-        V = np.zeros_like(z_arr)
-        if scalar:
-            return float(U[0]), float(V[0])
-        return U, V
-
-    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
-
-    xd, yd, _ = dd.get_final_drift(t_span=(0.0, 30.0), theta=np.pi)
+    xd, yd, _ = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 30.0), theta=np.pi)
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -141,19 +145,15 @@ def test_steady_state_independent_of_added_mass():
             return float(U[0]), float(V[0])
         return U, V
 
-    dd_with = DroguedDrifter(
-        m_tilde_d=101.0,
-        m_tilde_b=1.9,
-        sample_uv=_sample_uv_sheared,
-    )
-    dd_without = DroguedDrifter(
-        m_tilde_d=0.0,
-        m_tilde_b=0.0,
-        sample_uv=_sample_uv_sheared,
-    )
+    dd_with = DroguedDrifter(m_tilde_d=101.0, m_tilde_b=1.9)
+    dd_without = DroguedDrifter(m_tilde_d=0.0, m_tilde_b=0.0)
 
-    xd_with, yd_with, _ = dd_with.get_final_drift(t_span=(0.0, 600.0))
-    xd_without, yd_without, _ = dd_without.get_final_drift(t_span=(0.0, 600.0))
+    xd_with, yd_with, _ = dd_with.get_final_drift(
+        _sample_uv_sheared, t_span=(0.0, 600.0)
+    )
+    xd_without, yd_without, _ = dd_without.get_final_drift(
+        _sample_uv_sheared, t_span=(0.0, 600.0)
+    )
 
     np.testing.assert_almost_equal(xd_with, xd_without, decimal=1)
     np.testing.assert_almost_equal(yd_with, yd_without, decimal=1)
@@ -162,7 +162,7 @@ def test_steady_state_independent_of_added_mass():
 def test_get_full_solution_returns_xarray():
     """get_full_solution returns an xarray Dataset with named variables."""
     dd = DroguedDrifter()
-    ds = dd.get_full_solution(t_span=(0, 10), t_eval=[0, 5, 10])
+    ds = dd.get_full_solution(_default_sample_uv, t_span=(0, 10), t_eval=[0, 5, 10])
 
     assert "time" in ds.coords
     for var in ["x", "y", "theta", "phi", "xd", "yd", "thetad", "phid"]:
@@ -218,7 +218,7 @@ def test_batch_matches_scalar():
     # --- batch path ---
     dd_batch = DroguedDrifter()
     xd_batch, yd_batch, Y_batch, _ = dd_batch.get_final_drift_batch(
-        sample_uv=_step_sampler(U_b, V_b, U_d, V_d),
+        _step_sampler(U_b, V_b, U_d, V_d),
         t_span=t_span,
         y0=y0_batch,
     )
@@ -230,10 +230,11 @@ def test_batch_matches_scalar():
     theta_scalar = np.empty(N)
 
     for i in range(N):
-        dd_i = DroguedDrifter(
-            sample_uv=_make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
+        dd_i = DroguedDrifter()
+        ds = dd_i.get_full_solution(
+            _make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
+            t_span=t_span, theta=theta0,
         )
-        ds = dd_i.get_full_solution(t_span=t_span, theta=theta0)
         xd_scalar[i] = float(ds.xd.isel(time=-1))
         yd_scalar[i] = float(ds.yd.isel(time=-1))
         theta_scalar[i] = float(ds.theta.isel(time=-1))
@@ -250,7 +251,7 @@ def test_batch_zero_currents():
     dd = DroguedDrifter()
 
     xd, yd, Y_final, _ = dd.get_final_drift_batch(
-        sample_uv=_step_sampler(zeros, zeros, zeros, zeros),
+        _step_sampler(zeros, zeros, zeros, zeros),
         t_span=(0.0, 120.0),
     )
 
@@ -265,7 +266,7 @@ def test_batch_uniform_currents():
     dd = DroguedDrifter()
 
     xd, yd, Y_final, _ = dd.get_final_drift_batch(
-        sample_uv=_step_sampler(
+        _step_sampler(
             np.full(N, 0.3),
             np.full(N, -0.1),
             np.full(N, 0.15),
@@ -285,7 +286,7 @@ def test_batch_opposite_shear():
     dd = DroguedDrifter()
 
     xd, yd, Y_final, _ = dd.get_final_drift_batch(
-        sample_uv=_step_sampler(
+        _step_sampler(
             np.array([0.1, 0.0]),
             np.array([0.0, 0.0]),
             np.array([0.0, 0.1]),
@@ -309,7 +310,7 @@ def test_batch_drift_between_buoy_and_drogue():
     U_b_val, U_d_val = 0.2, 0.1
 
     xd, yd, Y_final, _ = dd.get_final_drift_batch(
-        sample_uv=_step_sampler(
+        _step_sampler(
             np.array([U_b_val]),
             np.zeros(N),
             np.array([U_d_val]),
@@ -327,7 +328,7 @@ def test_batch_drift_between_buoy_and_drogue():
 
 
 # ---------------------------------------------------------------------------
-# Tests for M_func and F_func shapes and values
+# Tests for eval_M and eval_F shapes and values
 # ---------------------------------------------------------------------------
 
 
@@ -335,38 +336,30 @@ from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 
 def test_M_F_func_shapes():
-    """Verify M_func and F_func return correct shapes for scalar and batch inputs."""
+    """Verify eval_M and eval_F return correct shapes for scalar and batch inputs."""
+    dd = DroguedDrifter()
+
     # Scalar input
-    M_scalar = M_func(
+    M_scalar = eval_M(
+        dd,
         _DEFAULT_PHYSICS,
         EOMState(
-            u_stereo=0.1,
-            v_stereo=0.05,
-            xd=0.0,
-            yd=0.0,
-            ud_stereo=0.0,
-            vd_stereo=0.0,
-            U_b=0.5,
-            V_b=-0.3,
-            U_d=0.2,
-            V_d=0.1,
+            u_stereo=0.1, v_stereo=0.05,
+            xd=0.0, yd=0.0,
+            ud_stereo=0.0, vd_stereo=0.0,
+            U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
         ),
     )
     assert M_scalar.shape == (4, 4), f"Expected (4,4), got {M_scalar.shape}"
 
-    F_scalar = F_func(
+    F_scalar = eval_F(
+        dd,
         _DEFAULT_PHYSICS,
         EOMState(
-            u_stereo=0.1,
-            v_stereo=0.05,
-            xd=0.0,
-            yd=0.0,
-            ud_stereo=0.0,
-            vd_stereo=0.0,
-            U_b=0.5,
-            V_b=-0.3,
-            U_d=0.2,
-            V_d=0.1,
+            u_stereo=0.1, v_stereo=0.05,
+            xd=0.0, yd=0.0,
+            ud_stereo=0.0, vd_stereo=0.0,
+            U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
         ),
     )
     assert F_scalar.shape == (4,), f"Expected (4,), got {F_scalar.shape}"
@@ -376,107 +369,70 @@ def test_M_F_func_shapes():
     u_batch = np.full(N, 0.1)
     v_batch = np.full(N, 0.05)
 
-    M_batch = M_func(
+    M_batch = eval_M(
+        dd,
         _DEFAULT_PHYSICS,
         EOMState(
-            u_stereo=u_batch,
-            v_stereo=v_batch,
-            xd=np.zeros(N),
-            yd=np.zeros(N),
-            ud_stereo=np.zeros(N),
-            vd_stereo=np.zeros(N),
-            U_b=np.full(N, 0.5),
-            V_b=np.full(N, -0.3),
-            U_d=np.full(N, 0.2),
-            V_d=np.full(N, 0.1),
+            u_stereo=u_batch, v_stereo=v_batch,
+            xd=np.zeros(N), yd=np.zeros(N),
+            ud_stereo=np.zeros(N), vd_stereo=np.zeros(N),
+            U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
+            U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
         ),
     )
     assert M_batch.shape == (N, 4, 4), f"Expected (N,4,4), got {M_batch.shape}"
 
-    F_batch = F_func(
+    F_batch = eval_F(
+        dd,
         _DEFAULT_PHYSICS,
         EOMState(
-            u_stereo=u_batch,
-            v_stereo=v_batch,
-            xd=np.zeros(N),
-            yd=np.zeros(N),
-            ud_stereo=np.zeros(N),
-            vd_stereo=np.zeros(N),
-            U_b=np.full(N, 0.5),
-            V_b=np.full(N, -0.3),
-            U_d=np.full(N, 0.2),
-            V_d=np.full(N, 0.1),
+            u_stereo=u_batch, v_stereo=v_batch,
+            xd=np.zeros(N), yd=np.zeros(N),
+            ud_stereo=np.zeros(N), vd_stereo=np.zeros(N),
+            U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
+            U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
         ),
     )
     assert F_batch.shape == (N, 4), f"Expected (N,4), got {F_batch.shape}"
 
 
 def test_generated_vs_lambdified():
-    """M_func and F_func must return consistent results at multiple test points."""
+    """eval_M and eval_F must return consistent results at multiple test points."""
+    dd = DroguedDrifter()
     test_points = [
-        # equilibrium: u_stereo=v_stereo=0, all velocities zero, no currents
         dict(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
-        # small tilt
         dict(u_stereo=0.1, v_stereo=0.05, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
-        # nonzero velocities and currents
         dict(
-            u_stereo=0.3,
-            v_stereo=-0.2,
-            xd=0.1,
-            yd=-0.05,
-            ud_stereo=0.01,
-            vd_stereo=-0.02,
-            U_b=0.5,
-            V_b=-0.3,
-            U_d=0.2,
-            V_d=0.1,
+            u_stereo=0.3, v_stereo=-0.2,
+            xd=0.1, yd=-0.05,
+            ud_stereo=0.01, vd_stereo=-0.02,
+            U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
         ),
-        # large tilt (theta ~ pi/2)
         dict(u_stereo=2.0, v_stereo=0.0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
-        # symmetric case
         dict(
-            u_stereo=0.5,
-            v_stereo=0.5,
-            xd=0.1,
-            yd=0.1,
-            ud_stereo=0.05,
-            vd_stereo=0.05,
-            U_b=1.0,
-            V_b=1.0,
-            U_d=-1.0,
-            V_d=-1.0,
+            u_stereo=0.5, v_stereo=0.5,
+            xd=0.1, yd=0.1,
+            ud_stereo=0.05, vd_stereo=0.05,
+            U_b=1.0, V_b=1.0, U_d=-1.0, V_d=-1.0,
         ),
     ]
 
     for pt in test_points:
-        state = EOMState(
-            u_stereo=pt["u_stereo"],
-            v_stereo=pt["v_stereo"],
-            xd=pt["xd"],
-            yd=pt["yd"],
-            ud_stereo=pt["ud_stereo"],
-            vd_stereo=pt["vd_stereo"],
-            U_b=pt["U_b"],
-            V_b=pt["V_b"],
-            U_d=pt["U_d"],
-            V_d=pt["V_d"],
-        )
+        state = EOMState(**pt)
 
-        # M_func/F_func (wrapped version with shaping)
-        M_wrapped = M_func(_DEFAULT_PHYSICS, state)
-        F_wrapped = F_func(_DEFAULT_PHYSICS, state)
+        M_wrapped = eval_M(dd, _DEFAULT_PHYSICS, state)
+        F_wrapped = eval_F(dd, _DEFAULT_PHYSICS, state)
 
-        # Verify shapes
         assert M_wrapped.shape == (4, 4), f"M shape mismatch at {pt}"
         assert F_wrapped.shape == (4,), f"F shape mismatch at {pt}"
 
-        # Verify results are finite
         assert np.all(np.isfinite(M_wrapped)), f"M has non-finite values at {pt}"
         assert np.all(np.isfinite(F_wrapped)), f"F has non-finite values at {pt}"
 
 
 def test_generated_vectorized():
-    """M_func and F_func must work on (N,) arrays and match scalar results."""
+    """eval_M and eval_F must work on (N,) arrays and match scalar results."""
+    dd = DroguedDrifter()
     N = 5
     rng = np.random.default_rng(123)
     u = rng.uniform(-1, 1, N)
@@ -490,47 +446,27 @@ def test_generated_vectorized():
     U_d = rng.uniform(-0.5, 0.5, N)
     V_d = rng.uniform(-0.5, 0.5, N)
 
-    # Vectorized call
     batch_state = EOMState(
         u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
     )
-    M_vec = M_func(_DEFAULT_PHYSICS, batch_state)
-    F_vec = F_func(_DEFAULT_PHYSICS, batch_state)
+    M_vec = eval_M(dd, _DEFAULT_PHYSICS, batch_state)
+    F_vec = eval_F(dd, _DEFAULT_PHYSICS, batch_state)
 
-    # Should have shape (N, 4, 4) and (N, 4)
     assert M_vec.shape == (N, 4, 4), f"Expected M shape (N,4,4), got {M_vec.shape}"
     assert F_vec.shape == (N, 4), f"Expected F shape (N,4), got {F_vec.shape}"
 
-    # Scalar calls
     for i in range(N):
         scalar_state = EOMState(
-            u_stereo=u[i],
-            v_stereo=v[i],
-            xd=xd[i],
-            yd=yd[i],
-            ud_stereo=ud[i],
-            vd_stereo=vd[i],
-            U_b=U_b[i],
-            V_b=V_b[i],
-            U_d=U_d[i],
-            V_d=V_d[i],
+            u_stereo=u[i], v_stereo=v[i],
+            xd=xd[i], yd=yd[i],
+            ud_stereo=ud[i], vd_stereo=vd[i],
+            U_b=U_b[i], V_b=V_b[i], U_d=U_d[i], V_d=V_d[i],
         )
-        M_i = M_func(_DEFAULT_PHYSICS, scalar_state)
-        F_i = F_func(_DEFAULT_PHYSICS, scalar_state)
+        M_i = eval_M(dd, _DEFAULT_PHYSICS, scalar_state)
+        F_i = eval_F(dd, _DEFAULT_PHYSICS, scalar_state)
 
-        # Compare batch result to scalar result
-        np.testing.assert_allclose(
-            M_vec[i],
-            M_i,
-            atol=1e-14,
-            err_msg=f"M mismatch at particle {i}",
-        )
-        np.testing.assert_allclose(
-            F_vec[i],
-            F_i,
-            atol=1e-14,
-            err_msg=f"F mismatch at particle {i}",
-        )
+        np.testing.assert_allclose(M_vec[i], M_i, atol=1e-14, err_msg=f"M mismatch at particle {i}")
+        np.testing.assert_allclose(F_vec[i], F_i, atol=1e-14, err_msg=f"F mismatch at particle {i}")
 
 
 # ---------------------------------------------------------------------------
@@ -540,24 +476,25 @@ def test_generated_vectorized():
 
 def test_cache_file_exists():
     """Test that the pickle cache file exists."""
-    from drogued_drifters.eom import _CACHE_PATH
-
-    assert _CACHE_PATH.exists(), f"Cache file not found at {_CACHE_PATH}"
+    dd = DroguedDrifter()
+    assert dd._cache_path.exists(), f"Cache file not found at {dd._cache_path}"
 
 
 def test_cache_loads_successfully():
     """Test that the pickle cache loads and has the expected keys."""
     import pickle
 
-    from drogued_drifters.eom import _CACHE_PATH, _cache_key
+    from drogued_drifters.eom import _cache_key
 
-    cached = pickle.loads(_CACHE_PATH.read_bytes())
+    dd = DroguedDrifter()
+    cache_path = dd._cache_path
+    cached = pickle.loads(cache_path.read_bytes())
     assert "key" in cached
     assert "M" in cached
     assert "F" in cached
     assert "qdd" in cached
     assert "args" in cached
-    assert cached["key"] == _cache_key(), "Cache key mismatch"
+    assert cached["key"] == _cache_key(dd._derive_symbolic), "Cache key mismatch"
 
 
 def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
@@ -565,6 +502,8 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
     import pickle
 
     from drogued_drifters import eom
+
+    dd = DroguedDrifter()
 
     # Write a pickle with a wrong key
     stale_cache = tmp_path / "stale.pkl"
@@ -574,27 +513,32 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
         )
     )
 
-    with monkeypatch.context() as mp:
-        mp.setattr(eom, "_CACHE_PATH", stale_cache)
-        eom._get_eom_callables.cache_clear()
+    # Clear caches so they re-evaluate
+    eom._CALLABLE_CACHE.pop("DroguedDrifter", None)
+    eom._QDD_CACHE.pop(("DroguedDrifter", "numpy"), None)
 
-        # Should re-derive (will warn about cache miss)
+    # Monkey-patch the cache path on the instance
+    original_cache_path = type(dd)._cache_path
+    monkeypatch.setattr(type(dd), "_cache_path", property(lambda self: stale_cache))
+
+    try:
         import warnings
-
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            qdd_raw, M_raw, F_raw, args, pack = eom._get_eom_callables()
+            qdd_raw, M_raw, F_raw, pack = eom._get_eom_callables(dd)
 
         assert callable(qdd_raw)
         assert callable(M_raw)
         assert callable(F_raw)
-
-    # Restore
-    eom._get_eom_callables.cache_clear()
+    finally:
+        # Restore caches
+        eom._CALLABLE_CACHE.pop("DroguedDrifter", None)
+        eom._QDD_CACHE.pop(("DroguedDrifter", "numpy"), None)
+        monkeypatch.setattr(type(dd), "_cache_path", original_cache_path)
 
 
 # ---------------------------------------------------------------------------
-# Batch 2: horizontal rename tests (RED phase — these should FAIL until rename)
+# Batch 2: horizontal rename tests
 # ---------------------------------------------------------------------------
 
 _NEW_NAMES = [
@@ -616,18 +560,18 @@ class TestHorizontalRename:
     """Tests that the four helper functions have been renamed to include '_horizontal'."""
 
     def test_new_names_importable(self):
-        """The new *_horizontal_* names must be importable from drifter module."""
+        """The new *_horizontal_* names must be importable from model module."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
-            assert hasattr(mod, name), f"{name} not found in drogued_drifters.drifter"
+            assert hasattr(mod, name), f"{name} not found in drogued_drifters.models.drogued_drifter"
 
     def test_new_names_callable(self):
         """Each renamed function must be callable."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
             assert fn is not None, f"{name} not found"
@@ -637,53 +581,43 @@ class TestHorizontalRename:
         """The old names must NOT exist in the module after rename."""
         import importlib
 
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         for name in _OLD_NAMES:
             assert not hasattr(
                 mod, name
             ), f"Old name {name} still exists — should have been renamed"
 
     def test_drogue_horizontal_added_mass_value(self):
-        """drogue_horizontal_added_mass must return same value as old function."""
         import importlib
-
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         fn = getattr(mod, "drogue_horizontal_added_mass")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
         np.testing.assert_almost_equal(result, 101.0, decimal=0)
 
     def test_buoy_horizontal_added_mass_value(self):
-        """buoy_horizontal_added_mass must return same value as old function."""
         import importlib
-
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         fn = getattr(mod, "buoy_horizontal_added_mass")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
         np.testing.assert_almost_equal(result, 1.9, decimal=1)
 
     def test_drogue_horizontal_drag_coeff_value(self):
-        """drogue_horizontal_drag_coeff must return same value as old function."""
         import importlib
-
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         fn = getattr(mod, "drogue_horizontal_drag_coeff")
         result = fn(rho=1025.0, w_d=0.5, h_d=0.5)
         np.testing.assert_almost_equal(result, 154.0, decimal=-1)
 
     def test_buoy_horizontal_drag_coeff_value(self):
-        """buoy_horizontal_drag_coeff must return same value as old function."""
         import importlib
-
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         fn = getattr(mod, "buoy_horizontal_drag_coeff")
         result = fn(rho=1025.0, d_b=0.1, h_b=0.24)
         np.testing.assert_almost_equal(result, 12.0, decimal=0)
 
     def test_docstrings_mention_horizontal(self):
-        """All renamed functions must have 'horizontal' in their docstring."""
         import importlib
-
-        mod = importlib.import_module("drogued_drifters.drifter")
+        mod = importlib.import_module("drogued_drifters.models.drogued_drifter")
         for name in _NEW_NAMES:
             fn = getattr(mod, name, None)
             assert fn is not None, f"{name} not found"
@@ -700,25 +634,18 @@ class TestHorizontalRename:
 
 
 def test_state_vector_round_trip():
-    """Construct a known state, convert public->internal->public, check each component.
+    """Construct a known state, convert public->internal->public, check each component."""
+    from drogued_drifters.coords import _spherical_to_uv, _uv_to_spherical
+    from drogued_drifters.models.drogued_drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
 
-    Public format:   (x, y, theta, phi, xd, yd, thetad, phid)
-    Internal format: (x, y, u, v, xd, yd, ud, vd)
-    """
-    from drogued_drifters.eom import _spherical_to_uv, _uv_to_spherical
-    from drogued_drifters.drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
-
-    # Known public state
     x0, y0 = 100.0, -50.0
     theta0, phi0 = 2.8, 0.5
     xd0, yd0 = 0.3, -0.2
     thetad0, phid0 = 0.01, -0.005
 
-    # Public -> internal
     u0, v0, ud0, vd0 = _spherical_to_uv(theta0, phi0, thetad0, phid0)
     internal = np.array([x0, y0, u0, v0, xd0, yd0, ud0, vd0])
 
-    # Check that named indices access the right components
     assert internal[IX] == x0
     assert internal[IY] == y0
     assert internal[IU] == u0
@@ -728,12 +655,8 @@ def test_state_vector_round_trip():
     assert internal[IUD] == ud0
     assert internal[IVD] == vd0
 
-    # Internal -> public (round trip on angular components)
     theta_rt, phi_rt, thetad_rt, phid_rt = _uv_to_spherical(
-        internal[IU],
-        internal[IV],
-        internal[IUD],
-        internal[IVD],
+        internal[IU], internal[IV], internal[IUD], internal[IVD],
     )
 
     np.testing.assert_allclose(theta_rt, theta0, atol=1e-12)
@@ -741,7 +664,6 @@ def test_state_vector_round_trip():
     np.testing.assert_allclose(thetad_rt, thetad0, atol=1e-12)
     np.testing.assert_allclose(phid_rt, phid0, atol=1e-12)
 
-    # Position and velocity pass through unchanged
     assert internal[IX] == x0
     assert internal[IY] == y0
     assert internal[IXD] == xd0
@@ -766,10 +688,10 @@ def test_max_accel_decreases_with_longer_t_span():
             return float(U[0]), float(V[0])
         return U, V
 
-    dd = DroguedDrifter(sample_uv=_sample_uv_sheared)
+    dd = DroguedDrifter()
 
-    _, _, max_accel_short = dd.get_final_drift(t_span=(0.0, 10.0))
-    _, _, max_accel_long = dd.get_final_drift(t_span=(0.0, 600.0))
+    _, _, max_accel_short = dd.get_final_drift(_sample_uv_sheared, t_span=(0.0, 10.0))
+    _, _, max_accel_long = dd.get_final_drift(_sample_uv_sheared, t_span=(0.0, 600.0))
 
     assert max_accel_long < max_accel_short, (
         f"Expected max_accel to decrease with longer integration: "
@@ -779,19 +701,8 @@ def test_max_accel_decreases_with_longer_t_span():
 
 def test_max_accel_zero_for_zero_currents():
     """Zero currents from equilibrium: max_accel should be ~0 (no forcing)."""
-
-    def _sample_uv_zero(z):
-        z_arr = np.asarray(z, dtype=float)
-        scalar = z_arr.ndim == 0
-        z_arr = np.atleast_1d(z_arr)
-        U = np.zeros_like(z_arr)
-        V = np.zeros_like(z_arr)
-        if scalar:
-            return float(U[0]), float(V[0])
-        return U, V
-
-    dd = DroguedDrifter(sample_uv=_sample_uv_zero)
-    _, _, max_accel = dd.get_final_drift(t_span=(0.0, 120.0))
+    dd = DroguedDrifter()
+    _, _, max_accel = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 120.0))
 
     np.testing.assert_allclose(
         max_accel,
