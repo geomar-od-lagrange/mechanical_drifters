@@ -13,8 +13,10 @@ from drogued_drifters.eom import (
     EOMState,
     F_func,
     M_func,
-    _qdd_func,
+    _make_qdd_func,
 )
+
+_qdd_func = _make_qdd_func("numpy")
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):

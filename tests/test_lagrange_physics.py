@@ -17,9 +17,11 @@ from drogued_drifters.eom import (
     EOMState,
     F_func,
     M_func,
-    _qdd_func,
+    _make_qdd_func,
     _uv_to_theta,
 )
+
+_qdd_func = _make_qdd_func("numpy")
 
 
 def test_packer_covers_all_struct_fields():

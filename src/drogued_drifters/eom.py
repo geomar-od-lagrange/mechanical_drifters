@@ -352,6 +352,7 @@ def _get_eom_callables():
     return qdd_raw, M_raw, F_raw, args, pack_eom_args
 
 
+@functools.lru_cache()
 def _make_qdd_func(backend="numpy"):
     """Build a qdd evaluator for the given backend.
 
@@ -404,24 +405,8 @@ def _make_qdd_func(backend="numpy"):
     return qdd_func
 
 
-def _qdd_func(physics, state):
-    """Evaluate generalized accelerations qdd = M^{-1}F (numpy backend).
-
-    Convenience wrapper that uses the default numpy backend.  Internal
-    function -- not part of the public API.
-
-    Args:
-        physics: DrifterPhysics instance.
-        state: EOMState instance (scalar or batch).
-
-    Returns:
-        (4,) array for scalar input, (N, 4) array for batch input.
-    """
-    return _make_qdd_func("numpy")(physics, state)
-
-
-def qdd_func(physics: DrifterPhysics, state: EOMState):
-    """Evaluate generalized accelerations qdd = M^{-1}F (numpy backend).
+def qdd_func(physics: DrifterPhysics, state: EOMState, *, backend="numpy"):
+    """Evaluate generalized accelerations qdd = M^{-1}F.
 
     Public entry point for direct evaluation of the equations of motion.
     Use this together with ``M_func`` and ``F_func`` to study the EOM
@@ -444,13 +429,15 @@ def qdd_func(physics: DrifterPhysics, state: EOMState):
         physics: ``DrifterPhysics`` instance with physical constants.
         state: ``EOMState`` instance with current state and forcing.
             Fields may be scalars or ``(N,)`` arrays for batch evaluation.
+        backend: ``"numpy"`` (default) or ``"numba"``.  Passed to
+            ``_make_qdd_func``; numba must be installed to use ``"numba"``.
 
     Returns:
         Generalized accelerations ``qdd = M^{-1}F``:
         - ``(4,)`` array for scalar input.
         - ``(N, 4)`` array for batch input.
     """
-    return _make_qdd_func("numpy")(physics, state)
+    return _make_qdd_func(backend)(physics, state)
 
 
 def M_func(physics: DrifterPhysics, state: EOMState):
