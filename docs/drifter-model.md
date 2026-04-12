@@ -94,7 +94,8 @@ dd = DroguedDrifter(
     k_b=12.0,         # buoy drag coefficient [kg/m]
     k_d=154.0,        # drogue drag coefficient [kg/m]
     g=9.81,           # gravitational acceleration [m/s^2]
-    get_uv=None,      # velocity callback (see below)
+    get_uv=None,      # scalar velocity callback (see below)
+    sample_uv=None,   # batch velocity sampler (see below)
     backend="numpy",  # "numpy" or "numba"
 )
 ```

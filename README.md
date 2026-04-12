@@ -21,20 +21,21 @@ ds = dd.get_full_solution(t_span=(0, 120), t_eval=np.arange(0, 121))
 ds.x.plot()  # buoy x position over time
 ```
 
-Both `get_full_solution` and `get_final_drift` return an `xarray.Dataset` with
-time as coordinate and spherical state variables `x, y, theta, phi, xd, yd, thetad, phid`
-as data variables (converted from internal stereographic representation). All initial conditions are keyword arguments with sensible
-defaults (drogue hanging nearly straight down, at rest).
+`get_full_solution` returns an `xarray.Dataset` with time as coordinate and
+spherical state variables as data variables (converted from internal
+stereographic representation).  `get_final_drift` returns just the steady-state
+drift velocity `(xd, yd, max_accel)`.  All initial conditions are keyword
+arguments with sensible defaults (drogue hanging straight down, at rest).
 
 Custom velocity fields are passed as a callback:
 
 ```python
 from functools import partial
 
-def my_uv(*, t, z_d, y_b, x_b, ocean_data):
-    # look up currents from ocean_data at position and depth
+def my_uv(*, t, x, y, z, ocean_data):
+    # look up current from ocean_data at (x, y, z, t)
     ...
-    return U_b, V_b, U_d, V_d
+    return U, V  # eastward, northward [m/s]
 
 dd = DroguedDrifter(get_uv=partial(my_uv, ocean_data=my_dataset))
 ```

@@ -58,7 +58,7 @@ All items complete. Plans in [done/](done/).
 ## Track E: Release wrap-up
 
 ### E1. Optional numba backend for qdd evaluation ✓
-- `make_dd_kernel(dd, backend="numba")`
+- `DroguedDrifter(backend="numba")` + `make_dd_kernel(dd)`
 - Notes: [numba-acceleration.md](numba-acceleration.md)
 
 ### E2. README update ✓
