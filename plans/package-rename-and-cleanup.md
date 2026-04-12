@@ -115,10 +115,11 @@ for the drogued drifter model. Updates needed:
 - Add a brief note at the top that the package also contains
   PointSurfaceDrifter, with a link to its doc.
 
-### docs/parcels-v4-coupling.md → docs/parcels-coupling.md
+### docs/parcels-v4-coupling.md
 
-Rename (drop the "v4" — it's not about the Parcels version, it's about
-how this package couples to Parcels). Updates:
+Keeps the "v4" — the coupling approach (numpy kernels,
+`fieldset.UV.eval()`) requires Parcels v4 and wouldn't work with v3.
+Updates:
 
 - All import paths: `mechanical_drifters`.
 - Drop all `make_dd_kernel` references. The entry point is
@@ -178,11 +179,11 @@ files and in code comments. Per CLAUDE.md: agents get context by reading
 - [ ] Write `examples/point_drifter/01_surface_tracking.md`
 - [ ] Rewrite README.md
 - [ ] Update `docs/drifter-model.md` (import paths, add note)
-- [ ] Rename and update `docs/parcels-v4-coupling.md` → `docs/parcels-coupling.md`
+- [ ] Update `docs/parcels-v4-coupling.md` (drop `make_dd_kernel`, import paths)
 - [ ] Update `docs/stokes-drift.md` (import path)
 - [ ] Write `docs/point-surface-drifter.md`
 - [ ] Write `docs/architecture.md`
 - [ ] Update `base.py` docstring
 - [ ] Sync and execute all notebooks
 - [ ] Run full test suite
-- [ ] Update PR #15 checklist
+- [ ] Update PR #15 checklist and title
