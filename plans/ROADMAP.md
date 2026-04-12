@@ -58,15 +58,15 @@ Conservative rewire for v0.1.0 release. Plan:
 9. Export `compute_stokes_profile` from `__init__` ✓
 10. New EOM exploration example notebook ✓
 
-## Future: multi-object generalization
+## Track G: Multi-object generalization ✓
 
-Architecture proposals for supporting additional Lagrangian mechanics
-models (e.g. SparBuoy) alongside DroguedDrifter:
+Class-based architecture with `LagrangianMechanicsModel` base class.
+Plan: [done/architecture-v5-simplified.md](done/architecture-v5-simplified.md).
 
-- [architecture-v2.md](architecture-v2.md) — B: function-first radical restructure
-- [architecture-v3-multi-object.md](architecture-v3-multi-object.md) — C: ModelSpec dataclass
-- [architecture-v4-class-based.md](architecture-v4-class-based.md) — D: LagrangianMechanicsModel base class
-- [architecture-v5-simplified.md](architecture-v5-simplified.md) — D variant
-
-Decision: D (class-based) is the preferred direction. Implement after
-v0.1.0 release.
+1. `base.py` with `LagrangianMechanicsModel` (steady_state_batch, make_kernel) ✓
+2. `models/drogued_drifter.py` — DroguedDrifter as subclass ✓
+3. `models/spar_buoy.py` — SparBuoy (depth-averaged velocity, no Lagrangian dynamics) ✓
+4. `eom.py` parameterized on model instance (dict-based caching) ✓
+5. `parcels.py` with generic `make_kernel(model)` ✓
+6. `sample_uv` is a method parameter, not stored on the instance ✓
+7. All docs, notebooks, and tests updated ✓

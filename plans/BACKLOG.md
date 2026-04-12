@@ -30,8 +30,7 @@ the roadmap (and get their own plan file) when they become timely.
   solver wastes effort on near-equilibrium states. A fixed-step
   Euler/RK4 with short t_span (~10 steps of 1s) would give
   predictable cost. Requires the time-averaged drift velocity work
-  above for a meaningful convergence metric. See
-  [numba-acceleration.md](numba-acceleration.md) (warm-start section).
+  above for a meaningful convergence metric.
 
 - **Batch depth levels into one `fieldset.UV.eval()` call.** Tile
   lat/lon D times and call eval once with `(D*N,)` arrays instead of
