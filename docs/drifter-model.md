@@ -233,9 +233,10 @@ assert np.allclose(M @ qdd, F)
 All three functions accept scalar or batch (shape `(N,)` arrays in `EOMState`)
 input. Batch calls return `(N, 4, 4)`, `(N, 4)`, and `(N, 4)` respectively.
 
-`qdd_func` is a shortcut for `_make_qdd_func("numpy")`. For the numba backend,
-construct `DroguedDrifter(backend="numba")` instead, which uses a JIT-compiled
-evaluator internally.
+`qdd_func` accepts a `backend=` keyword (`"numpy"` or `"numba"`). For the
+numba backend, pass `backend="numba"` or construct
+`DroguedDrifter(backend="numba")`, which uses a JIT-compiled evaluator
+internally.
 
 ## Standalone vs Parcels
 

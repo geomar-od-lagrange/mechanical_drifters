@@ -3,7 +3,7 @@
 `drogued_drifters.parcels_v4` provides a single Parcels kernel that
 advects particles using the drogued-drifter steady-state drift velocity.
 All Parcels-specific code is isolated in this module — the core physics
-(`drifter.py`, `lagrange_model.py`) has no Parcels dependency.
+(`drifter.py`, `eom.py`) has no Parcels dependency.
 
 ## Quick start
 

@@ -78,6 +78,9 @@ $ pixi run pytest -v
 
 ## Examples
 
+### Equations of motion
+- [`01_eom_exploration`](examples/eom_study/01_eom_exploration.ipynb) -- mass matrix, force vector, and parameter sensitivity
+
 ### Idealized flow
 - [`01_synthetic_flow_profiles`](examples/idealized_flow/01_synthetic_flow_profiles.ipynb) -- synthetic velocity profiles and DD response
 - [`02_sheared_jet_parcels`](examples/idealized_flow/02_sheared_jet_parcels.ipynb) -- DD kernel in a sheared jet (Parcels)
