@@ -187,22 +187,22 @@ class LagrangianMechanicsModel:
         self, sample_uv, *, t_span=(0, 120), y0=None,
         t_eval=None, atol=1e-3, rtol=1e-3,
     ):
-        # y0 and Y_final are in public coords (models with internal
-        # representations override to convert on the way in/out).
+        # y0 in public coords. Models with internal representations
+        # override to convert on the way in/out.
         #
-        # t_eval=None (default, Parcels path):
-        #   Returns (drift_vel, Y_final, max_acceleration)
-        #     drift_vel: (N, 2), Y_final: (N, state_size), max_acceleration: scalar
+        # Always returns (t, Y, max_acceleration):
+        #   t: (T,) time array
+        #   Y: (T, N, state_size) in public coords
+        #   max_acceleration: scalar (max |d(drift_vel)/dt| at final time)
         #
-        # t_eval given (notebook/exploration path):
-        #   Returns (t, Y_history, max_acceleration)
-        #     t: (T,) time array, Y_history: (T, N, state_size)
+        # t_eval=None: T=1, only the final state.
+        # t_eval given: T=len(t_eval), full trajectory.
+        # Single particle: N=1.
         ...
 
-    def to_xarray(self, t, Y_history):
-        # Wraps integrate(..., t_eval=...) output into xr.Dataset.
-        # Uses self.state_names for variable names.
-        # t: (T,), Y_history: (T, N, state_size) or (T, state_size)
+    def to_xarray(self, t, Y):
+        # Wraps integrate() output into xr.Dataset using self.state_names.
+        # t: (T,), Y: (T, N, state_size)
         ...
 ```
 
@@ -284,6 +284,9 @@ def _extract_profiles(particles, fieldset, max_depth): ...
 def _position_update(particles, xd_ms, yd_ms, fieldset): ...
 
 def make_kernel(model):
+    # Parcels kernel: integrate, extract final drift velocity, update position.
+    # t, Y, _ = model.integrate(sample_uv)  # T=1
+    # drift_vel = model.drift_velocity(Y[-1])
     max_depth_fn = getattr(model, '_max_depth', None)
     max_depth = max_depth_fn(model.physics) if max_depth_fn else 0.0
     ...
