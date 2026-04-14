@@ -38,11 +38,11 @@ t_end = 600.0
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mechanical_drifters import (
+from mechanical_drifters.models.point_surface_drifter import (
     PointSurfaceDrifter,
     PointSurfacePhysics,
-    eval_qdd,
 )
+from mechanical_drifters.eom import _make_qdd_func
 ```
 
 ## Model creation
@@ -77,10 +77,11 @@ def sample_uv_uniform(z):
 ```
 
 ```python
-drift_vel, Y_final, max_accel = drifter.steady_state_batch(
+t_out, Y_out, max_accel = drifter.integrate(
     sample_uv_uniform,
     t_span=(0.0, t_end),
 )
+drift_vel = drifter.drift_velocity(Y_out[-1])
 
 xd_ss = float(drift_vel[0, 0])
 yd_ss = float(drift_vel[0, 1])
@@ -125,10 +126,11 @@ print(f"Current at z=-10m (depth): {U_at_depth[0]:.3f} m/s")
 ```
 
 ```python
-drift_shear, _, max_accel_shear = drifter.steady_state_batch(
+t_shear, Y_shear, max_accel_shear = drifter.integrate(
     sample_uv_sheared,
     t_span=(0.0, t_end),
 )
+drift_shear = drifter.drift_velocity(Y_shear[-1])
 
 xd_shear = float(drift_shear[0, 0])
 print(f"Steady-state drift (sheared flow): {xd_shear:.6f} m/s")

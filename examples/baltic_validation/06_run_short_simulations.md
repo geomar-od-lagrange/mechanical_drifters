@@ -44,7 +44,7 @@ import xarray as xr
 from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode
 from parcels.kernels import AdvectionEE
 
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 from mechanical_drifters.parcels import make_kernel
 ```
 

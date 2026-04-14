@@ -4,17 +4,86 @@ from typing import NamedTuple
 
 import numpy as np
 import sympy as sp
-from scipy.integrate import solve_ivp
 from sympy.physics.mechanics import dynamicsymbols
 
 from ..base import LagrangianMechanicsModel
-from ..coords import _spherical_to_uv, _uv_to_spherical
+
+
+# ---------- Coordinate helpers (stereographic <-> spherical) ----------
+
+
+def _uv_to_theta(u, v):
+    """Convert stereographic (u, v) to polar angle theta.
+
+    Args:
+        u, v: Stereographic coordinates (scalar or array).
+
+    Returns:
+        theta: Polar angle [rad], where theta=pi is drogue hanging down.
+    """
+    r = np.sqrt(u**2 + v**2)
+    delta = 2 * np.arctan2(r, 2)
+    return np.pi - delta
+
+
+def _uv_to_spherical(u, v, ud, vd):
+    """Convert stereographic (u, v, ud, vd) to spherical (theta, phi, thetad, phid).
+
+    Args:
+        u, v: Stereographic coordinates (scalar or array).
+        ud, vd: Stereographic velocities (scalar or array).
+
+    Returns:
+        (theta, phi, thetad, phid) tuple.
+    """
+    u, v, ud, vd = (
+        np.asarray(u, float),
+        np.asarray(v, float),
+        np.asarray(ud, float),
+        np.asarray(vd, float),
+    )
+    r = np.sqrt(u**2 + v**2)
+    theta = _uv_to_theta(u, v)
+    phi = np.arctan2(v, u)
+
+    safe = r > 1e-14
+    dtdr = np.where(safe, -4.0 / (r**2 + 4), -1.0)
+    thetad = np.where(safe, dtdr * (u * ud + v * vd) / r, -np.sqrt(ud**2 + vd**2))
+    phid = np.where(safe, (u * vd - v * ud) / r**2, 0.0)
+
+    return theta, phi, thetad, phid
+
+
+def _spherical_to_uv(theta, phi, thetad, phid):
+    """Convert spherical (theta, phi, thetad, phid) to stereographic (u, v, ud, vd).
+
+    Args:
+        theta: Polar angle [rad] (theta=pi is drogue down).
+        phi: Azimuthal angle [rad].
+        thetad, phid: Angular velocities [rad/s].
+
+    Returns:
+        (u, v, ud, vd) tuple.
+    """
+    theta, phi = np.asarray(theta, float), np.asarray(phi, float)
+    thetad, phid = np.asarray(thetad, float), np.asarray(phid, float)
+    delta = np.pi - theta
+    half_delta = delta / 2
+    tan_hd = np.tan(half_delta)
+    u = 2 * tan_hd * np.cos(phi)
+    v = 2 * tan_hd * np.sin(phi)
+
+    sec2 = 1.0 / np.cos(half_delta) ** 2
+    ud = -sec2 * np.cos(phi) * thetad - 2 * tan_hd * np.sin(phi) * phid
+    vd = -sec2 * np.sin(phi) * thetad + 2 * tan_hd * np.cos(phi) * phid
+
+    return u, v, ud, vd
 
 
 # ---------- Physics ----------
 
 
-class DrifterPhysics(NamedTuple):
+class DroguedDrifterPhysics(NamedTuple):
     """Physical constants for a drogued drifter — frozen, set once per instance.
 
     These are the 9 physical parameters that characterise the drifter geometry
@@ -32,7 +101,7 @@ class DrifterPhysics(NamedTuple):
     k_d: float  # drogue drag coefficient [kg/m]
 
 
-class EOMState(NamedTuple):
+class DroguedDrifterState(NamedTuple):
     """Per-timestep state variables and forcing.
 
     Fields hold scalars (in rhs) or (N,) arrays (in _rhs_batch).
@@ -144,15 +213,21 @@ class DroguedDrifter(LagrangianMechanicsModel):
     State vector: [x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]
     """
 
-    Physics = DrifterPhysics
-    State = EOMState
+    Physics = DroguedDrifterPhysics
+    State = DroguedDrifterState
     n_q = 4
-    _drift_velocity_indices = (4, 5)  # xd, yd
+    state_names = ("x", "y", "theta", "phi", "xd", "yd", "thetad", "phid")
+
+    DEFAULT_PHYSICS = DroguedDrifterPhysics(
+        m_b=1.0, m_d=2.7, m_hat_d=1.0,
+        m_tilde_d=101.0, m_tilde_b=1.9,
+        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
+    )
 
     def __init__(self, physics=None, *, backend="numpy", **kwargs):
         """Create a DroguedDrifter.
 
-        Accepts either a DrifterPhysics instance or individual keyword
+        Accepts either a DroguedDrifterPhysics instance or individual keyword
         parameters::
 
             DroguedDrifter()                              # defaults
@@ -160,19 +235,14 @@ class DroguedDrifter(LagrangianMechanicsModel):
             DroguedDrifter(l=5.0, k_d=200.0)             # override defaults
             DroguedDrifter(backend="numba")               # numba backend
         """
-        if physics is None and kwargs:
-            defaults = self.default_physics()._asdict()
-            defaults.update(kwargs)
-            physics = DrifterPhysics(**defaults)
+        if physics is None:
+            if kwargs:
+                defaults = self.DEFAULT_PHYSICS._asdict()
+                defaults.update(kwargs)
+                physics = DroguedDrifterPhysics(**defaults)
+            else:
+                physics = self.DEFAULT_PHYSICS
         super().__init__(physics, backend=backend)
-
-    def default_physics(self):
-        """Callies et al. (2017) drifter at rho=1025 kg/m^3."""
-        return DrifterPhysics(
-            m_b=1.0, m_d=2.7, m_hat_d=1.0,
-            m_tilde_d=101.0, m_tilde_b=1.9,
-            l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-        )
 
     # --- Symbolic derivation (the physics) ---
 
@@ -286,7 +356,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
             "ud_stereo": ud_static, "vd_stereo": vd_static,
             "U_b": U_b, "V_b": V_b, "U_d": U_d, "V_d": V_d,
         }
-        all_fields = list(DrifterPhysics._fields) + list(EOMState._fields)
+        all_fields = list(DroguedDrifterPhysics._fields) + list(DroguedDrifterState._fields)
         args = tuple(symbol_map[field] for field in all_fields)
 
         return M_static, F_static, args
@@ -330,7 +400,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
         U_b, V_b = sample_uv(np.zeros(N))
         U_d, V_d = sample_uv(self._z_eff(u_stereo, v_stereo))
 
-        state = EOMState(
+        state = DroguedDrifterState(
             u_stereo=u_stereo, v_stereo=v_stereo,
             xd=xd, yd=yd,
             ud_stereo=ud_stereo, vd_stereo=vd_stereo,
@@ -355,147 +425,97 @@ class DroguedDrifter(LagrangianMechanicsModel):
         """Drogue hangs at most one pole-length below surface."""
         return physics.l
 
-    # --- Scalar ODE path (DroguedDrifter-specific) ---
+    def drift_velocity(self, Y):
+        """Extract drift velocity from state array.
 
-    def _rhs(self, t, y, sample_uv):
-        """Scalar RHS for single-particle integration."""
-        u_stereo, v_stereo = y[IU], y[IV]
-        z_d = float(self._z_eff(np.array([u_stereo]), np.array([v_stereo]))[0])
+        Args:
+            Y: State array, shape ``(N, state_size)``.
 
-        U_b, V_b = sample_uv(0.0)
-        U_d, V_d = sample_uv(z_d)
+        Returns:
+            Drift velocity array, shape ``(N, 2)``.
+        """
+        return Y[:, [IXD, IYD]]
 
-        state = EOMState(
-            u_stereo, v_stereo, y[IXD], y[IYD], y[IUD], y[IVD],
-            U_b, V_b, U_d, V_d,
+    # --- Coordinate conversion helpers ---
+
+    def _from_public_state(self, Y_public):
+        """Convert public state (spherical) to internal (stereographic).
+
+        Args:
+            Y_public: ``(N, 8)`` array with columns
+                ``[x, y, theta, phi, xd, yd, thetad, phid]``.
+
+        Returns:
+            ``(N, 8)`` array with columns
+            ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
+        """
+        Y = np.asarray(Y_public, dtype=float).reshape(-1, 8)
+        u, v, ud, vd = _spherical_to_uv(Y[:, 2], Y[:, 3], Y[:, 6], Y[:, 7])
+        return np.column_stack([
+            Y[:, 0], Y[:, 1], u, v, Y[:, 4], Y[:, 5], ud, vd,
+        ])
+
+    def _to_public_state(self, Y_internal):
+        """Convert internal state (stereographic) to public (spherical).
+
+        Args:
+            Y_internal: ``(N, 8)`` array with columns
+                ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
+
+        Returns:
+            ``(N, 8)`` array with columns
+            ``[x, y, theta, phi, xd, yd, thetad, phid]``.
+        """
+        Y = np.asarray(Y_internal, dtype=float).reshape(-1, 8)
+        theta, phi, thetad, phid = _uv_to_spherical(
+            Y[:, IU], Y[:, IV], Y[:, IUD], Y[:, IVD],
         )
-        qdd = self._qdd_func(self.physics, state)
-        return np.array([y[IXD], y[IYD], y[IUD], y[IVD], *qdd])
+        return np.column_stack([
+            Y[:, IX], Y[:, IY], theta, phi,
+            Y[:, IXD], Y[:, IYD], thetad, phid,
+        ])
 
-    # --- DroguedDrifter-specific convenience methods ---
+    # --- Override integrate for public coords in/out ---
 
-    def get_final_drift_batch(
+    def integrate(
         self,
         sample_uv,
         *,
         t_span=(0, 120),
         y0=None,
+        t_eval=None,
         atol=1e-3,
         rtol=1e-3,
     ):
-        """Compute steady-state drift for N particles.
+        """Integrate the ODE with public (spherical) coords in/out.
 
-        Wraps ``steady_state_batch`` with internal-to-public coordinate
-        conversion. The public state uses spherical angles (theta, phi)
-        instead of internal stereographic (u_stereo, v_stereo).
+        Converts spherical y0 to stereographic on entry, runs the base
+        integrator, and converts the result back to spherical.
 
         Args:
-            sample_uv: Velocity sampler ``sample_uv(z) -> (U, V)``.
+            sample_uv: Velocity sampler.
             t_span: Integration window [s].
             y0: Initial state ``(N, 8)`` in public format
                 ``[x, y, theta, phi, xd, yd, thetad, phid]``, or None.
+            t_eval: Times at which to store the solution.
             atol, rtol: ODE solver tolerances.
 
         Returns:
-            ``(xd, yd, Y_public, max_accel)`` where Y_public columns are
-            ``[x, y, theta, phi, xd, yd, thetad, phid]``.
+            Tuple ``(t, Y, max_acceleration)`` where Y is in public coords.
         """
-        # Convert public y0 (spherical) to internal (stereographic)
         y0_internal = None
         if y0 is not None:
-            y0_arr = np.asarray(y0, dtype=float).reshape(-1, 8)
-            u0, v0, ud0, vd0 = _spherical_to_uv(
-                y0_arr[:, 2], y0_arr[:, 3], y0_arr[:, 6], y0_arr[:, 7],
-            )
-            y0_internal = np.column_stack([
-                y0_arr[:, 0], y0_arr[:, 1],
-                u0, v0,
-                y0_arr[:, 4], y0_arr[:, 5],
-                ud0, vd0,
-            ])
+            y0_internal = self._from_public_state(y0)
 
-        drift_vel, Y_final, max_accel = self.steady_state_batch(
-            sample_uv, t_span=t_span, y0=y0_internal, atol=atol, rtol=rtol,
+        t, Y_internal, max_accel = super().integrate(
+            sample_uv, t_span=t_span, y0=y0_internal,
+            t_eval=t_eval, atol=atol, rtol=rtol,
         )
 
-        # Convert internal state to public (spherical) coordinates
-        theta, phi, thetad, phid = _uv_to_spherical(
-            Y_final[:, IU], Y_final[:, IV],
-            Y_final[:, IUD], Y_final[:, IVD],
-        )
-        Y_public = np.column_stack([
-            Y_final[:, IX], Y_final[:, IY],
-            theta, phi,
-            Y_final[:, IXD], Y_final[:, IYD],
-            thetad, phid,
-        ])
+        # Convert each time step from internal to public coords
+        T, N, ss = Y_internal.shape
+        Y_public = np.empty_like(Y_internal)
+        for i in range(T):
+            Y_public[i] = self._to_public_state(Y_internal[i])
 
-        return drift_vel[:, 0], drift_vel[:, 1], Y_public, max_accel
-
-    def get_full_solution(
-        self,
-        sample_uv,
-        *,
-        t_span,
-        x=0.0, y=0.0, theta=np.pi, phi=0.0,
-        xd=0.0, yd=0.0, thetad=0.0, phid=0.0,
-        t_eval=None, atol=1e-3, rtol=1e-3,
-    ):
-        """Integrate single-particle trajectory, return xr.Dataset.
-
-        Returns a Dataset with spherical coordinates (theta, phi)
-        converted from the internal stereographic representation.
-        """
-        import xarray as xr
-
-        u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
-        y0 = [x, y, u0, v0, xd, yd, ud0, vd0]
-
-        sol = solve_ivp(
-            lambda t, y_: self._rhs(t, y_, sample_uv),
-            t_span, y0, t_eval=t_eval, atol=atol, rtol=rtol,
-        )
-
-        theta_arr, phi_arr, thetad_arr, phid_arr = _uv_to_spherical(
-            sol.y[IU], sol.y[IV], sol.y[IUD], sol.y[IVD],
-        )
-        return xr.Dataset(
-            {
-                "x": ("time", sol.y[IX]),
-                "y": ("time", sol.y[IY]),
-                "theta": ("time", theta_arr),
-                "phi": ("time", phi_arr),
-                "xd": ("time", sol.y[IXD]),
-                "yd": ("time", sol.y[IYD]),
-                "thetad": ("time", thetad_arr),
-                "phid": ("time", phid_arr),
-            },
-            coords={"time": sol.t},
-        )
-
-    def get_final_drift(
-        self,
-        sample_uv,
-        *,
-        t_span,
-        x=0.0, y=0.0, theta=np.pi, phi=0.0,
-        xd=0.0, yd=0.0, thetad=0.0, phid=0.0,
-    ):
-        """Scalar single-particle steady-state drift.
-
-        Returns:
-            ``(xd_final, yd_final, max_accel)``
-        """
-        u0, v0, ud0, vd0 = _spherical_to_uv(theta, phi, thetad, phid)
-        y0 = [x, y, u0, v0, xd, yd, ud0, vd0]
-
-        sol = solve_ivp(
-            lambda t, y_: self._rhs(t, y_, sample_uv),
-            t_span, y0,
-        )
-        y_final = sol.y[:, -1]
-
-        dy_final = self._rhs(0.0, y_final, sample_uv)
-        max_accel = float(max(abs(dy_final[IXD]), abs(dy_final[IYD])))
-
-        return float(y_final[IXD]), float(y_final[IYD]), max_accel
+        return t, Y_public, max_accel

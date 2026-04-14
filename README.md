@@ -18,38 +18,39 @@ New models can be added by subclassing `LagrangianMechanicsModel` — see
 ## Quick start
 
 ```python
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 import numpy as np
 
 dd = DroguedDrifter()  # default Callies et al. geometry
 
 def sample_uv(z):
     """Return (U, V) velocity at depth z. z=0 is surface, negative is below."""
-    return 0.3, 0.0  # uniform 0.3 m/s eastward
+    z = np.atleast_1d(z)
+    return np.full_like(z, 0.3), np.zeros_like(z)
 
-ds = dd.get_full_solution(sample_uv, t_span=(0, 120), t_eval=np.arange(0, 121))
-ds.x.plot()  # buoy x position over time
+t, Y, max_accel = dd.integrate(sample_uv, t_span=(0, 120), t_eval=np.arange(0, 121))
+ds = dd.to_xarray(t, Y)
+ds.xd.isel(traj=0).plot()  # buoy drift velocity over time
 ```
 
-`get_full_solution` returns an `xarray.Dataset` with time as coordinate and
-spherical state variables as data variables (converted from internal
-stereographic representation).  `get_final_drift` returns just the steady-state
-drift velocity `(xd, yd, max_accel)`.  All initial conditions are keyword
-arguments with sensible defaults (drogue hanging straight down, at rest).
+`integrate()` returns `(t, Y, max_acceleration)` where Y has shape
+`(T, N, state_size)` in public coordinates (spherical for the DroguedDrifter).
+Wrap with `to_xarray()` for an xarray Dataset. Use `drift_velocity(Y[-1])`
+to extract the final `(xd, yd)` drift velocity.
 
-Ocean currents are supplied as a `sample_uv(z)` callable passed to each solve
-method:
+Ocean currents are supplied as a `sample_uv(z)` callable:
 
 ```python
 import numpy as np
 
 def my_uv(z):
-    # z: scalar or (N,) array of depths [m], positive upward
+    # z: (N,) array of depths [m], positive upward
     # look up current from ocean_data at each depth
     ...
-    return U, V  # eastward, northward [m/s], same shape as z
+    return U, V  # eastward, northward [m/s], shape (N,)
 
-xd, yd, max_accel = dd.get_final_drift(my_uv, t_span=(0, 120))
+t, Y, max_accel = dd.integrate(my_uv, t_span=(0, 120))
+drift_vel = dd.drift_velocity(Y[-1])  # (N, 2) array
 ```
 
 ## Parcels integration
@@ -58,7 +59,7 @@ For Lagrangian particle tracking with [Parcels v4](https://github.com/OceanParce
 use `make_kernel(model)`:
 
 ```python
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 from mechanical_drifters.parcels import make_kernel
 
 dd = DroguedDrifter()

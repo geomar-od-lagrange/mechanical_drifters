@@ -11,24 +11,38 @@ import pytest
 
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
-from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
-from mechanical_drifters.eom import eval_M, eval_F, _make_qdd_func
-from mechanical_drifters.coords import _uv_to_theta
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
+from mechanical_drifters.eom import _make_qdd_func, _get_eom_callables
+from mechanical_drifters.models.drogued_drifter import _uv_to_theta
 
 
 dd_singleton = DroguedDrifter()
 _qdd_func = _make_qdd_func(dd_singleton, "numpy")
 
 
+def _eval_M(model, physics, state):
+    """Evaluate mass matrix M using _get_eom_callables."""
+    _, M_raw, _, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    return np.array(M_raw(*args), dtype=float)
+
+
+def _eval_F(model, physics, state):
+    """Evaluate force vector F using _get_eom_callables."""
+    _, _, F_raw, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    F = np.array(F_raw(*args), dtype=float)
+    return F.ravel()
+
+
 def test_packer_covers_all_struct_fields():
-    """Every DrifterPhysics and EOMState field must appear in the lambda signature."""
+    """Every DroguedDrifterPhysics and DroguedDrifterState field must appear in the lambda signature."""
     import inspect
-    from mechanical_drifters.eom import _get_eom_callables
 
     dd = DroguedDrifter()
     _qdd_raw, _M_raw, _F_raw, _pack = _get_eom_callables(dd)
     lambda_params = set(inspect.signature(_qdd_raw).parameters)
-    struct_fields = set(DrifterPhysics._fields) | set(EOMState._fields)
+    struct_fields = set(DroguedDrifterPhysics._fields) | set(DroguedDrifterState._fields)
 
     missing_from_lambda = struct_fields - lambda_params
     assert (
@@ -40,22 +54,21 @@ def test_packer_covers_all_struct_fields():
         not missing_from_structs
     ), f"Lambda params not in any struct: {missing_from_structs}"
 
-    assert len(lambda_params) == len(DrifterPhysics._fields) + len(EOMState._fields)
+    assert len(lambda_params) == len(DroguedDrifterPhysics._fields) + len(DroguedDrifterState._fields)
 
 
 def test_packer_arg_order_matches_lambda():
     """pack_eom_args must produce values in the order the lambda expects."""
     import inspect
-    from mechanical_drifters.eom import _get_eom_callables
 
     dd = DroguedDrifter()
     _qdd_raw, _, _, pack = _get_eom_callables(dd)
     lambda_params = list(inspect.signature(_qdd_raw).parameters)
 
-    physics = DrifterPhysics(
-        **{f: float(i) for i, f in enumerate(DrifterPhysics._fields)}
+    physics = DroguedDrifterPhysics(
+        **{f: float(i) for i, f in enumerate(DroguedDrifterPhysics._fields)}
     )
-    state = EOMState(**{f: float(100 + i) for i, f in enumerate(EOMState._fields)})
+    state = DroguedDrifterState(**{f: float(100 + i) for i, f in enumerate(DroguedDrifterState._fields)})
 
     packed = pack(physics, state)
     field_to_val = {**physics._asdict(), **state._asdict()}
@@ -69,9 +82,9 @@ def test_packer_arg_order_matches_lambda():
 def test_mass_matrix_nonsingular_at_equilibrium():
     """Mass matrix at (u, v) = (0, 0) should be nonsingular."""
     dd = DroguedDrifter()
-    M = eval_M(
+    M = _eval_M(
         dd, _DEFAULT_PHYSICS,
-        EOMState(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
+        DroguedDrifterState(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
     )
     eigvals = np.linalg.eigvalsh(M)
     assert np.all(eigvals > 0), f"Mass matrix not positive definite: eigenvalues = {eigvals}"
@@ -94,34 +107,11 @@ def test_mass_matrix_positive_definite_scalar():
     ]
 
     for pt in test_points:
-        M = eval_M(dd, _DEFAULT_PHYSICS, EOMState(**pt))
+        M = _eval_M(dd, _DEFAULT_PHYSICS, DroguedDrifterState(**pt))
         eigvals = np.linalg.eigvalsh(M)
         assert np.all(eigvals > 0), (
             f"M not positive definite at {pt}. Eigenvalues: {eigvals}"
         )
-
-
-def test_mass_matrix_positive_definite_batch():
-    """Mass matrix positive-definiteness for N particles."""
-    dd = DroguedDrifter()
-    N = 10
-    rng = np.random.default_rng(42)
-
-    M_batch = eval_M(
-        dd, _DEFAULT_PHYSICS,
-        EOMState(
-            u_stereo=rng.uniform(-1, 1, N), v_stereo=rng.uniform(-1, 1, N),
-            xd=rng.uniform(-0.5, 0.5, N), yd=rng.uniform(-0.5, 0.5, N),
-            ud_stereo=rng.uniform(-0.1, 0.1, N), vd_stereo=rng.uniform(-0.1, 0.1, N),
-            U_b=rng.uniform(-0.5, 0.5, N), V_b=rng.uniform(-0.5, 0.5, N),
-            U_d=rng.uniform(-0.5, 0.5, N), V_d=rng.uniform(-0.5, 0.5, N),
-        ),
-    )
-
-    assert M_batch.shape == (N, 4, 4)
-    for i in range(N):
-        eigvals = np.linalg.eigvalsh(M_batch[i])
-        assert np.all(eigvals > 0), f"M[{i}] not positive definite. Eigenvalues: {eigvals}"
 
 
 def test_drag_force_quadratic_scaling():
@@ -129,9 +119,9 @@ def test_drag_force_quadratic_scaling():
     dd = DroguedDrifter()
 
     def test_force_scaling(U_b_test):
-        return eval_F(
+        return _eval_F(
             dd, _DEFAULT_PHYSICS,
-            EOMState(
+            DroguedDrifterState(
                 u_stereo=0.0, v_stereo=0.0,
                 xd=0.0, yd=0.0,
                 ud_stereo=0.0, vd_stereo=0.0,
@@ -154,9 +144,9 @@ def test_drag_force_quadratic_scaling():
 def test_zero_velocity_zero_force():
     """With zero currents, force should be zero at equilibrium."""
     dd = DroguedDrifter()
-    F = eval_F(
+    F = _eval_F(
         dd, _DEFAULT_PHYSICS,
-        EOMState(
+        DroguedDrifterState(
             u_stereo=0.0, v_stereo=0.0,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -233,9 +223,9 @@ def test_uv_to_theta_inversion():
 def test_no_singularity_at_equilibrium():
     """Stereographic coordinates avoid phi singularity at theta=pi."""
     dd = DroguedDrifter()
-    M = eval_M(
+    M = _eval_M(
         dd, _DEFAULT_PHYSICS,
-        EOMState(
+        DroguedDrifterState(
             u_stereo=0.0, v_stereo=0.0,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -252,12 +242,12 @@ def test_no_singularity_at_equilibrium():
 
 
 # ---------------------------------------------------------------------------
-# qdd correctness: _qdd_func must match eval_M + eval_F + np.linalg.solve
+# qdd correctness: _qdd_func must match M + F + np.linalg.solve
 # ---------------------------------------------------------------------------
 
 
 def test_qdd_func_matches_M_F_solve_scalar():
-    """_qdd_func must agree with eval_M + eval_F + np.linalg.solve."""
+    """_qdd_func must agree with M_raw + F_raw + np.linalg.solve."""
     dd = DroguedDrifter()
     test_points = [
         dict(u_stereo=0, v_stereo=0, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0, V_b=0, U_d=0, V_d=0),
@@ -276,42 +266,13 @@ def test_qdd_func_matches_M_F_solve_scalar():
     ]
 
     for pt in test_points:
-        state = EOMState(**pt)
+        state = DroguedDrifterState(**pt)
         qdd = _qdd_func(_DEFAULT_PHYSICS, state)
-        M = eval_M(dd, _DEFAULT_PHYSICS, state)
-        F = eval_F(dd, _DEFAULT_PHYSICS, state)
+        M = _eval_M(dd, _DEFAULT_PHYSICS, state)
+        F = _eval_F(dd, _DEFAULT_PHYSICS, state)
         qdd_ref = np.linalg.solve(M, F)
 
         np.testing.assert_allclose(qdd, qdd_ref, atol=1e-12, err_msg=f"qdd mismatch at {pt}")
-
-
-def test_qdd_func_matches_M_F_solve_batch():
-    """_qdd_func batch must agree with per-particle eval_M + eval_F + solve."""
-    dd = DroguedDrifter()
-    N = 10
-    rng = np.random.default_rng(42)
-    state = EOMState(
-        u_stereo=rng.uniform(-1, 1, N),
-        v_stereo=rng.uniform(-1, 1, N),
-        xd=rng.uniform(-0.5, 0.5, N),
-        yd=rng.uniform(-0.5, 0.5, N),
-        ud_stereo=rng.uniform(-0.1, 0.1, N),
-        vd_stereo=rng.uniform(-0.1, 0.1, N),
-        U_b=rng.uniform(-0.5, 0.5, N),
-        V_b=rng.uniform(-0.5, 0.5, N),
-        U_d=rng.uniform(-0.5, 0.5, N),
-        V_d=rng.uniform(-0.5, 0.5, N),
-    )
-
-    qdd_batch = _qdd_func(_DEFAULT_PHYSICS, state)
-    assert qdd_batch.shape == (N, 4)
-
-    M_batch = eval_M(dd, _DEFAULT_PHYSICS, state)
-    F_batch = eval_F(dd, _DEFAULT_PHYSICS, state)
-
-    for i in range(N):
-        qdd_ref = np.linalg.solve(M_batch[i], F_batch[i])
-        np.testing.assert_allclose(qdd_batch[i], qdd_ref, atol=1e-12, err_msg=f"qdd mismatch at particle {i}")
 
 
 # ---------------------------------------------------------------------------
@@ -321,8 +282,7 @@ def test_qdd_func_matches_M_F_solve_batch():
 
 def test_lambdify_scalar_input():
     """Scalar args in, scalar results out."""
-    dd = DroguedDrifter()
-    state = EOMState(
+    state = DroguedDrifterState(
         u_stereo=0.1, v_stereo=0.05,
         xd=0.0, yd=0.0,
         ud_stereo=0.0, vd_stereo=0.0,
@@ -331,36 +291,6 @@ def test_lambdify_scalar_input():
     qdd = _qdd_func(_DEFAULT_PHYSICS, state)
     assert qdd.shape == (4,), f"Expected (4,), got {qdd.shape}"
     assert np.all(np.isfinite(qdd))
-
-    M = eval_M(dd, _DEFAULT_PHYSICS, state)
-    assert M.shape == (4, 4)
-
-    F = eval_F(dd, _DEFAULT_PHYSICS, state)
-    assert F.shape == (4,)
-
-
-def test_lambdify_batch_input():
-    """(N,) arrays in, batch results out."""
-    dd = DroguedDrifter()
-    N = 20
-    rng = np.random.default_rng(123)
-    state = EOMState(
-        u_stereo=rng.uniform(-1, 1, N), v_stereo=rng.uniform(-1, 1, N),
-        xd=rng.uniform(-0.5, 0.5, N), yd=rng.uniform(-0.5, 0.5, N),
-        ud_stereo=rng.uniform(-0.1, 0.1, N), vd_stereo=rng.uniform(-0.1, 0.1, N),
-        U_b=rng.uniform(-0.5, 0.5, N), V_b=rng.uniform(-0.5, 0.5, N),
-        U_d=rng.uniform(-0.5, 0.5, N), V_d=rng.uniform(-0.5, 0.5, N),
-    )
-
-    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
-    assert qdd.shape == (N, 4), f"Expected ({N}, 4), got {qdd.shape}"
-    assert np.all(np.isfinite(qdd))
-
-    M = eval_M(dd, _DEFAULT_PHYSICS, state)
-    assert M.shape == (N, 4, 4)
-
-    F = eval_F(dd, _DEFAULT_PHYSICS, state)
-    assert F.shape == (N, 4)
 
 
 def test_lambdify_batch_matches_scalar_loop():
@@ -378,13 +308,13 @@ def test_lambdify_batch_matches_scalar_loop():
     U_d = rng.uniform(-0.5, 0.5, N)
     V_d = rng.uniform(-0.5, 0.5, N)
 
-    batch_state = EOMState(
+    batch_state = DroguedDrifterState(
         u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
     )
     qdd_batch = _qdd_func(_DEFAULT_PHYSICS, batch_state)
 
     for i in range(N):
-        scalar_state = EOMState(
+        scalar_state = DroguedDrifterState(
             u_stereo=u[i], v_stereo=v[i],
             xd=xd[i], yd=yd[i],
             ud_stereo=ud[i], vd_stereo=vd[i],
@@ -397,7 +327,7 @@ def test_lambdify_batch_matches_scalar_loop():
 def test_lambdify_mixed_scalar_array_broadcast():
     """Physics args are scalars, state args are (N,) arrays."""
     N = 5
-    state = EOMState(
+    state = DroguedDrifterState(
         u_stereo=np.full(N, 0.1), v_stereo=np.full(N, 0.05),
         xd=np.zeros(N), yd=np.zeros(N),
         ud_stereo=np.zeros(N), vd_stereo=np.zeros(N),
@@ -423,11 +353,11 @@ def test_lambdify_cse_preserves_broadcasting():
     qdd_cse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
     qdd_nocse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=False)
 
-    pack = _build_packer(qdd_cse, DrifterPhysics, EOMState)
+    pack = _build_packer(qdd_cse, DroguedDrifterPhysics, DroguedDrifterState)
 
     N = 10
     rng = np.random.default_rng(77)
-    state = EOMState(
+    state = DroguedDrifterState(
         u_stereo=rng.uniform(-1, 1, N), v_stereo=rng.uniform(-1, 1, N),
         xd=rng.uniform(-0.5, 0.5, N), yd=rng.uniform(-0.5, 0.5, N),
         ud_stereo=rng.uniform(-0.1, 0.1, N), vd_stereo=rng.uniform(-0.1, 0.1, N),
@@ -444,8 +374,7 @@ def test_lambdify_cse_preserves_broadcasting():
 
 def test_lambdify_batch_N1():
     """Single-element (N=1) arrays."""
-    dd = DroguedDrifter()
-    state = EOMState(
+    state = DroguedDrifterState(
         u_stereo=np.array([0.1]), v_stereo=np.array([0.05]),
         xd=np.array([0.0]), yd=np.array([0.0]),
         ud_stereo=np.array([0.0]), vd_stereo=np.array([0.0]),
@@ -456,9 +385,3 @@ def test_lambdify_batch_N1():
     qdd = _qdd_func(_DEFAULT_PHYSICS, state)
     assert qdd.shape == (1, 4), f"Expected (1, 4), got {qdd.shape}"
     assert np.all(np.isfinite(qdd))
-
-    M = eval_M(dd, _DEFAULT_PHYSICS, state)
-    assert M.shape == (1, 4, 4)
-
-    F = eval_F(dd, _DEFAULT_PHYSICS, state)
-    assert F.shape == (1, 4)

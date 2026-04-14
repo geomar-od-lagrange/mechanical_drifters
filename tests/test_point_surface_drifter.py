@@ -31,9 +31,13 @@ def test_n_q():
     assert PointSurfaceDrifter.n_q == 2
 
 
-def test_drift_velocity_indices():
-    """PointSurfaceDrifter._drift_velocity_indices == (2, 3)."""
-    assert PointSurfaceDrifter._drift_velocity_indices == (2, 3)
+def test_drift_velocity():
+    """PointSurfaceDrifter.drift_velocity extracts xd, yd from state."""
+    psd = PointSurfaceDrifter()
+    import numpy as np
+    Y = np.array([[0.0, 0.0, 0.3, -0.1]])
+    vel = psd.drift_velocity(Y)
+    np.testing.assert_allclose(vel, [[0.3, -0.1]])
 
 
 def test_state_size():
@@ -79,34 +83,37 @@ def test_derive_symbolic_returns_correct_shapes():
     assert len(args) == len(PointSurfacePhysics._fields) + len(PointSurfaceState._fields)
 
 
-def test_eval_qdd_scalar():
-    """eval_qdd returns (2,) array for scalar input."""
-    from mechanical_drifters.eom import eval_qdd
+def test_qdd_scalar():
+    """qdd evaluator returns (2,) array for scalar input."""
+    from mechanical_drifters.eom import _make_qdd_func
 
     psd = PointSurfaceDrifter()
+    _qdd = _make_qdd_func(psd, "numpy")
     state = PointSurfaceState(xd=0.0, yd=0.0, U=0.5, V=0.0)
-    qdd = eval_qdd(psd, psd.physics, state)
+    qdd = _qdd(psd.physics, state)
     assert qdd.shape == (2,)
 
 
-def test_eval_qdd_drag_direction():
+def test_qdd_drag_direction():
     """Particle at rest in eastward current: drag accelerates it eastward."""
-    from mechanical_drifters.eom import eval_qdd
+    from mechanical_drifters.eom import _make_qdd_func
 
     psd = PointSurfaceDrifter()
+    _qdd = _make_qdd_func(psd, "numpy")
     state = PointSurfaceState(xd=0.0, yd=0.0, U=0.5, V=0.0)
-    qdd = eval_qdd(psd, psd.physics, state)
+    qdd = _qdd(psd.physics, state)
     assert qdd[0] > 0, "x-acceleration should be positive (toward eastward current)"
     assert abs(qdd[1]) < 1e-12, "y-acceleration should be zero (no north current)"
 
 
-def test_eval_qdd_zero_relative_velocity():
+def test_qdd_zero_relative_velocity():
     """When drift == current, drag is zero, so qdd == 0."""
-    from mechanical_drifters.eom import eval_qdd
+    from mechanical_drifters.eom import _make_qdd_func
 
     psd = PointSurfaceDrifter()
+    _qdd = _make_qdd_func(psd, "numpy")
     state = PointSurfaceState(xd=0.3, yd=0.1, U=0.3, V=0.1)
-    qdd = eval_qdd(psd, psd.physics, state)
+    qdd = _qdd(psd.physics, state)
     np.testing.assert_allclose(qdd, [0.0, 0.0], atol=1e-12)
 
 
@@ -126,10 +133,11 @@ def test_steady_state_uniform_flow():
         N = len(np.atleast_1d(z))
         return np.full(N, U_const), np.full(N, V_const)
 
-    drift_vel, Y_final, max_accel = psd.steady_state_batch(
+    t, Y, max_accel = psd.integrate(
         sample_uv, t_span=(0, 600),
     )
 
+    drift_vel = psd.drift_velocity(Y[-1])
     np.testing.assert_allclose(drift_vel[0, 0], U_const, rtol=1e-4)
     np.testing.assert_allclose(drift_vel[0, 1], V_const, rtol=1e-4)
 
@@ -142,8 +150,9 @@ def test_steady_state_zero_flow():
         N = len(np.atleast_1d(z))
         return np.zeros(N), np.zeros(N)
 
-    drift_vel, Y_final, max_accel = psd.steady_state_batch(sample_uv)
+    t, Y, max_accel = psd.integrate(sample_uv)
 
+    drift_vel = psd.drift_velocity(Y[-1])
     np.testing.assert_allclose(drift_vel[0], [0.0, 0.0], atol=1e-10)
 
 
@@ -160,10 +169,11 @@ def test_steady_state_multiple_particles():
     def sample_uv(z):
         return U_vals.copy(), V_vals.copy()
 
-    drift_vel, Y_final, max_accel = psd.steady_state_batch(
+    t, Y, max_accel = psd.integrate(
         sample_uv, t_span=(0, 600),
     )
 
+    drift_vel = psd.drift_velocity(Y[-1])
     assert drift_vel.shape == (N, 2)
     np.testing.assert_allclose(drift_vel[:, 0], U_vals, rtol=1e-4)
     np.testing.assert_allclose(drift_vel[:, 1], V_vals, rtol=1e-4)
@@ -171,12 +181,13 @@ def test_steady_state_multiple_particles():
 
 def test_make_kernel_creates_callable():
     """make_kernel should return a callable."""
+    from mechanical_drifters.parcels import make_kernel
     psd = PointSurfaceDrifter()
-    kernel = psd.make_kernel()
+    kernel = make_kernel(psd)
     assert callable(kernel)
 
 
-def test_max_depth_is_zero():
-    """Surface-only model: max depth is 0."""
+def test_no_max_depth():
+    """Surface-only model: no _max_depth method."""
     psd = PointSurfaceDrifter()
-    assert psd._max_depth(psd.physics) == 0.0
+    assert not hasattr(psd, '_max_depth')

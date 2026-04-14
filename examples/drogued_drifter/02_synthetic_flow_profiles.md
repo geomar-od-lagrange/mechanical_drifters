@@ -23,7 +23,7 @@ A drogued drifter consists of a surface buoy connected by a rigid pole to a subs
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 ```
 
 ## Parameters
@@ -59,7 +59,7 @@ u_profile = u_profile * np.cos(rotation_angle)
 
 We create a profile sampler using linear interpolation and then compute the steady-state drift velocity of the drogued drifter. For comparison, we also sample the velocities at the surface (z=0) and at the drogue depth.
 
-The `get_final_drift_batch` method takes a `sample_uv(z)` callback that returns `(u, v)` arrays of shape `(N,)` at the given depths, and returns the steady-state buoy drift velocities after integrating the equations of motion to convergence.
+The `integrate` method takes a `sample_uv(z)` callback that returns `(u, v)` arrays of shape `(N,)` at the given depths, and returns the steady-state buoy drift velocities after integrating the equations of motion to convergence.
 
 ```python
 # Create interpolation functions for u and v profiles
@@ -77,16 +77,17 @@ def sample_uv(z):
 # Instantiate drogued drifter and compute steady-state drift
 dd = DroguedDrifter()
 
-# get_final_drift_batch expects sample_uv to return (N,) arrays
+# integrate expects sample_uv to return (N,) arrays
 def sample_uv_single(z):
     z_arr = np.atleast_1d(z)
     u = u_interp(z_arr)
     v = v_interp(z_arr)
     return np.atleast_1d(u), np.atleast_1d(v)
 
-xd_dd, yd_dd, Y_dd, _max_accel = dd.get_final_drift_batch(sample_uv_single)
-u_dd = float(xd_dd[0])
-v_dd = float(yd_dd[0])
+t_dd, Y_dd, _max_accel = dd.integrate(sample_uv_single)
+drift_vel = dd.drift_velocity(Y_dd[-1])
+u_dd = float(drift_vel[0, 0])
+v_dd = float(drift_vel[0, 1])
 
 # Sample velocities at surface and drogue depth
 u_surf, v_surf = sample_uv(0.0)
@@ -158,7 +159,8 @@ for U0 in u0_values:
         return np.atleast_1d(u_int(z_arr)), np.atleast_1d(v_int(z_arr))
     
     # Compute DD drift
-    xd, yd, _Y, _ma = dd.get_final_drift_batch(sample_uv_sweep)
+    _t, _Y, _ma = dd.integrate(sample_uv_sweep)
+    dv = dd.drift_velocity(_Y[-1])
     
     # Sample at surface and drogue depth
     us, vs = sample_uv_sweep(0.0)
@@ -166,7 +168,7 @@ for U0 in u0_values:
     
     speeds_surf.append(np.sqrt(us[0]**2 + vs[0]**2))
     speeds_drogue.append(np.sqrt(ud[0]**2 + vd[0]**2))
-    speeds_dd.append(np.sqrt(xd[0]**2 + yd[0]**2))
+    speeds_dd.append(np.sqrt(float(dv[0, 0])**2 + float(dv[0, 1])**2))
 
 speeds_surf = np.array(speeds_surf)
 speeds_drogue = np.array(speeds_drogue)

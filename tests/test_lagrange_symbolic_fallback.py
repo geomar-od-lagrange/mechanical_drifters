@@ -6,14 +6,25 @@ Marked @pytest.mark.slow because symbolic derivation takes 30-60s.
 import numpy as np
 import pytest
 
-from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 from mechanical_drifters.eom import (
-    eval_M,
-    eval_F,
     _load_or_derive,
     _get_eom_callables,
     _build_packer,
 )
+
+
+def _eval_M(model, physics, state):
+    _, M_raw, _, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    return np.array(M_raw(*args), dtype=float)
+
+
+def _eval_F(model, physics, state):
+    _, _, F_raw, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    F = np.array(F_raw(*args), dtype=float)
+    return F.ravel()
 
 
 @pytest.mark.slow
@@ -25,7 +36,7 @@ def test_derive_symbolic_produces_matrices():
     assert M_sub.shape == (4, 4), f"Expected M shape (4,4), got {M_sub.shape}"
     assert F_sub.shape == (4, 1), f"Expected F shape (4,1), got {F_sub.shape}"
 
-    expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+    expected_n_args = len(DroguedDrifterPhysics._fields) + len(DroguedDrifterState._fields)
     assert len(args) == expected_n_args, f"Expected {expected_n_args} args, got {len(args)}"
 
 
@@ -61,49 +72,33 @@ def test_derive_symbolic_finite_values():
 def test_derived_vs_cached_numerical_agreement():
     """Freshly derived M/F must agree numerically with cached M/F."""
     dd = DroguedDrifter()
-    test_physics = DrifterPhysics(
+    test_physics = DroguedDrifterPhysics(
         m_b=1.0, m_d=2.7, m_hat_d=1.0,
         m_tilde_d=101.0, m_tilde_b=1.9,
         l=3.0, g=9.81, k_b=12.0, k_d=154.0,
     )
-    test_state = EOMState(
+    test_state = DroguedDrifterState(
         u_stereo=0.1, v_stereo=0.05,
         xd=0.0, yd=0.0,
         ud_stereo=0.0, vd_stereo=0.0,
         U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
     )
 
-    M_cached = eval_M(dd, test_physics, test_state)
-    F_cached = eval_F(dd, test_physics, test_state)
+    M_cached = _eval_M(dd, test_physics, test_state)
+    F_cached = _eval_F(dd, test_physics, test_state)
 
     import sympy as sp
 
     M_fresh_sym, F_fresh_sym, args = dd._derive_symbolic()
 
-    m_exprs = tuple(M_fresh_sym[i, j] for i in range(4) for j in range(i, 4))
-    f_exprs = tuple(F_fresh_sym[i] for i in range(4))
+    M_raw_fresh = sp.lambdify(args, M_fresh_sym, modules="numpy", cse=True)
+    F_raw_fresh = sp.lambdify(args, F_fresh_sym, modules="numpy", cse=True)
 
-    M_raw_fresh = sp.lambdify(args, m_exprs, modules="numpy", cse=True)
-    F_raw_fresh = sp.lambdify(args, f_exprs, modules="numpy", cse=True)
-
-    packer = _build_packer(M_raw_fresh, DrifterPhysics, EOMState)
+    packer = _build_packer(M_raw_fresh, DroguedDrifterPhysics, DroguedDrifterState)
     params_tuple = packer(test_physics, test_state)
 
-    M_elems_fresh = M_raw_fresh(*params_tuple)
-    F_elems_fresh = F_raw_fresh(*params_tuple)
-
-    M00, M01, M02, M03, M11, M12, M13, M22, M23, M33 = M_elems_fresh
-    M_fresh = np.array(
-        [
-            [M00, M01, M02, M03],
-            [M01, M11, M12, M13],
-            [M02, M12, M22, M23],
-            [M03, M13, M23, M33],
-        ],
-        dtype=float,
-    )
-
-    F_fresh = np.array(F_elems_fresh, dtype=float)
+    M_fresh = np.array(M_raw_fresh(*params_tuple), dtype=float)
+    F_fresh = np.array(F_raw_fresh(*params_tuple), dtype=float).ravel()
 
     np.testing.assert_allclose(M_cached, M_fresh, rtol=1e-6, atol=1e-14, err_msg="M from cache and derivation disagree")
     np.testing.assert_allclose(F_cached, F_fresh, rtol=1e-6, atol=1e-14, err_msg="F from cache and derivation disagree")
@@ -133,14 +128,14 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
         assert callable(M_raw)
         assert callable(F_raw)
 
-        expected_n_args = len(DrifterPhysics._fields) + len(EOMState._fields)
+        expected_n_args = len(DroguedDrifterPhysics._fields) + len(DroguedDrifterState._fields)
 
-        test_physics = DrifterPhysics(
+        test_physics = DroguedDrifterPhysics(
             m_b=1.0, m_d=2.7, m_hat_d=1.0,
             m_tilde_d=101.0, m_tilde_b=1.9,
             l=3.0, g=9.81, k_b=12.0, k_d=154.0,
         )
-        test_state = EOMState(
+        test_state = DroguedDrifterState(
             u_stereo=0.0, v_stereo=0.0,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -148,15 +143,15 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
         )
         packed = pack_eom_args(test_physics, test_state)
         qdd_elems = qdd_raw(*packed)
-        M_elems = M_raw(*packed)
-        F_elems = F_raw(*packed)
+        M_result = np.array(M_raw(*packed), dtype=float)
+        F_result = np.array(F_raw(*packed), dtype=float)
 
         assert len(qdd_elems) == 4
-        assert len(M_elems) == 10
-        assert len(F_elems) == 4
+        assert M_result.shape == (4, 4)
+        assert F_result.shape == (4, 1)
         assert all(np.isfinite(q) for q in qdd_elems)
-        assert all(np.isfinite(m) for m in M_elems)
-        assert all(np.isfinite(f) for f in F_elems)
+        assert np.all(np.isfinite(M_result))
+        assert np.all(np.isfinite(F_result))
     finally:
         eom._CALLABLE_CACHE.pop("DroguedDrifter", None)
         eom._QDD_CACHE.pop(("DroguedDrifter", "numpy"), None)

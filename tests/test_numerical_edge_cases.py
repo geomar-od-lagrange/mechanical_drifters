@@ -12,9 +12,22 @@ import pytest
 
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
-from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DrifterPhysics, EOMState
-from mechanical_drifters.eom import eval_M, eval_F
-from mechanical_drifters.coords import _uv_to_theta
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
+from mechanical_drifters.eom import _get_eom_callables
+
+
+def _eval_M(model, physics, state):
+    _, M_raw, _, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    return np.array(M_raw(*args), dtype=float)
+
+
+def _eval_F(model, physics, state):
+    _, _, F_raw, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    F = np.array(F_raw(*args), dtype=float)
+    return F.ravel()
+from mechanical_drifters.models.drogued_drifter import _uv_to_theta
 
 
 def _sample_uv_default(z):
@@ -26,6 +39,19 @@ def _sample_uv_default(z):
     if scalar:
         return float(U[0]), float(V[0])
     return U, V
+
+
+def _integrate_single(dd, sample_uv, *, t_span, **kwargs):
+    """Helper: integrate single particle, return (xd_final, yd_final, max_accel)."""
+    y0 = np.array([[
+        kwargs.get('x', 0.0), kwargs.get('y', 0.0),
+        kwargs.get('theta', np.pi), kwargs.get('phi', 0.0),
+        kwargs.get('xd', 0.0), kwargs.get('yd', 0.0),
+        kwargs.get('thetad', 0.0), kwargs.get('phid', 0.0),
+    ]])
+    t, Y, max_accel = dd.integrate(sample_uv, t_span=t_span, y0=y0)
+    vel = dd.drift_velocity(Y[-1])
+    return float(vel[0, 0]), float(vel[0, 1]), max_accel
 
 
 def test_rhs_batch_handles_nan_M():
@@ -74,11 +100,12 @@ def test_extreme_vertical_pole():
     dd = DroguedDrifter()
 
     def sample_uv(z):
-        if np.all(z == 0):
-            return 0.5, 0.0
-        return 0.1, 0.0
+        z_arr = np.atleast_1d(np.asarray(z, dtype=float))
+        U = np.where(z_arr == 0.0, 0.5, 0.1)
+        V = np.zeros_like(z_arr)
+        return U, V
 
-    xd, yd, _ = dd.get_final_drift(sample_uv, t_span=(0, 60))
+    xd, yd, _ = _integrate_single(dd, sample_uv, t_span=(0, 60))
     assert np.isfinite(xd) and np.isfinite(yd), "Vertical pole should give finite drift"
 
 
@@ -87,10 +114,11 @@ def test_extreme_horizontal_pole():
     dd = DroguedDrifter()
 
     def sample_uv(z):
-        return 0.1, 0.0
+        z_arr = np.atleast_1d(np.asarray(z, dtype=float))
+        return np.full_like(z_arr, 0.1), np.zeros_like(z_arr)
 
     try:
-        xd, yd, _ = dd.get_final_drift(sample_uv, t_span=(0, 120))
+        xd, yd, _ = _integrate_single(dd, sample_uv, t_span=(0, 120))
         assert np.isfinite(xd) or np.isfinite(yd), "Near-horizontal should be handled"
     except (ValueError, RuntimeError):
         pass
@@ -110,7 +138,7 @@ def test_zero_drogue_velocity():
         return U, V
 
     dd = DroguedDrifter()
-    xd, yd, _ = dd.get_final_drift(sample_uv_sheared, t_span=(0, 120))
+    xd, yd, _ = _integrate_single(dd, sample_uv_sheared, t_span=(0, 120))
 
     assert np.isfinite(xd) and np.isfinite(yd)
     assert 0.0 <= yd <= 0.5, f"Expected yd in [0, 0.5], got {yd}"
@@ -144,7 +172,7 @@ def test_uv_to_theta_zero_vector():
 
 def test_uv_to_theta_roundtrip_extreme():
     """Round-trip u,v<->theta,phi at extreme angles."""
-    from mechanical_drifters.coords import _spherical_to_uv
+    from mechanical_drifters.models.drogued_drifter import _spherical_to_uv
 
     theta_in = 0.9999 * np.pi
     phi_in = 0.0
@@ -158,9 +186,9 @@ def test_uv_to_theta_roundtrip_extreme():
 def test_M_func_positive_definite_extreme_angles():
     """M matrix should remain positive-definite even at extreme tilt angles."""
     dd = DroguedDrifter()
-    M_horiz = eval_M(
+    M_horiz = _eval_M(
         dd, _DEFAULT_PHYSICS,
-        EOMState(
+        DroguedDrifterState(
             u_stereo=5.0, v_stereo=0.0,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -184,10 +212,13 @@ def test_batch_extreme_velocities():
         return U_b, V_b
 
     try:
-        xd, yd, Y_final, max_accel = dd.get_final_drift_batch(
+        t, Y, max_accel = dd.integrate(
             sample_uv_batch,
             t_span=(0, 120),
         )
+        drift_vel = dd.drift_velocity(Y[-1])
+        xd = drift_vel[:, 0]
+        yd = drift_vel[:, 1]
         assert xd.shape == (N,)
         assert yd.shape == (N,)
         assert np.any(np.isfinite(xd)) or np.any(np.isfinite(yd))
@@ -210,7 +241,7 @@ def test_very_small_perturbation_stability():
         return U, V
 
     dd = DroguedDrifter()
-    xd_base, yd_base, _ = dd.get_final_drift(sample_uv_base, t_span=(0, 120))
+    xd_base, yd_base, _ = _integrate_single(dd, sample_uv_base, t_span=(0, 120))
 
     def sample_uv_pert(z):
         z_arr = np.asarray(z, dtype=float)
@@ -222,7 +253,7 @@ def test_very_small_perturbation_stability():
             return float(U[0]), float(V[0])
         return U, V
 
-    xd_pert, yd_pert, _ = dd.get_final_drift(sample_uv_pert, t_span=(0, 120))
+    xd_pert, yd_pert, _ = _integrate_single(dd, sample_uv_pert, t_span=(0, 120))
 
     assert np.isfinite(xd_pert) and np.isfinite(yd_pert)
 
@@ -236,11 +267,11 @@ def test_M_F_continuity_near_zero():
     F_vals = []
 
     for eps in eps_values:
-        state = EOMState(
+        state = DroguedDrifterState(
             u_stereo=eps, v_stereo=eps, xd=0, yd=0, ud_stereo=0, vd_stereo=0, U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0
         )
-        M = eval_M(dd, _DEFAULT_PHYSICS, state)
-        F = eval_F(dd, _DEFAULT_PHYSICS, state)
+        M = _eval_M(dd, _DEFAULT_PHYSICS, state)
+        F = _eval_F(dd, _DEFAULT_PHYSICS, state)
         M_vals.append(M.flatten())
         F_vals.append(F)
 
@@ -252,7 +283,7 @@ def test_M_F_continuity_near_zero():
 
 def test_spherical_singularity_at_pi():
     """Spherical (theta, phi) has singularity at theta=pi, but stereographic avoids it."""
-    from mechanical_drifters.coords import _uv_to_spherical, _spherical_to_uv
+    from mechanical_drifters.models.drogued_drifter import _uv_to_spherical, _spherical_to_uv
 
     u, v, ud, vd = _spherical_to_uv(np.pi, 0.0, 0.0, 0.0)
     assert np.isfinite(u) and np.isfinite(v)
@@ -279,7 +310,7 @@ def test_large_depth_pole_length():
     dd_long = DroguedDrifter(l=100.0)
 
     try:
-        xd, yd, _ = dd_long.get_final_drift(sample_uv, t_span=(0, 120))
+        xd, yd, _ = _integrate_single(dd_long, sample_uv, t_span=(0, 120))
         assert np.isfinite(xd) or np.isfinite(yd)
     except (ValueError, RuntimeError):
         pass
@@ -299,5 +330,5 @@ def test_tiny_pole_length():
         return U, V
 
     dd_short = DroguedDrifter(l=0.01)
-    xd, yd, _ = dd_short.get_final_drift(sample_uv, t_span=(0, 120))
+    xd, yd, _ = _integrate_single(dd_short, sample_uv, t_span=(0, 120))
     assert np.isfinite(xd) and np.isfinite(yd)

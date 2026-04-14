@@ -43,11 +43,14 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
     Physics = PointSurfacePhysics
     State = PointSurfaceState
     n_q = 2
-    _drift_velocity_indices = (2, 3)  # xd, yd
+    state_names = ("x", "y", "xd", "yd")
 
-    def default_physics(self):
-        """Default point surface drifter: 1 kg mass, 1 kg added mass, 10 kg/m drag."""
-        return PointSurfacePhysics(m=1.0, m_tilde=1.0, k=10.0)
+    DEFAULT_PHYSICS = PointSurfacePhysics(m=1.0, m_tilde=1.0, k=10.0)
+
+    def __init__(self, physics=None, *, backend="numpy"):
+        if physics is None:
+            physics = self.DEFAULT_PHYSICS
+        super().__init__(physics, backend=backend)
 
     def _derive_symbolic(self):
         """Derive M, F for a point particle with quadratic drag.
@@ -137,6 +140,14 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
         dY[:, IXD:] = qdd
         return dY
 
-    def _max_depth(self, physics):
-        """Surface-only model: no depth sampling needed."""
-        return 0.0
+    def drift_velocity(self, Y):
+        """Extract drift velocity from state array.
+
+        Args:
+            Y: State array, shape ``(N, state_size)``.
+
+        Returns:
+            Drift velocity array, shape ``(N, 2)``.
+        """
+        return Y[:, [IXD, IYD]]
+

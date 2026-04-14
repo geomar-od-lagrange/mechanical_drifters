@@ -21,10 +21,10 @@ drogued drifter model. It covers:
 - Computing drag coefficients and added masses from geometry using the helper
   functions `drogue_horizontal_drag_coeff`, `buoy_horizontal_drag_coeff`,
   `drogue_horizontal_added_mass`, and `buoy_horizontal_added_mass`.
-- Constructing a `DrifterPhysics` instance from those values.
-- Constructing an `EOMState` for a scenario where the surface current differs
+- Constructing a `DroguedDrifterPhysics` instance from those values.
+- Constructing an `DroguedDrifterState` for a scenario where the surface current differs
   from the drogue-depth current.
-- Evaluating `eval_qdd`, `eval_M`, and `eval_F` directly and verifying that
+- Evaluating M, F, and qdd via `_get_eom_callables` and verifying that
   `M @ qdd ≈ F` (sanity check on the EOM implementation).
 - Batch evaluation over many states simultaneously.
 - A parameter sensitivity sweep: how steady-state drift changes as the drogue
@@ -36,18 +36,16 @@ drogued drifter model. It covers:
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mechanical_drifters import (
+from mechanical_drifters.models.drogued_drifter import (
     DroguedDrifter,
-    DrifterPhysics,
-    EOMState,
-    eval_qdd,
-    eval_M,
-    eval_F,
+    DroguedDrifterPhysics,
+    DroguedDrifterState,
     drogue_horizontal_added_mass,
     buoy_horizontal_added_mass,
     drogue_horizontal_drag_coeff,
     buoy_horizontal_drag_coeff,
 )
+from mechanical_drifters.eom import _get_eom_callables
 ```
 
 ## Parameters
@@ -90,7 +88,7 @@ n_w_d = 9             # number of sweep points
 ## Drag coefficients and added masses from geometry
 
 The four helper functions translate measurable geometry into the drag
-coefficient and added-mass parameters required by `DrifterPhysics`. This keeps
+coefficient and added-mass parameters required by `DroguedDrifterPhysics`. This keeps
 the physics transparent: changing a geometric dimension (e.g. a wider drogue
 plate) directly updates both the drag and added-mass terms in a physically
 consistent way.
@@ -107,14 +105,13 @@ print(f"Drogue drag coeff  k_d       = {k_d:.2f} kg/m")
 print(f"Buoy drag coeff    k_b       = {k_b:.4f} kg/m")
 ```
 
-## Construct DrifterPhysics
+## Construct DroguedDrifterPhysics
 
-`DrifterPhysics` is a frozen `NamedTuple` that holds all 9 physical parameters.
-Once created it is passed to `eval_qdd`, `eval_M`, and `eval_F` along with a
-model instance.
+`DroguedDrifterPhysics` is a frozen `NamedTuple` that holds all 9 physical parameters.
+Once created it is passed (via the packer) to the lambdified EOM functions.
 
 ```python
-physics = DrifterPhysics(
+physics = DroguedDrifterPhysics(
     m_b=m_b,
     m_d=m_d,
     m_hat_d=m_hat_d,
@@ -128,16 +125,16 @@ physics = DrifterPhysics(
 print(physics)
 ```
 
-## Construct EOMState and evaluate the EOM
+## Construct DroguedDrifterState and evaluate the EOM
 
-`EOMState` carries per-timestep kinematics (stereographic coordinates and their
+`DroguedDrifterState` carries per-timestep kinematics (stereographic coordinates and their
 velocities) plus the current velocities at buoy and drogue depths. Here the
 drogue starts hanging straight down (stereographic coordinates `u_stereo =
 v_stereo = 0`) and the system is at rest, so we are evaluating the
 instantaneous acceleration felt the moment after a step-change in current.
 
 ```python
-state = EOMState(
+state = DroguedDrifterState(
     u_stereo=0.0,
     v_stereo=0.0,
     xd=0.0,
@@ -153,10 +150,12 @@ state = EOMState(
 
 ```python
 dd = DroguedDrifter(physics)
+qdd_raw, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
 
-qdd = eval_qdd(dd, physics, state)
-M   = eval_M(dd, physics, state)
-F   = eval_F(dd, physics, state)
+args = pack_eom_args(physics, state)
+qdd = np.ravel(qdd_raw(*args))
+M   = np.asarray(M_raw(*args), dtype=float)
+F   = np.ravel(F_raw(*args))
 
 print(f"qdd (generalized accelerations, shape {qdd.shape}):")
 print(f"  xdd        = {qdd[0]:.6f} m/s^2   (buoy east acceleration)")
@@ -191,7 +190,7 @@ eastward component across N values.
 N = 20
 U_b_sweep = np.linspace(0.0, 1.0, N)
 
-state_batch = EOMState(
+state_batch = DroguedDrifterState(
     u_stereo=np.zeros(N),
     v_stereo=np.zeros(N),
     xd=np.zeros(N),
@@ -204,19 +203,25 @@ state_batch = EOMState(
     V_d=np.zeros(N),
 )
 
-qdd_batch = eval_qdd(dd, physics, state_batch)
-M_batch   = eval_M(dd, physics, state_batch)
-F_batch   = eval_F(dd, physics, state_batch)
+args_batch = pack_eom_args(physics, state_batch)
+qdd_batch = np.column_stack(qdd_raw(*args_batch))  # (N, 4)
 
-print(f"Batch shapes — qdd: {qdd_batch.shape}, M: {M_batch.shape}, F: {F_batch.shape}")
+# M_raw / F_raw return nested structures with mixed scalar / (N,) elements.
+# Evaluate per particle to get clean (4,4) and (4,) arrays.
+print(f"Batch qdd shape: {qdd_batch.shape}")
 ```
 
 ```python
-# Verify M @ qdd ≈ F for every particle in the batch
-residuals = np.array([
-    np.max(np.abs(M_batch[i] @ qdd_batch[i] - F_batch[i]))
-    for i in range(N)
-])
+# Verify M @ qdd ≈ F for every particle in the batch.
+residuals = []
+for i in range(N):
+    state_i = DroguedDrifterState(*(s[i] if hasattr(s, '__len__') else s for s in state_batch))
+    args_i = pack_eom_args(physics, state_i)
+    M_i = np.asarray(M_raw(*args_i), dtype=float)
+    F_i = np.ravel(F_raw(*args_i))
+    residuals.append(np.max(np.abs(M_i @ qdd_batch[i] - F_i)))
+
+residuals = np.array(residuals)
 print(f"Max |M @ qdd - F| across all batch entries: {residuals.max():.2e}")
 assert np.all(residuals < 1e-10), "Batch residual too large"
 print("M @ qdd ≈ F for all batch entries  [OK]")
@@ -270,10 +275,11 @@ for w in w_d_values:
         k_d=k_d_w,
         g=g,
     )
-    xd_final, yd_final, Y_final, max_accel = dd.get_final_drift_batch(
+    t, Y, max_accel = dd.integrate(
         make_step_sampler(U_b, V_b, U_d, V_d), t_span=(0, 300),
     )
-    xd_finals.append(float(xd_final[0]))
+    drift_vel = dd.drift_velocity(Y[-1])
+    xd_finals.append(float(drift_vel[0, 0]))
     k_d_values.append(k_d_w)
 
 xd_finals = np.array(xd_finals)

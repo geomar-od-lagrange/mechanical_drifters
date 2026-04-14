@@ -45,7 +45,7 @@ import xarray as xr
 from parcels import FieldSet, Particle, ParticleFile, ParticleSet, StatusCode
 from parcels.kernels import AdvectionEE
 
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 from mechanical_drifters.parcels import make_kernel
 ```
 
@@ -119,7 +119,7 @@ print("FieldSet built.")
 
 The drifter kernel extracts the full velocity profile at each
 particle position using `fieldset.UV.eval()` and runs
-`DroguedDrifter.get_final_drift_batch` to obtain the steady-state drift
+`model.integrate()` to obtain the drift
 velocity. Spherical mesh is auto-detected.
 
 ```python

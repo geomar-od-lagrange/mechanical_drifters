@@ -40,6 +40,16 @@ the roadmap (and get their own plan file) when they become timely.
   investigation into how Parcels handles the time dimension indexing
   with varying particle counts.
 
+## Developer experience
+
+- **Speed up test suite.** The symbolic derivation + lambdification
+  during test setup dominates wall time. The EOM cache helps on
+  repeated runs, but a cold cache (or cache invalidation after code
+  changes) triggers multi-minute derivations. Worth profiling to find
+  whether the bottleneck is sympy derivation, lambdification, or
+  something else — and whether test-scoped fixtures can share more
+  work.
+
 ## Upstream (Parcels)
 
 - **`fieldset.UV.eval_profile(time, lat, lon, z_levels)`** — sample a

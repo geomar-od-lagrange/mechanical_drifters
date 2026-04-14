@@ -8,9 +8,48 @@ grids, including vector rotation and spherical mesh conversion).
 
 import numpy as np
 
-from .velocity import make_profile_sampler
-
 _DEG2M = 1852.0 * 60.0
+
+
+def _make_profile_sampler(depth_levels, U_profiles, V_profiles):
+    """Build a fast ``sample_uv(z)`` interpolator from pre-sampled velocity profiles.
+
+    Takes velocity profiles that have already been sampled at fixed depth
+    levels (e.g. once per Parcels timestep) and returns a callable that
+    performs linear interpolation in z.  This avoids repeated expensive
+    queries to the original data source during ODE integration.
+
+    Args:
+        depth_levels: 1-D array of vertical positions [m], positive upward
+            (0 = surface, negative = below MSL), shape ``(D,)``.  Must be
+            sorted ascending (deepest first, e.g. ``[-20, -10, 0]``).
+        U_profiles: Eastward velocity at each depth for each particle,
+            shape ``(D, N)``.
+        V_profiles: Northward velocity, same shape.
+
+    Returns:
+        Callable ``sample_uv(z) -> (U, V)`` where ``z`` is a scalar or
+        ``(N,)`` array and the return arrays have shape ``(N,)``.
+    """
+    depth_levels = np.asarray(depth_levels, dtype=float).copy()
+    U_profiles = np.asarray(U_profiles, dtype=float).copy()  # (D, N)
+    V_profiles = np.asarray(V_profiles, dtype=float).copy()
+    D, N = U_profiles.shape
+
+    def sample_uv(z):
+        z_arr = np.broadcast_to(np.asarray(z, dtype=float), N)
+        # Vectorized linear interpolation in z
+        idx = np.searchsorted(depth_levels, z_arr).clip(1, D - 1)
+        z0 = depth_levels[idx - 1]
+        z1 = depth_levels[idx]
+        w = (z_arr - z0) / np.maximum(z1 - z0, 1e-30)
+        # Fancy-index: U_profiles[idx-1, particle_index]
+        p = np.arange(N)
+        U = U_profiles[idx - 1, p] * (1 - w) + U_profiles[idx, p] * w
+        V = V_profiles[idx - 1, p] * (1 - w) + V_profiles[idx, p] * w
+        return U, V
+
+    return sample_uv
 
 
 def _extract_profiles(particles, fieldset, max_depth):
@@ -57,15 +96,15 @@ def _extract_profiles(particles, fieldset, max_depth):
             cos_lat = np.cos(np.deg2rad(lat))
             u = u * _DEG2M * cos_lat
             v = v * _DEG2M
-        U_profiles[iz] = u
-        V_profiles[iz] = v
+        U_profiles[iz, :] = u
+        V_profiles[iz, :] = v
 
     # Convert to z-up ascending for make_profile_sampler
     depth_up = -depth_levels[::-1]
     U_profiles = U_profiles[::-1]
     V_profiles = V_profiles[::-1]
 
-    return make_profile_sampler(depth_up, U_profiles, V_profiles)
+    return _make_profile_sampler(depth_up, U_profiles, V_profiles)
 
 
 def _position_update(particles, xd_ms, yd_ms, fieldset):
@@ -81,8 +120,7 @@ def _position_update(particles, xd_ms, yd_ms, fieldset):
         yd_ms: Northward drift velocity array, shape ``(N,)``, in m/s.
         fieldset: Parcels FieldSet (used to detect spherical vs flat mesh).
     """
-    is_spherical = fieldset.U.grid._mesh == "spherical"
-    if is_spherical:
+    if fieldset.U.grid._mesh == "spherical":
         lat = np.asarray(particles.lat)
         cos_lat = np.cos(np.deg2rad(lat))
         particles.dlon += xd_ms / (_DEG2M * cos_lat) * particles.dt
@@ -102,11 +140,13 @@ def make_kernel(model):
         Kernel function ``(particles, fieldset)`` for ``pset.execute``.
     """
     physics = model.physics
-    max_depth = model._max_depth(physics)
+    max_depth_fn = getattr(model, '_max_depth', None)
+    max_depth = max_depth_fn(physics) if max_depth_fn else 0.0
 
     def _kernel(particles, fieldset):
         sample_uv = _extract_profiles(particles, fieldset, max_depth)
-        drift_vel, _, _ = model.steady_state_batch(sample_uv)
+        t, Y, _ = model.integrate(sample_uv)
+        drift_vel = model.drift_velocity(Y[-1])
         _position_update(
             particles, drift_vel[:, 0], drift_vel[:, 1], fieldset,
         )

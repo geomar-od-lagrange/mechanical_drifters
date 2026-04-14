@@ -12,13 +12,10 @@ class LagrangianMechanicsModel:
 
     Subclass this to define a new drifting object. You must provide:
 
-    1. Class attributes: ``Physics``, ``State``, ``n_q``,
-       ``_drift_velocity_indices``.
-    2. Methods: ``default_physics``, ``_derive_symbolic``, ``_rhs_batch``,
-       ``_max_depth``.
+    1. Class attributes: ``Physics``, ``State``, ``n_q``, ``state_names``.
+    2. Methods: ``_derive_symbolic``, ``_rhs_batch``, ``drift_velocity``.
 
-    The base class provides ODE integration (``steady_state_batch``)
-    and a Parcels kernel factory (``make_kernel``).
+    The base class provides ODE integration (``integrate``).
 
     See ``DroguedDrifter`` for a complete example and
     ``PointSurfaceDrifter`` for a minimal one.
@@ -29,24 +26,18 @@ class LagrangianMechanicsModel:
     Physics = None   # NamedTuple class for physical constants
     State = None     # NamedTuple class for per-timestep state + forcing
     n_q = None       # number of generalized coordinates
-
-    # Indices into the state vector [q0, ..., q_{n-1}, qdot0, ..., qdot_{n-1}]
-    # that are the "drift velocity" output.
-    # DroguedDrifter: (4, 5) = (xd, yd).
-    _drift_velocity_indices = None
+    state_names = None  # tuple of str, e.g. ("x", "y", "xd", "yd")
 
     # --- Constructor ---
 
-    def __init__(self, physics=None, *, backend="numpy"):
+    def __init__(self, physics, *, backend="numpy"):
         # Validate that the subclass set the required class attributes.
-        for attr in ("Physics", "State", "n_q", "_drift_velocity_indices"):
+        for attr in ("Physics", "State", "n_q", "state_names"):
             if getattr(type(self), attr, None) is None:
                 raise TypeError(
                     f"{type(self).__name__} must set class attribute {attr!r}"
                 )
 
-        if physics is None:
-            physics = self.default_physics()
         self.physics = physics
         self.backend = backend
 
@@ -76,10 +67,6 @@ class LagrangianMechanicsModel:
 
     # --- Methods to override ---
 
-    def default_physics(self):
-        """Return the default Physics instance for this model."""
-        raise NotImplementedError
-
     def _derive_symbolic(self):
         """Derive symbolic M and F from the Lagrangian.
 
@@ -95,6 +82,17 @@ class LagrangianMechanicsModel:
 
         Returns:
             Tuple ``(M_static, F_static, args)``.
+        """
+        raise NotImplementedError
+
+    def drift_velocity(self, Y):
+        """Extract drift velocity from state array.
+
+        Args:
+            Y: State array, shape ``(N, state_size)``.
+
+        Returns:
+            Drift velocity array, shape ``(N, 2)``.
         """
         raise NotImplementedError
 
@@ -116,49 +114,35 @@ class LagrangianMechanicsModel:
         """
         raise NotImplementedError
 
-    def _max_depth(self, physics):
-        """Maximum depth [m, positive] to sample from the fieldset.
-
-        The Parcels coupling uses this to decide how many depth levels to
-        extract from the ocean model data.
-
-        Args:
-            physics: Physics NamedTuple.
-
-        Returns:
-            float, positive depth in meters.
-        """
-        raise NotImplementedError
-
     # --- Provided by the base class ---
 
-    def steady_state_batch(
+    def integrate(
         self,
         sample_uv,
         *,
         t_span=(0, 120),
         y0=None,
+        t_eval=None,
         atol=1e-3,
         rtol=1e-3,
     ):
-        """Compute steady-state drift velocities for N particles.
-
-        Stacks N particles into a single ``(state_size*N,)`` ODE system
-        and integrates to steady state.
+        """Integrate the ODE for the given time span.
 
         Args:
             sample_uv: Velocity sampler ``sample_uv(z) -> (U, V)``.
                 Returns ``(N,)`` arrays for ``(N,)`` input.
             t_span: Integration window ``(t_start, t_end)`` in seconds.
-            y0: Initial internal state, shape ``(N, state_size)``.
+            y0: Initial state, shape ``(N, state_size)``.
                 If None, cold-start from zeros (equilibrium at rest).
+            t_eval: Times at which to store the solution. If None,
+                only the final state is returned (T=1).
             atol, rtol: ODE solver tolerances.
 
         Returns:
-            Tuple ``(drift_vel, Y_final, max_accel)`` where:
-            - drift_vel: ``(N, len(_drift_velocity_indices))``
-            - Y_final: ``(N, state_size)`` internal state (for warm-start)
-            - max_accel: scalar convergence diagnostic
+            Tuple ``(t, Y, max_acceleration)`` where:
+            - t: ``(T,)`` time array
+            - Y: ``(T, N, state_size)`` state array
+            - max_acceleration: scalar (max |d(drift_vel)/dt| at final time)
         """
         ss = self.state_size
 
@@ -177,24 +161,51 @@ class LagrangianMechanicsModel:
             dY = self._rhs_batch(Y, sample_uv)
             return dY.ravel()
 
-        sol = solve_ivp(rhs_flat, t_span, y0_flat, atol=atol, rtol=rtol)
-        Y_final = sol.y[:, -1].reshape(N, ss)
+        sol = solve_ivp(
+            rhs_flat, t_span, y0_flat,
+            t_eval=t_eval, atol=atol, rtol=rtol,
+        )
+
+        if t_eval is None:
+            # Return only the final state: T=1
+            Y_final = sol.y[:, -1].reshape(1, N, ss)
+            t = np.array([sol.t[-1]])
+        else:
+            T = len(sol.t)
+            Y_full = np.empty((T, N, ss))
+            for i in range(T):
+                Y_full[i] = sol.y[:, i].reshape(N, ss)
+            Y_final = Y_full
+            t = sol.t
 
         # Convergence diagnostic: max drift acceleration at final state
-        dY_final = self._rhs_batch(Y_final, sample_uv)
-        idx = list(self._drift_velocity_indices)
-        max_accel = float(np.max(np.abs(dY_final[:, idx])))
+        Y_last = Y_final[-1]  # (N, ss)
+        dY_last = self._rhs_batch(Y_last, sample_uv)
+        drift_accel = self.drift_velocity(dY_last)
+        max_accel = float(np.max(np.abs(drift_accel)))
 
-        drift_vel = Y_final[:, idx]
-        return drift_vel, Y_final, max_accel
+        return t, Y_final, max_accel
 
-    def make_kernel(self):
-        """Create a Parcels-compatible kernel for this model.
+    def to_xarray(self, t, Y):
+        """Wrap integrate() output into an xr.Dataset using state_names.
 
-        Returns a ``(particles, fieldset)`` function suitable for
-        ``pset.execute(kernels=[...])``.  Uses ``self.physics`` and
-        ``self.backend``.
+        Args:
+            t: ``(T,)`` time array from integrate().
+            Y: ``(T, N, state_size)`` state array from integrate().
+
+        Returns:
+            xr.Dataset with dims ``(time, traj)`` and one DataArray per
+            state_names entry.
         """
-        from .parcels import make_kernel
+        import xarray as xr
 
-        return make_kernel(self)
+        T, N, ss = Y.shape
+        names = self.state_names
+        data_vars = {}
+        for k, name in enumerate(names):
+            data_vars[name] = (("time", "traj"), Y[:, :, k])
+        return xr.Dataset(
+            data_vars,
+            coords={"time": t, "traj": np.arange(N)},
+        )
+

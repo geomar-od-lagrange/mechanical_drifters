@@ -457,12 +457,12 @@ with a steady Stokes drift profile $u_\mathrm{St}(z) = A^2\omega k\,e^{2kz}$
 on a **flat** mean sea level surface ($\eta = 0$, no vertical motion).
 This is what `src/mechanical_drifters/` does in practice.
 
-The `DroguedDrifter.get_full_solution` method gives the full
+The `DroguedDrifter.integrate` method with `t_eval` gives the full
 time-resolved trajectory. We compare it to Object 3's measured mean drift.
 
 ```python
 # Object 4: DroguedDrifter from src, driven by steady Stokes profile (flat surface)
-from mechanical_drifters import DroguedDrifter
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 from mechanical_drifters.stokes import compute_stokes_profile
 
 # Surface Stokes drift (eastward only for this 1-D wave)
@@ -491,23 +491,24 @@ dd = DroguedDrifter(
 )
 
 # Integrate full trajectory
-ds4 = dd.get_full_solution(stokes_uv, t_span=(0, T_END), t_eval=t_eval)
+t4, Y4, _ = dd.integrate(stokes_uv, t_span=(0, T_END), t_eval=t_eval)
+ds4 = dd.to_xarray(t4, Y4)
 
 # Project 3D (theta, phi) to effective 2D pole angle in the x-z plane.
 # The 3D pole direction is (sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta)).
 # In the x-z plane, the effective angle is:
-theta_o4 = ds4.theta.to_numpy()
-phi_o4 = ds4.phi.to_numpy()
+theta_o4 = ds4.theta.isel(traj=0).to_numpy()
+phi_o4 = ds4.phi.isel(traj=0).to_numpy()
 theta_xz = np.arctan2(np.sin(theta_o4) * np.cos(phi_o4), np.cos(theta_o4))
 
 # Drogue position from projected angle (2D: x-z plane)
-x_o4_buoy = ds4.x.to_numpy()
+x_o4_buoy = ds4.x.isel(traj=0).to_numpy()
 x_o4_drogue = x_o4_buoy + dd.physics.l * np.sin(theta_xz)
 z_o4_drogue = dd.physics.l * np.cos(theta_xz)
 
 # Mean drift from buoy velocity (xd = dx/dt) in second half
 half_o4 = t_eval > T_END / 2
-mean_drift_dd_stokes = np.mean(ds4.xd.to_numpy()[half_o4])
+mean_drift_dd_stokes = np.mean(ds4.xd.isel(traj=0).to_numpy()[half_o4])
 print(f"Object 4 steady-state drift (DroguedDrifter + Stokes profile): {mean_drift_dd_stokes:.6f} m/s")
 print(f"Object 3 mean drift (wave orbitals, extended model):            {mean_drift_drifter:.6f} m/s")
 print(f"Difference (O4 - O3): {(mean_drift_dd_stokes - mean_drift_drifter)*1e3:.2f} mm/s")

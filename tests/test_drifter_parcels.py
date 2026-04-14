@@ -11,7 +11,7 @@ import pytest
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter
 from mechanical_drifters.parcels import make_kernel
-from mechanical_drifters.velocity import make_profile_sampler
+from mechanical_drifters.parcels import _make_profile_sampler as make_profile_sampler
 
 
 def test_make_profile_sampler_basic():

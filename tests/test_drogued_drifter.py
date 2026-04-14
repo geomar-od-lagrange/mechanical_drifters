@@ -9,14 +9,28 @@ from mechanical_drifters.models.drogued_drifter import (
     drogue_horizontal_drag_coeff,
 )
 from mechanical_drifters.models.drogued_drifter import (
-    DrifterPhysics,
-    EOMState,
+    DroguedDrifterPhysics,
+    DroguedDrifterState,
 )
 from mechanical_drifters.eom import (
-    eval_M,
-    eval_F,
+    _get_eom_callables,
     _make_qdd_func,
 )
+
+
+def _eval_M(model, physics, state):
+    """Evaluate mass matrix M using _get_eom_callables."""
+    _, M_raw, _, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    return np.array(M_raw(*args), dtype=float)
+
+
+def _eval_F(model, physics, state):
+    """Evaluate force vector F using _get_eom_callables."""
+    _, _, F_raw, pack = _get_eom_callables(model)
+    args = pack(physics, state)
+    F = np.array(F_raw(*args), dtype=float)
+    return F.ravel()
 
 
 def _step_sampler(U_b, V_b, U_d, V_d):
@@ -58,6 +72,24 @@ def _default_sample_uv(z):
     return U, V
 
 
+def _integrate_single(dd, sample_uv, *, t_span, t_eval=None,
+                       x=0.0, y=0.0, theta=np.pi, phi=0.0,
+                       xd=0.0, yd=0.0, thetad=0.0, phid=0.0):
+    """Helper: integrate a single particle with named initial conditions.
+
+    Returns (t, Y, max_accel) where Y is (T, 1, 8) in public coords.
+    """
+    y0 = np.array([[x, y, theta, phi, xd, yd, thetad, phid]])
+    return dd.integrate(sample_uv, t_span=t_span, y0=y0, t_eval=t_eval)
+
+
+def _final_drift_single(dd, sample_uv, *, t_span, **kwargs):
+    """Helper: integrate single particle, return (xd_final, yd_final, max_accel)."""
+    t, Y, max_accel = _integrate_single(dd, sample_uv, t_span=t_span, **kwargs)
+    vel = dd.drift_velocity(Y[-1])
+    return float(vel[0, 0]), float(vel[0, 1]), max_accel
+
+
 def test_drogued_drifter_instantiation():
     dd = DroguedDrifter()
     assert dd.physics.l == 3.0
@@ -65,8 +97,9 @@ def test_drogued_drifter_instantiation():
 
 def test_MF_callable():
     dd = DroguedDrifter()
-    assert callable(lambda p, s: eval_M(dd, p, s))
-    assert callable(lambda p, s: eval_F(dd, p, s))
+    _, M_raw, F_raw, _ = _get_eom_callables(dd)
+    assert callable(M_raw)
+    assert callable(F_raw)
 
 
 def test_qdd_func_evaluates():
@@ -76,7 +109,7 @@ def test_qdd_func_evaluates():
     U_b, V_b = _default_sample_uv(0.0)
     U_d, V_d = _default_sample_uv(-3.0)
 
-    state = EOMState(
+    state = DroguedDrifterState(
         u_stereo=0.1,
         v_stereo=0.05,
         xd=0.0,
@@ -97,7 +130,7 @@ def test_qdd_func_evaluates():
 def test_no_drift_for_zero_currents():
     dd = DroguedDrifter()
 
-    xd, yd, _ = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 30.0))
+    xd, yd, _ = _final_drift_single(dd, _sample_uv_zero, t_span=(0.0, 30.0))
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -107,7 +140,7 @@ def test_no_drift_for_theta_pi_zero_currents():
     """Drogue hangs straight down (theta=pi), no currents: should stay at rest."""
     dd = DroguedDrifter()
 
-    xd, yd, _ = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 30.0), theta=np.pi)
+    xd, yd, _ = _final_drift_single(dd, _sample_uv_zero, t_span=(0.0, 30.0), theta=np.pi)
 
     np.testing.assert_almost_equal(xd, 0.0, decimal=1)
     np.testing.assert_almost_equal(yd, 0.0, decimal=1)
@@ -148,33 +181,33 @@ def test_steady_state_independent_of_added_mass():
     dd_with = DroguedDrifter(m_tilde_d=101.0, m_tilde_b=1.9)
     dd_without = DroguedDrifter(m_tilde_d=0.0, m_tilde_b=0.0)
 
-    xd_with, yd_with, _ = dd_with.get_final_drift(
-        _sample_uv_sheared, t_span=(0.0, 600.0)
+    xd_with, yd_with, _ = _final_drift_single(
+        dd_with, _sample_uv_sheared, t_span=(0.0, 600.0)
     )
-    xd_without, yd_without, _ = dd_without.get_final_drift(
-        _sample_uv_sheared, t_span=(0.0, 600.0)
+    xd_without, yd_without, _ = _final_drift_single(
+        dd_without, _sample_uv_sheared, t_span=(0.0, 600.0)
     )
 
     np.testing.assert_almost_equal(xd_with, xd_without, decimal=1)
     np.testing.assert_almost_equal(yd_with, yd_without, decimal=1)
 
 
-def test_get_full_solution_returns_xarray():
-    """get_full_solution returns an xarray Dataset with named variables."""
+def test_integrate_returns_public_coords():
+    """integrate with t_eval returns (t, Y, max_accel) with public coords."""
     dd = DroguedDrifter()
-    ds = dd.get_full_solution(_default_sample_uv, t_span=(0, 10), t_eval=[0, 5, 10])
+    t_eval = [0, 5, 10]
+    t, Y, max_accel = dd.integrate(
+        _default_sample_uv, t_span=(0, 10), t_eval=t_eval,
+    )
 
-    assert "time" in ds.coords
-    for var in ["x", "y", "theta", "phi", "xd", "yd", "thetad", "phid"]:
-        assert var in ds, f"missing variable {var}"
-    assert len(ds.time) == 3
+    assert t.shape == (3,)
+    assert Y.shape == (3, 1, 8)
+    assert np.all(np.isfinite(Y))
 
-    # arithmetic preserves xarray type (needed for .plot())
-    import xarray as xr
-
-    theta_deg = ds.theta * 180 / np.pi
-    assert isinstance(theta_deg, xr.DataArray)
-    assert "time" in theta_deg.coords
+    # Check that theta values are in spherical range
+    theta_vals = Y[:, 0, 2]
+    assert np.all(theta_vals > 0)
+    assert np.all(theta_vals <= np.pi)
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +232,7 @@ def _make_const_uv(U_b, V_b, U_d, V_d):
 
 
 def test_batch_matches_scalar():
-    """get_final_drift_batch must agree with the scalar path for N=5 random conditions."""
+    """Batch integrate must agree with the scalar path for N=5 random conditions."""
     rng = np.random.default_rng(42)
     N = 5
     U_b = rng.uniform(-0.5, 0.5, N)
@@ -213,16 +246,19 @@ def test_batch_matches_scalar():
     # Build y0 in public format: (x, y, theta, phi, xd, yd, thetad, phid)
     y0_batch = np.zeros((N, 8))
     y0_batch[:, 2] = theta0  # theta column
-    # phi, xd, yd, thetad, phid all zero
 
     # --- batch path ---
     dd_batch = DroguedDrifter()
-    xd_batch, yd_batch, Y_batch, _ = dd_batch.get_final_drift_batch(
+    t, Y, _ = dd_batch.integrate(
         _step_sampler(U_b, V_b, U_d, V_d),
         t_span=t_span,
         y0=y0_batch,
     )
-    theta_batch = Y_batch[:, 2]
+    Y_final = Y[-1]
+    drift_vel = dd_batch.drift_velocity(Y_final)
+    xd_batch = drift_vel[:, 0]
+    yd_batch = drift_vel[:, 1]
+    theta_batch = Y_final[:, 2]
 
     # --- scalar path (one call per particle) ---
     xd_scalar = np.empty(N)
@@ -231,13 +267,15 @@ def test_batch_matches_scalar():
 
     for i in range(N):
         dd_i = DroguedDrifter()
-        ds = dd_i.get_full_solution(
+        t_i, Y_i, _ = _integrate_single(
+            dd_i,
             _make_const_uv(U_b[i], V_b[i], U_d[i], V_d[i]),
             t_span=t_span, theta=theta0,
         )
-        xd_scalar[i] = float(ds.xd.isel(time=-1))
-        yd_scalar[i] = float(ds.yd.isel(time=-1))
-        theta_scalar[i] = float(ds.theta.isel(time=-1))
+        Y_final_i = Y_i[-1, 0]  # (8,)
+        xd_scalar[i] = float(Y_final_i[4])
+        yd_scalar[i] = float(Y_final_i[5])
+        theta_scalar[i] = float(Y_final_i[2])
 
     np.testing.assert_allclose(xd_batch, xd_scalar, atol=1e-2, rtol=1e-2)
     np.testing.assert_allclose(yd_batch, yd_scalar, atol=1e-2, rtol=1e-2)
@@ -250,13 +288,15 @@ def test_batch_zero_currents():
     zeros = np.zeros(N)
     dd = DroguedDrifter()
 
-    xd, yd, Y_final, _ = dd.get_final_drift_batch(
+    t, Y, _ = dd.integrate(
         _step_sampler(zeros, zeros, zeros, zeros),
         t_span=(0.0, 120.0),
     )
+    Y_final = Y[-1]
+    drift_vel = dd.drift_velocity(Y_final)
 
-    np.testing.assert_allclose(xd, 0.0, atol=0.05)
-    np.testing.assert_allclose(yd, 0.0, atol=0.05)
+    np.testing.assert_allclose(drift_vel[:, 0], 0.0, atol=0.05)
+    np.testing.assert_allclose(drift_vel[:, 1], 0.0, atol=0.05)
     np.testing.assert_allclose(Y_final[:, 2], np.pi, atol=0.05)
 
 
@@ -265,7 +305,7 @@ def test_batch_uniform_currents():
     N = 10
     dd = DroguedDrifter()
 
-    xd, yd, Y_final, _ = dd.get_final_drift_batch(
+    t, Y, _ = dd.integrate(
         _step_sampler(
             np.full(N, 0.3),
             np.full(N, -0.1),
@@ -274,10 +314,11 @@ def test_batch_uniform_currents():
         ),
         t_span=(0.0, 120.0),
     )
+    Y_final = Y[-1]
+    drift_vel = dd.drift_velocity(Y_final)
 
-    # All particles must agree with each other
-    np.testing.assert_allclose(xd, xd[0], atol=1e-10)
-    np.testing.assert_allclose(yd, yd[0], atol=1e-10)
+    np.testing.assert_allclose(drift_vel[:, 0], drift_vel[0, 0], atol=1e-10)
+    np.testing.assert_allclose(drift_vel[:, 1], drift_vel[0, 1], atol=1e-10)
     np.testing.assert_allclose(Y_final[:, 2], Y_final[0, 2], atol=1e-10)
 
 
@@ -285,7 +326,7 @@ def test_batch_opposite_shear():
     """Two particles with swapped buoy/drogue forcing should give different drifts."""
     dd = DroguedDrifter()
 
-    xd, yd, Y_final, _ = dd.get_final_drift_batch(
+    t, Y, _ = dd.integrate(
         _step_sampler(
             np.array([0.1, 0.0]),
             np.array([0.0, 0.0]),
@@ -294,9 +335,9 @@ def test_batch_opposite_shear():
         ),
         t_span=(0.0, 120.0),
     )
+    drift_vel = dd.drift_velocity(Y[-1])
+    xd = drift_vel[:, 0]
 
-    # The drifter model is not symmetric in buoy vs drogue forcing,
-    # so the two particles must produce different drift velocities.
     assert not np.allclose(
         xd[0], xd[1], atol=1e-4
     ), f"Expected different xd for swapped buoy/drogue forcing, got {xd}"
@@ -309,7 +350,7 @@ def test_batch_drift_between_buoy_and_drogue():
 
     U_b_val, U_d_val = 0.2, 0.1
 
-    xd, yd, Y_final, _ = dd.get_final_drift_batch(
+    t, Y, _ = dd.integrate(
         _step_sampler(
             np.array([U_b_val]),
             np.zeros(N),
@@ -318,12 +359,13 @@ def test_batch_drift_between_buoy_and_drogue():
         ),
         t_span=(0.0, 120.0),
     )
+    drift_vel = dd.drift_velocity(Y[-1])
+    xd = drift_vel[:, 0]
+    yd = drift_vel[:, 1]
 
-    # The drifter cannot go faster than the fastest layer or slower than the slowest
     assert (
         U_d_val <= xd[0] <= U_b_val
     ), f"Expected {U_d_val} <= xd={xd[0]:.6f} <= {U_b_val}"
-    # y-drift should be negligible (no V forcing)
     np.testing.assert_allclose(yd[0], 0.0, atol=1e-3)
 
 
@@ -336,14 +378,13 @@ from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 
 def test_M_F_func_shapes():
-    """Verify eval_M and eval_F return correct shapes for scalar and batch inputs."""
+    """Verify M_raw and F_raw return correct shapes for scalar input."""
     dd = DroguedDrifter()
 
-    # Scalar input
-    M_scalar = eval_M(
+    M_scalar = _eval_M(
         dd,
         _DEFAULT_PHYSICS,
-        EOMState(
+        DroguedDrifterState(
             u_stereo=0.1, v_stereo=0.05,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -352,10 +393,10 @@ def test_M_F_func_shapes():
     )
     assert M_scalar.shape == (4, 4), f"Expected (4,4), got {M_scalar.shape}"
 
-    F_scalar = eval_F(
+    F_scalar = _eval_F(
         dd,
         _DEFAULT_PHYSICS,
-        EOMState(
+        DroguedDrifterState(
             u_stereo=0.1, v_stereo=0.05,
             xd=0.0, yd=0.0,
             ud_stereo=0.0, vd_stereo=0.0,
@@ -363,37 +404,6 @@ def test_M_F_func_shapes():
         ),
     )
     assert F_scalar.shape == (4,), f"Expected (4,), got {F_scalar.shape}"
-
-    # Batch input (N=5)
-    N = 5
-    u_batch = np.full(N, 0.1)
-    v_batch = np.full(N, 0.05)
-
-    M_batch = eval_M(
-        dd,
-        _DEFAULT_PHYSICS,
-        EOMState(
-            u_stereo=u_batch, v_stereo=v_batch,
-            xd=np.zeros(N), yd=np.zeros(N),
-            ud_stereo=np.zeros(N), vd_stereo=np.zeros(N),
-            U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
-            U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
-        ),
-    )
-    assert M_batch.shape == (N, 4, 4), f"Expected (N,4,4), got {M_batch.shape}"
-
-    F_batch = eval_F(
-        dd,
-        _DEFAULT_PHYSICS,
-        EOMState(
-            u_stereo=u_batch, v_stereo=v_batch,
-            xd=np.zeros(N), yd=np.zeros(N),
-            ud_stereo=np.zeros(N), vd_stereo=np.zeros(N),
-            U_b=np.full(N, 0.5), V_b=np.full(N, -0.3),
-            U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
-        ),
-    )
-    assert F_batch.shape == (N, 4), f"Expected (N,4), got {F_batch.shape}"
 
 
 def test_generated_vs_lambdified():
@@ -418,55 +428,16 @@ def test_generated_vs_lambdified():
     ]
 
     for pt in test_points:
-        state = EOMState(**pt)
+        state = DroguedDrifterState(**pt)
 
-        M_wrapped = eval_M(dd, _DEFAULT_PHYSICS, state)
-        F_wrapped = eval_F(dd, _DEFAULT_PHYSICS, state)
+        M_wrapped = _eval_M(dd, _DEFAULT_PHYSICS, state)
+        F_wrapped = _eval_F(dd, _DEFAULT_PHYSICS, state)
 
         assert M_wrapped.shape == (4, 4), f"M shape mismatch at {pt}"
         assert F_wrapped.shape == (4,), f"F shape mismatch at {pt}"
 
         assert np.all(np.isfinite(M_wrapped)), f"M has non-finite values at {pt}"
         assert np.all(np.isfinite(F_wrapped)), f"F has non-finite values at {pt}"
-
-
-def test_generated_vectorized():
-    """eval_M and eval_F must work on (N,) arrays and match scalar results."""
-    dd = DroguedDrifter()
-    N = 5
-    rng = np.random.default_rng(123)
-    u = rng.uniform(-1, 1, N)
-    v = rng.uniform(-1, 1, N)
-    xd = rng.uniform(-0.5, 0.5, N)
-    yd = rng.uniform(-0.5, 0.5, N)
-    ud = rng.uniform(-0.1, 0.1, N)
-    vd = rng.uniform(-0.1, 0.1, N)
-    U_b = rng.uniform(-0.5, 0.5, N)
-    V_b = rng.uniform(-0.5, 0.5, N)
-    U_d = rng.uniform(-0.5, 0.5, N)
-    V_d = rng.uniform(-0.5, 0.5, N)
-
-    batch_state = EOMState(
-        u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
-    )
-    M_vec = eval_M(dd, _DEFAULT_PHYSICS, batch_state)
-    F_vec = eval_F(dd, _DEFAULT_PHYSICS, batch_state)
-
-    assert M_vec.shape == (N, 4, 4), f"Expected M shape (N,4,4), got {M_vec.shape}"
-    assert F_vec.shape == (N, 4), f"Expected F shape (N,4), got {F_vec.shape}"
-
-    for i in range(N):
-        scalar_state = EOMState(
-            u_stereo=u[i], v_stereo=v[i],
-            xd=xd[i], yd=yd[i],
-            ud_stereo=ud[i], vd_stereo=vd[i],
-            U_b=U_b[i], V_b=V_b[i], U_d=U_d[i], V_d=V_d[i],
-        )
-        M_i = eval_M(dd, _DEFAULT_PHYSICS, scalar_state)
-        F_i = eval_F(dd, _DEFAULT_PHYSICS, scalar_state)
-
-        np.testing.assert_allclose(M_vec[i], M_i, atol=1e-14, err_msg=f"M mismatch at particle {i}")
-        np.testing.assert_allclose(F_vec[i], F_i, atol=1e-14, err_msg=f"F mismatch at particle {i}")
 
 
 # ---------------------------------------------------------------------------
@@ -635,7 +606,7 @@ class TestHorizontalRename:
 
 def test_state_vector_round_trip():
     """Construct a known state, convert public->internal->public, check each component."""
-    from mechanical_drifters.coords import _spherical_to_uv, _uv_to_spherical
+    from mechanical_drifters.models.drogued_drifter import _spherical_to_uv, _uv_to_spherical
     from mechanical_drifters.models.drogued_drifter import IX, IY, IU, IV, IXD, IYD, IUD, IVD
 
     x0, y0 = 100.0, -50.0
@@ -690,8 +661,8 @@ def test_max_accel_decreases_with_longer_t_span():
 
     dd = DroguedDrifter()
 
-    _, _, max_accel_short = dd.get_final_drift(_sample_uv_sheared, t_span=(0.0, 10.0))
-    _, _, max_accel_long = dd.get_final_drift(_sample_uv_sheared, t_span=(0.0, 600.0))
+    _, _, max_accel_short = _final_drift_single(dd, _sample_uv_sheared, t_span=(0.0, 10.0))
+    _, _, max_accel_long = _final_drift_single(dd, _sample_uv_sheared, t_span=(0.0, 600.0))
 
     assert max_accel_long < max_accel_short, (
         f"Expected max_accel to decrease with longer integration: "
@@ -702,7 +673,7 @@ def test_max_accel_decreases_with_longer_t_span():
 def test_max_accel_zero_for_zero_currents():
     """Zero currents from equilibrium: max_accel should be ~0 (no forcing)."""
     dd = DroguedDrifter()
-    _, _, max_accel = dd.get_final_drift(_sample_uv_zero, t_span=(0.0, 120.0))
+    _, _, max_accel = _final_drift_single(dd, _sample_uv_zero, t_span=(0.0, 120.0))
 
     np.testing.assert_allclose(
         max_accel,

@@ -15,7 +15,6 @@ import warnings
 import numpy as np
 import sympy as sp
 
-
 # ---------------------------------------------------------------------------
 # Packer: maps lambda parameter names to NamedTuple fields
 # ---------------------------------------------------------------------------
@@ -147,24 +146,21 @@ def _get_eom_callables(model):
 
     Returns:
         (qdd_raw, M_raw, F_raw, pack_eom_args)
+
+        M_raw returns a (n_q, n_q) numpy array for scalar input,
+        F_raw returns a (n_q, 1) numpy array for scalar input,
+        qdd_raw returns a tuple of n_q scalars with CSE (hot path).
     """
     key = type(model).__name__
     if key not in _CALLABLE_CACHE:
         M_static, F_static, qdd_exprs, args = _load_or_derive(model)
 
-        n_q = model.n_q
-
-        # Extract M upper-triangle elements (symmetric)
-        m_exprs = tuple(M_static[i, j]
-                        for i in range(n_q) for j in range(i, n_q))
-
-        # Extract F elements
-        f_exprs = tuple(F_static[i] for i in range(n_q))
-
-        # Lambdify with CSE
+        # Lambdify qdd as tuple of scalars with CSE (hot path, numba-compatible)
         qdd_raw = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
-        M_raw = sp.lambdify(args, m_exprs, modules="numpy", cse=True)
-        F_raw = sp.lambdify(args, f_exprs, modules="numpy", cse=True)
+
+        # Lambdify M and F as full Matrix expressions with CSE
+        M_raw = sp.lambdify(args, M_static, modules="numpy", cse=True)
+        F_raw = sp.lambdify(args, F_static, modules="numpy", cse=True)
 
         # Build packer once by inspecting the lambda signature
         pack_eom_args = _build_packer(qdd_raw, model.Physics, model.State)
@@ -231,97 +227,3 @@ def _make_qdd_func(model, backend="numpy"):
     return _QDD_CACHE[key]
 
 
-# ---------------------------------------------------------------------------
-# Public evaluation functions (take model instance as first argument)
-# ---------------------------------------------------------------------------
-
-
-def eval_qdd(model, physics, state, *, backend="numpy"):
-    """Evaluate generalized accelerations qdd = M^{-1}F.
-
-    Args:
-        model: A LagrangianMechanicsModel instance.
-        physics: Physics NamedTuple instance.
-        state: State NamedTuple instance.
-        backend: ``"numpy"`` or ``"numba"``.
-
-    Returns:
-        Generalized accelerations ``qdd = M^{-1}F``:
-        - ``(n_q,)`` array for scalar input.
-        - ``(N, n_q)`` array for batch input.
-    """
-    return _make_qdd_func(model, backend)(physics, state)
-
-
-def eval_M(model, physics, state):
-    """Evaluate the mass matrix M.
-
-    Args:
-        model: A LagrangianMechanicsModel instance.
-        physics: Physics NamedTuple instance.
-        state: State NamedTuple instance.
-
-    Returns:
-        Mass matrix:
-        - ``(n_q, n_q)`` for scalar input.
-        - ``(N, n_q, n_q)`` for batch input.
-    """
-    _, M_raw, _, pack_eom_args = _get_eom_callables(model)
-    n_q = model.n_q
-
-    u_arr = np.asarray(state[0])
-    batch_ndim = u_arr.ndim
-
-    M_elems = M_raw(*pack_eom_args(physics, state))
-
-    if batch_ndim == 0:
-        # Scalar: assemble (n_q, n_q)
-        M = np.zeros((n_q, n_q))
-        k = 0
-        for i in range(n_q):
-            for j in range(i, n_q):
-                M[i, j] = M[j, i] = float(M_elems[k])
-                k += 1
-    else:
-        # Batch: assemble (N, n_q, n_q)
-        N = u_arr.shape[0]
-        M = np.zeros((N, n_q, n_q))
-        k = 0
-        for i in range(n_q):
-            for j in range(i, n_q):
-                val = np.broadcast_to(M_elems[k], N)
-                M[:, i, j] = val
-                M[:, j, i] = val
-                k += 1
-
-    return M
-
-
-def eval_F(model, physics, state):
-    """Evaluate the force vector F.
-
-    Args:
-        model: A LagrangianMechanicsModel instance.
-        physics: Physics NamedTuple instance.
-        state: State NamedTuple instance.
-
-    Returns:
-        Force vector:
-        - ``(n_q,)`` for scalar input.
-        - ``(N, n_q)`` for batch input.
-    """
-    _, _, F_raw, pack_eom_args = _get_eom_callables(model)
-    n_q = model.n_q
-
-    u_arr = np.asarray(state[0])
-    batch_ndim = u_arr.ndim
-
-    F_elems = F_raw(*pack_eom_args(physics, state))
-
-    if batch_ndim == 0:
-        F = np.array(F_elems, dtype=float)
-    else:
-        N = u_arr.shape[0]
-        F = np.column_stack([np.broadcast_to(f, N) for f in F_elems])
-
-    return F
