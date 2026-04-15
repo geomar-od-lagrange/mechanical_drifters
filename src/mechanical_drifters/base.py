@@ -41,9 +41,9 @@ class LagrangianMechanicsModel:
         self.physics = physics
         self.backend = backend
 
-        from .eom import _make_qdd_func
+        from .eom import _get_eom_callables
 
-        self._qdd_func = _make_qdd_func(self, backend)
+        self._qdd_func = _get_eom_callables(self, backend)[0]
 
     # --- Properties ---
 

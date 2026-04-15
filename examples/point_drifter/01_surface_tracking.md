@@ -42,7 +42,6 @@ from mechanical_drifters.models.point_surface_drifter import (
     PointSurfaceDrifter,
     PointSurfacePhysics,
 )
-from mechanical_drifters.eom import _make_qdd_func
 ```
 
 ## Model creation

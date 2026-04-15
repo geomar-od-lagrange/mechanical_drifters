@@ -12,6 +12,7 @@ import pytest
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
+from mechanical_drifters.models.point_surface_drifter import PointSurfaceDrifter as _PointSurfaceDrifter
 from mechanical_drifters.eom import _make_qdd_func, _get_eom_callables
 from mechanical_drifters.models.drogued_drifter import _uv_to_theta
 
@@ -40,8 +41,9 @@ def test_packer_covers_all_struct_fields():
     import inspect
 
     dd = DroguedDrifter()
-    _qdd_raw, _M_raw, _F_raw, _pack = _get_eom_callables(dd)
-    lambda_params = set(inspect.signature(_qdd_raw).parameters)
+    _, M_raw, _, _pack = _get_eom_callables(dd)
+    # M_raw is a raw lambdified function whose parameters match Physics + State fields
+    lambda_params = set(inspect.signature(M_raw).parameters)
     struct_fields = set(DroguedDrifterPhysics._fields) | set(DroguedDrifterState._fields)
 
     missing_from_lambda = struct_fields - lambda_params
@@ -62,8 +64,8 @@ def test_packer_arg_order_matches_lambda():
     import inspect
 
     dd = DroguedDrifter()
-    _qdd_raw, _, _, pack = _get_eom_callables(dd)
-    lambda_params = list(inspect.signature(_qdd_raw).parameters)
+    _, M_raw, _, pack = _get_eom_callables(dd)
+    lambda_params = list(inspect.signature(M_raw).parameters)
 
     physics = DroguedDrifterPhysics(
         **{f: float(i) for i, f in enumerate(DroguedDrifterPhysics._fields)}
@@ -345,15 +347,13 @@ def test_lambdify_mixed_scalar_array_broadcast():
 def test_lambdify_cse_preserves_broadcasting():
     """Compare lambdify(cse=True) vs lambdify(cse=False) on batch input."""
     import sympy as sp
-    from mechanical_drifters.eom import _load_or_derive, _build_packer
+    from mechanical_drifters.eom import _load_or_derive, pack_eom_args
 
     dd = DroguedDrifter()
     _, _, qdd_exprs, args = _load_or_derive(dd)
 
     qdd_cse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=True)
     qdd_nocse = sp.lambdify(args, qdd_exprs, modules="numpy", cse=False)
-
-    pack = _build_packer(qdd_cse, DroguedDrifterPhysics, DroguedDrifterState)
 
     N = 10
     rng = np.random.default_rng(77)
@@ -365,7 +365,7 @@ def test_lambdify_cse_preserves_broadcasting():
         U_d=rng.uniform(-0.5, 0.5, N), V_d=rng.uniform(-0.5, 0.5, N),
     )
 
-    packed = pack(_DEFAULT_PHYSICS, state)
+    packed = pack_eom_args(_DEFAULT_PHYSICS, state)
     result_cse = np.column_stack(qdd_cse(*packed))
     result_nocse = np.column_stack(qdd_nocse(*packed))
 
@@ -385,3 +385,35 @@ def test_lambdify_batch_N1():
     qdd = _qdd_func(_DEFAULT_PHYSICS, state)
     assert qdd.shape == (1, 4), f"Expected (1, 4), got {qdd.shape}"
     assert np.all(np.isfinite(qdd))
+
+
+# ---------------------------------------------------------------------------
+# Safety test: pack order matches lambdify arg order for all models
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("model_cls", [DroguedDrifter, _PointSurfaceDrifter])
+def test_pack_order_matches_lambdify_args(model_cls):
+    """(*physics, *state) must produce the same results as the packer.
+
+    This verifies that the lambdified arg order is Physics fields
+    then State fields, so ``pack_eom_args = lambda p, s: (*p, *s)``
+    is a valid replacement for the former ``_build_packer``.
+    """
+    model = model_cls()
+    _, M_raw, _, pack = _get_eom_callables(model)
+
+    # Use float values throughout to avoid scalar/array mixing issues
+    physics = model.Physics(*(float(i) for i in range(1, len(model.Physics._fields) + 1)))
+    state = model.State(*(
+        float(i)
+        for i in range(100, 100 + len(model.State._fields))
+    ))
+
+    packed_result = M_raw(*pack(physics, state))
+    direct_result = M_raw(*physics, *state)
+
+    np.testing.assert_array_equal(
+        np.array(packed_result, dtype=float),
+        np.array(direct_result, dtype=float),
+    )

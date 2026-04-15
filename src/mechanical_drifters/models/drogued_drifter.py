@@ -88,20 +88,23 @@ class DroguedDrifterPhysics(NamedTuple):
 
     These are the 9 physical parameters that characterise the drifter geometry
     and drag properties.  They do not change during integration.
+
+    Default values correspond to the Callies et al. (2017) drifter design.
+    ``DroguedDrifterPhysics()`` gives these defaults.
     """
 
-    m_b: float  # buoy dry mass [kg]
-    m_d: float  # drogue dry mass [kg]
-    m_hat_d: float  # drogue buoyancy correction [kg]
-    m_tilde_d: float  # drogue added mass [kg]
-    m_tilde_b: float  # buoy added mass [kg]
-    l: float  # pole length [m]
-    g: float  # gravitational acceleration [m/s^2]
-    k_b: float  # buoy drag coefficient [kg/m]
-    k_d: float  # drogue drag coefficient [kg/m]
+    m_b: float = 1.0  # buoy dry mass [kg]
+    m_d: float = 2.7  # drogue dry mass [kg]
+    m_hat_d: float = 1.0  # drogue buoyancy correction [kg]
+    m_tilde_d: float = 101.0  # drogue added mass [kg]
+    m_tilde_b: float = 1.9  # buoy added mass [kg]
+    l: float = 3.0  # pole length [m]
+    g: float = 9.81  # gravitational acceleration [m/s^2]
+    k_b: float = 12.0  # buoy drag coefficient [kg/m]
+    k_d: float = 154.0  # drogue drag coefficient [kg/m]
 
 
-class DroguedDrifterState(NamedTuple):
+class _State(NamedTuple):
     """Per-timestep state variables and forcing.
 
     Fields hold scalars (in rhs) or (N,) arrays (in _rhs_batch).
@@ -118,6 +121,10 @@ class DroguedDrifterState(NamedTuple):
     V_b: float | np.ndarray  # current at buoy, north [m/s]
     U_d: float | np.ndarray  # current at drogue, east [m/s]
     V_d: float | np.ndarray  # current at drogue, north [m/s]
+
+
+# Backwards-compatible alias
+DroguedDrifterState = _State
 
 
 # ---------- Drag / added-mass helpers ----------
@@ -214,17 +221,11 @@ class DroguedDrifter(LagrangianMechanicsModel):
     """
 
     Physics = DroguedDrifterPhysics
-    State = DroguedDrifterState
+    State = _State
     n_q = 4
     state_names = ("x", "y", "theta", "phi", "xd", "yd", "thetad", "phid")
 
-    DEFAULT_PHYSICS = DroguedDrifterPhysics(
-        m_b=1.0, m_d=2.7, m_hat_d=1.0,
-        m_tilde_d=101.0, m_tilde_b=1.9,
-        l=3.0, g=9.81, k_b=12.0, k_d=154.0,
-    )
-
-    def __init__(self, physics=None, *, backend="numpy", **kwargs):
+    def __init__(self, physics=DroguedDrifterPhysics(), *, backend="numpy", **kwargs):
         """Create a DroguedDrifter.
 
         Accepts either a DroguedDrifterPhysics instance or individual keyword
@@ -235,13 +236,10 @@ class DroguedDrifter(LagrangianMechanicsModel):
             DroguedDrifter(l=5.0, k_d=200.0)             # override defaults
             DroguedDrifter(backend="numba")               # numba backend
         """
-        if physics is None:
-            if kwargs:
-                defaults = self.DEFAULT_PHYSICS._asdict()
-                defaults.update(kwargs)
-                physics = DroguedDrifterPhysics(**defaults)
-            else:
-                physics = self.DEFAULT_PHYSICS
+        if kwargs:
+            defaults = physics._asdict()
+            defaults.update(kwargs)
+            physics = DroguedDrifterPhysics(**defaults)
         super().__init__(physics, backend=backend)
 
     # --- Symbolic derivation (the physics) ---
@@ -356,7 +354,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
             "ud_stereo": ud_static, "vd_stereo": vd_static,
             "U_b": U_b, "V_b": V_b, "U_d": U_d, "V_d": V_d,
         }
-        all_fields = list(DroguedDrifterPhysics._fields) + list(DroguedDrifterState._fields)
+        all_fields = list(DroguedDrifterPhysics._fields) + list(_State._fields)
         args = tuple(symbol_map[field] for field in all_fields)
 
         return M_static, F_static, args
@@ -400,7 +398,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
         U_b, V_b = sample_uv(np.zeros(N))
         U_d, V_d = sample_uv(self._z_eff(u_stereo, v_stereo))
 
-        state = DroguedDrifterState(
+        state = _State(
             u_stereo=u_stereo, v_stereo=v_stereo,
             xd=xd, yd=yd,
             ud_stereo=ud_stereo, vd_stereo=vd_stereo,
@@ -421,9 +419,10 @@ class DroguedDrifter(LagrangianMechanicsModel):
         dY[:, IXD:] = qdd
         return dY
 
-    def _max_depth(self, physics):
+    @property
+    def _max_depth(self):
         """Drogue hangs at most one pole-length below surface."""
-        return physics.l
+        return self.physics.l
 
     def drift_velocity(self, Y):
         """Extract drift velocity from state array.

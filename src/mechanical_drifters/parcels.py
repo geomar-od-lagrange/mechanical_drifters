@@ -139,9 +139,7 @@ def make_kernel(model):
     Returns:
         Kernel function ``(particles, fieldset)`` for ``pset.execute``.
     """
-    physics = model.physics
-    max_depth_fn = getattr(model, '_max_depth', None)
-    max_depth = max_depth_fn(physics) if max_depth_fn else 0.0
+    max_depth = getattr(model, '_max_depth', 0.0)
 
     def _kernel(particles, fieldset):
         sample_uv = _extract_profiles(particles, fieldset, max_depth)

@@ -150,10 +150,10 @@ state = DroguedDrifterState(
 
 ```python
 dd = DroguedDrifter(physics)
-qdd_raw, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
+qdd_func, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
 
+qdd = qdd_func(physics, state)
 args = pack_eom_args(physics, state)
-qdd = np.ravel(qdd_raw(*args))
 M   = np.asarray(M_raw(*args), dtype=float)
 F   = np.ravel(F_raw(*args))
 
@@ -203,8 +203,7 @@ state_batch = DroguedDrifterState(
     V_d=np.zeros(N),
 )
 
-args_batch = pack_eom_args(physics, state_batch)
-qdd_batch = np.column_stack(qdd_raw(*args_batch))  # (N, 4)
+qdd_batch = qdd_func(physics, state_batch)  # (N, 4)
 
 # M_raw / F_raw return nested structures with mixed scalar / (N,) elements.
 # Evaluate per particle to get clean (4,4) and (4,) arrays.

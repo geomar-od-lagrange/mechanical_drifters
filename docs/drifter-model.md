@@ -112,7 +112,7 @@ from mechanical_drifters.eom import _get_eom_callables
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 
 dd = DroguedDrifter()
-qdd_raw, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
+qdd_func, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
 
 state = DroguedDrifterState(
     u_stereo=0.0, v_stereo=0.0,
@@ -120,6 +120,8 @@ state = DroguedDrifterState(
     ud_stereo=0.0, vd_stereo=0.0,
     U_b=1.0, V_b=0.0, U_d=-1.0, V_d=0.0,
 )
+qdd = qdd_func(dd.physics, state)  # (4,) numpy array
+
 args = pack_eom_args(dd.physics, state)
 M = M_raw(*args)   # (4, 4) numpy array
 F = F_raw(*args)   # (4, 1) numpy array

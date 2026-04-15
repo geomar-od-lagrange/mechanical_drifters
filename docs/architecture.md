@@ -54,25 +54,29 @@ The path from physics to executable functions:
    Lagrangian, computes the Euler-Lagrange equations, and extracts the
    mass matrix M and force vector F such that M qdd = F.
 
-2. **Caching**: the symbolic result is pickled to
+2. **Caching** (`caching.py`): the symbolic result is pickled to
    `data/eom_cache_{snake_case_name}.pkl`. The cache key is a hash of
    the derivation source code, the SymPy version, and the Python
    version. Cache misses trigger a re-derivation (~2 min for
    DroguedDrifter, negligible for PointSurfaceDrifter).
 
-3. **Lambdification**: `sp.lambdify` with `cse=True` converts the
-   symbolic expressions to NumPy callables. qdd is lambdified as a
-   tuple of scalars (hot path, numba-compatible). M and F are
-   lambdified as full Matrix expressions (for exploration).
+3. **Lambdification and wrapping** (`eom.py`): `sp.lambdify` with
+   `cse=True` converts the symbolic expressions to NumPy callables.
+   `_get_eom_callables(model, backend)` is the single entry point.
+   It returns `(qdd_func, M_raw, F_raw, pack_eom_args)`:
 
-4. **Packer**: `_build_packer` inspects the lambda parameter names and
-   maps them to fields in the Physics and State NamedTuples. This runs
-   once and returns a closure that assembles positional arguments from
-   `(physics, state)`.
+   - `qdd_func(physics, state)`: backend-wrapped evaluator that returns
+     `(n_q,)` for scalar input or `(N, n_q)` for batch.
+   - `M_raw`, `F_raw`: raw lambdified callables for exploration.
+   - `pack_eom_args(physics, state)`: packs Physics + State fields into
+     a flat positional arg tuple for calling `M_raw` and `F_raw`.
 
-5. **qdd evaluator**: `_make_qdd_func` combines the lambdified function
-   with the packer, handles scalar vs batch input, and optionally
-   JIT-compiles with numba (`backend="numba"`).
+   The lambdified arg order is Physics fields then State fields by
+   construction in `_derive_symbolic`, so packing is trivial:
+   `(*physics, *state)`.
+
+   For the `"numba"` backend, the raw qdd function is JIT-compiled
+   with `numba.njit` before wrapping.
 
 All of this is keyed by class name. Two DroguedDrifter instances share
 the same compiled EOM callables. A PointSurfaceDrifter gets its own.
@@ -83,27 +87,30 @@ the same compiled EOM callables. A PointSurfaceDrifter gets its own.
 src/mechanical_drifters/
   __init__.py           # empty
   base.py               # LagrangianMechanicsModel
-  eom.py                # caching, lambdification, qdd evaluator
+  caching.py            # disk-cache for symbolic derivations
+  eom.py                # lambdification, qdd evaluator
   parcels.py            # Parcels kernel factory + profile sampler
   stokes.py             # Stokes drift profile computation
   models/
     __init__.py
-    drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState, coord helpers
-    point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, PointSurfaceState
+    drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, _State, coord helpers
+    point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, _State
   data/
     eom_cache_*.pkl      # cached symbolic derivations
 ```
 
 ## Adding a new model
 
-1. Create `models/my_model.py` with a `MyPhysics` NamedTuple, a
-   `MyState` NamedTuple, and a `MyModel(LagrangianMechanicsModel)`
-   class.
+1. Create `models/my_model.py` with a `MyPhysics` NamedTuple (with
+   default field values), a `_State` NamedTuple, and a
+   `MyModel(LagrangianMechanicsModel)` class.
 
-2. Set the class attributes: `Physics`, `State`, `n_q`, `state_names`.
+2. Set the class attributes: `Physics`, `State = _State`, `n_q`,
+   `state_names`.
 
 3. Implement: `_derive_symbolic`, `_rhs_batch`, `drift_velocity`.
-   Provide a default physics via a class attribute or custom `__init__`.
+   Use the Physics type with defaults as the default `__init__` arg:
+   `def __init__(self, physics=MyPhysics(), *, backend="numpy")`.
 
 4. The symbol names in the `args` tuple returned by `_derive_symbolic`
    must exactly match `Physics._fields + State._fields`.

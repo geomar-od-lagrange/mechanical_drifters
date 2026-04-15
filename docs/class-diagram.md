@@ -29,7 +29,7 @@ Y: (T, N, state_size) — always public coords
 
     class DroguedDrifter {
         Physics = DroguedDrifterPhysics
-        State = DroguedDrifterState
+        State = _State
         n_q = 4
         state_names = (x y theta phi xd yd thetad phid)
         _derive_symbolic()
@@ -37,7 +37,7 @@ Y: (T, N, state_size) — always public coords
         drift_velocity(Y) → Y[:, [IXD, IYD]]
         integrate() → spherical in/out
         _z_eff(u, v) → drogue depth
-        _max_depth(physics) → pole length
+        _max_depth : property → pole length
         _to_public_state(Y) → stereo→spherical
         _from_public_state(Y) → spherical→stereo
     }
@@ -48,7 +48,7 @@ Caller never sees stereographic coords."
 
     class PointSurfaceDrifter {
         Physics = PointSurfacePhysics
-        State = PointSurfaceState
+        State = _State
         n_q = 2
         state_names = (x y xd yd)
         _derive_symbolic()
@@ -70,6 +70,7 @@ graph LR
     parcels --> models
     models --> base
     base --> eom[eom.py]
+    eom --> caching[caching.py]
 
     stokes
 

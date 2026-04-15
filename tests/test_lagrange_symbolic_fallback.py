@@ -10,7 +10,7 @@ from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDr
 from mechanical_drifters.eom import (
     _load_or_derive,
     _get_eom_callables,
-    _build_packer,
+    pack_eom_args,
 )
 
 
@@ -94,8 +94,7 @@ def test_derived_vs_cached_numerical_agreement():
     M_raw_fresh = sp.lambdify(args, M_fresh_sym, modules="numpy", cse=True)
     F_raw_fresh = sp.lambdify(args, F_fresh_sym, modules="numpy", cse=True)
 
-    packer = _build_packer(M_raw_fresh, DroguedDrifterPhysics, DroguedDrifterState)
-    params_tuple = packer(test_physics, test_state)
+    params_tuple = pack_eom_args(test_physics, test_state)
 
     M_fresh = np.array(M_raw_fresh(*params_tuple), dtype=float)
     F_fresh = np.array(F_raw_fresh(*params_tuple), dtype=float).ravel()
@@ -122,13 +121,11 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(type(dd), "_cache_path", property(lambda self: temp_cache))
 
     try:
-        qdd_raw, M_raw, F_raw, pack_eom_args = eom._get_eom_callables(dd)
+        qdd_func, M_raw, F_raw, pack = eom._get_eom_callables(dd)
 
-        assert callable(qdd_raw)
+        assert callable(qdd_func)
         assert callable(M_raw)
         assert callable(F_raw)
-
-        expected_n_args = len(DroguedDrifterPhysics._fields) + len(DroguedDrifterState._fields)
 
         test_physics = DroguedDrifterPhysics(
             m_b=1.0, m_d=2.7, m_hat_d=1.0,
@@ -141,15 +138,18 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
             ud_stereo=0.0, vd_stereo=0.0,
             U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
         )
-        packed = pack_eom_args(test_physics, test_state)
-        qdd_elems = qdd_raw(*packed)
+        # qdd_func takes (physics, state) directly
+        qdd_result = qdd_func(test_physics, test_state)
+        assert qdd_result.shape == (4,)
+        assert np.all(np.isfinite(qdd_result))
+
+        # M_raw and F_raw take unpacked args
+        packed = pack(test_physics, test_state)
         M_result = np.array(M_raw(*packed), dtype=float)
         F_result = np.array(F_raw(*packed), dtype=float)
 
-        assert len(qdd_elems) == 4
         assert M_result.shape == (4, 4)
         assert F_result.shape == (4, 1)
-        assert all(np.isfinite(q) for q in qdd_elems)
         assert np.all(np.isfinite(M_result))
         assert np.all(np.isfinite(F_result))
     finally:

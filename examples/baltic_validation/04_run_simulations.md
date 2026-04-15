@@ -31,6 +31,7 @@ DROGUE_DEPTH = 3.0
 DT = 300.0
 RUNTIME_HOURS = 288
 OUTPUTDT = 3600.0
+backend = "numba"
 ```
 
 ## Imports
@@ -123,9 +124,9 @@ particle position using `fieldset.UV.eval()` and runs
 velocity. Spherical mesh is auto-detected.
 
 ```python
-dd = DroguedDrifter()
+dd = DroguedDrifter(backend=backend)
 dd_kernel = make_kernel(dd)
-print("DroguedDrifter kernel created.")
+print(f"DroguedDrifter kernel created (backend={backend!r}).")
 ```
 
 ## Helper kernel and release arrays

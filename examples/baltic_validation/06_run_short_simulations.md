@@ -30,6 +30,7 @@ DT = 300.0
 SEGMENT_HOURS = 12
 RESTART_HOURS = 12
 OUTPUTDT = 3600.0
+backend = "numba"
 ```
 
 ## Imports
@@ -112,7 +113,7 @@ ds_eff["grid"] = xr.DataArray(
 
 fieldset = FieldSet.from_sgrid_conventions(ds_eff, mesh="spherical")
 
-dd = DroguedDrifter()
+dd = DroguedDrifter(backend=backend)
 dd_kernel = make_kernel(dd)
 
 SURFACE_DEPTH = 0.0

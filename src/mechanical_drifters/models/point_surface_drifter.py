@@ -10,20 +10,27 @@ from ..base import LagrangianMechanicsModel
 
 
 class PointSurfacePhysics(NamedTuple):
-    """Physical constants for a point surface drifter."""
+    """Physical constants for a point surface drifter.
 
-    m: float  # mass [kg]
-    m_tilde: float  # added mass [kg]
-    k: float  # drag coefficient [kg/m]
+    Default values: ``PointSurfacePhysics()`` gives m=1, m_tilde=1, k=10.
+    """
+
+    m: float = 1.0  # mass [kg]
+    m_tilde: float = 1.0  # added mass [kg]
+    k: float = 10.0  # drag coefficient [kg/m]
 
 
-class PointSurfaceState(NamedTuple):
+class _State(NamedTuple):
     """Per-timestep state variables and forcing."""
 
     xd: float | np.ndarray  # eastward drift velocity [m/s]
     yd: float | np.ndarray  # northward drift velocity [m/s]
     U: float | np.ndarray  # current at surface, east [m/s]
     V: float | np.ndarray  # current at surface, north [m/s]
+
+
+# Backwards-compatible alias
+PointSurfaceState = _State
 
 
 # State vector layout: [x, y, xd, yd]
@@ -41,15 +48,11 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
     """
 
     Physics = PointSurfacePhysics
-    State = PointSurfaceState
+    State = _State
     n_q = 2
     state_names = ("x", "y", "xd", "yd")
 
-    DEFAULT_PHYSICS = PointSurfacePhysics(m=1.0, m_tilde=1.0, k=10.0)
-
-    def __init__(self, physics=None, *, backend="numpy"):
-        if physics is None:
-            physics = self.DEFAULT_PHYSICS
+    def __init__(self, physics=PointSurfacePhysics(), *, backend="numpy"):
         super().__init__(physics, backend=backend)
 
     def _derive_symbolic(self):
@@ -106,7 +109,7 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
             "m": m, "m_tilde": m_tilde, "k": k,
             "xd": xd_static, "yd": yd_static, "U": U, "V": V,
         }
-        all_fields = list(PointSurfacePhysics._fields) + list(PointSurfaceState._fields)
+        all_fields = list(PointSurfacePhysics._fields) + list(_State._fields)
         args = tuple(symbol_map[field] for field in all_fields)
 
         return M_static, F_static, args
@@ -127,7 +130,7 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
 
         U, V = sample_uv(np.zeros(N))
 
-        state = PointSurfaceState(xd=xd, yd=yd, U=U, V=V)
+        state = _State(xd=xd, yd=yd, U=U, V=V)
         qdd = self._qdd_func(self.physics, state)
 
         bad = ~np.isfinite(qdd).all(axis=1)
