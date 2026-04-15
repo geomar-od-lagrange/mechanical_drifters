@@ -449,10 +449,20 @@ class DroguedDrifter(LagrangianMechanicsModel):
             ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
         """
         Y = np.asarray(Y_public, dtype=float).reshape(-1, 8)
-        u, v, ud, vd = _spherical_to_uv(Y[:, 2], Y[:, 3], Y[:, 6], Y[:, 7])
-        return np.column_stack([
-            Y[:, 0], Y[:, 1], u, v, Y[:, 4], Y[:, 5], ud, vd,
-        ])
+        # Public layout: [x, y, theta, phi, xd, yd, thetad, phid]
+        # Internal layout: [x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]
+        # Indices IU, IV, IUD, IVD mark where stereo coords go in the internal layout.
+        u, v, ud, vd = _spherical_to_uv(Y[:, IU], Y[:, IV], Y[:, IUD], Y[:, IVD])
+        result = np.empty_like(Y)
+        result[:, IX] = Y[:, IX]
+        result[:, IY] = Y[:, IY]
+        result[:, IU] = u
+        result[:, IV] = v
+        result[:, IXD] = Y[:, IXD]
+        result[:, IYD] = Y[:, IYD]
+        result[:, IUD] = ud
+        result[:, IVD] = vd
+        return result
 
     def _to_public_state(self, Y_internal):
         """Convert internal state (stereographic) to public (spherical).

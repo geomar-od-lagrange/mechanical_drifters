@@ -1,3 +1,5 @@
+Implemented. See [docs/architecture.md](../../docs/architecture.md).
+
 # Plan: model-independence refactor
 
 Make each model self-contained, push Parcels to the boundary, consolidate

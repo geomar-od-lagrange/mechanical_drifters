@@ -1,7 +1,6 @@
 # Class diagram
 
-Target architecture after the model-independence refactor
-([plan](../plans/model-independence-refactor.md)).
+Current architecture.
 
 ```mermaid
 classDiagram

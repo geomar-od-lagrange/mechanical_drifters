@@ -7,11 +7,8 @@ import numpy as np
 import pytest
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
-from mechanical_drifters.eom import (
-    _load_or_derive,
-    _get_eom_callables,
-    pack_eom_args,
-)
+from mechanical_drifters.caching import _load_or_derive
+from mechanical_drifters.eom import _get_eom_callables, pack_eom_args
 
 
 def _eval_M(model, physics, state):

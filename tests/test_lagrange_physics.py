@@ -13,12 +13,12 @@ from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 from mechanical_drifters.models.point_surface_drifter import PointSurfaceDrifter as _PointSurfaceDrifter
-from mechanical_drifters.eom import _make_qdd_func, _get_eom_callables
+from mechanical_drifters.eom import _get_eom_callables
 from mechanical_drifters.models.drogued_drifter import _uv_to_theta
 
 
 dd_singleton = DroguedDrifter()
-_qdd_func = _make_qdd_func(dd_singleton, "numpy")
+_qdd_func = _get_eom_callables(dd_singleton, "numpy")[0]
 
 
 def _eval_M(model, physics, state):
@@ -347,7 +347,8 @@ def test_lambdify_mixed_scalar_array_broadcast():
 def test_lambdify_cse_preserves_broadcasting():
     """Compare lambdify(cse=True) vs lambdify(cse=False) on batch input."""
     import sympy as sp
-    from mechanical_drifters.eom import _load_or_derive, pack_eom_args
+    from mechanical_drifters.caching import _load_or_derive
+    from mechanical_drifters.eom import pack_eom_args
 
     dd = DroguedDrifter()
     _, _, qdd_exprs, args = _load_or_derive(dd)

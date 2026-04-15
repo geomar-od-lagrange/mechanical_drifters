@@ -10,7 +10,7 @@ Disk-cache logic lives in ``caching.py``.
 import numpy as np
 import sympy as sp
 
-from .caching import _cache_key, _load_or_derive  # noqa: F401 — re-exported for tests
+from .caching import _load_or_derive
 
 
 # ---------------------------------------------------------------------------
@@ -26,9 +26,6 @@ def pack_eom_args(physics, state):
     """
     return (*physics, *state)
 
-
-# Backwards-compatible alias
-_build_packer = None  # removed — use pack_eom_args directly
 
 
 # ---------------------------------------------------------------------------
@@ -111,16 +108,3 @@ def _get_eom_callables(model, backend="numpy"):
     qdd_func = _QDD_CACHE[qdd_key]
 
     return qdd_func, M_raw, F_raw, pack_eom_args
-
-
-# ---------------------------------------------------------------------------
-# Backwards-compatible alias for _make_qdd_func
-# ---------------------------------------------------------------------------
-
-
-def _make_qdd_func(model, backend="numpy"):
-    """Build a qdd evaluator for the given model and backend.
-
-    .. deprecated:: Use ``_get_eom_callables(model, backend)[0]`` instead.
-    """
-    return _get_eom_callables(model, backend)[0]

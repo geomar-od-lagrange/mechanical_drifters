@@ -12,10 +12,7 @@ from mechanical_drifters.models.drogued_drifter import (
     DroguedDrifterPhysics,
     DroguedDrifterState,
 )
-from mechanical_drifters.eom import (
-    _get_eom_callables,
-    _make_qdd_func,
-)
+from mechanical_drifters.eom import _get_eom_callables
 
 
 def _eval_M(model, physics, state):
@@ -104,7 +101,7 @@ def test_MF_callable():
 
 def test_qdd_func_evaluates():
     dd = DroguedDrifter()
-    _qdd_func = _make_qdd_func(dd, "numpy")
+    _qdd_func = _get_eom_callables(dd, "numpy")[0]
 
     U_b, V_b = _default_sample_uv(0.0)
     U_d, V_d = _default_sample_uv(-3.0)
@@ -455,7 +452,7 @@ def test_cache_loads_successfully():
     """Test that the pickle cache loads and has the expected keys."""
     import pickle
 
-    from mechanical_drifters.eom import _cache_key
+    from mechanical_drifters.caching import _cache_key
 
     dd = DroguedDrifter()
     cache_path = dd._cache_path

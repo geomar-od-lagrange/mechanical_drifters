@@ -1,3 +1,5 @@
+Implemented. See [docs/architecture.md](../../docs/architecture.md).
+
 # Plan: API polish
 
 Follow-up to [model-independence-refactor](model-independence-refactor.md)
