@@ -263,7 +263,7 @@ The nuclear option: extract `U.data.values` and `V.data.values` once (numpy arra
 
 ### Phase 1: Quick wins, no Parcels changes (target: 30 s -> ~8 s)
 
-1. **Opportunity E: Batch depth levels** into a single `fieldset.UV.eval()` call.  This is a 5-line change in `DDAdvectEE` (parcels_v4.py).  Expected 3-4x speedup on the Parcels portion (30 s -> ~8 s).  Zero risk.
+1. **Opportunity E: Batch depth levels** into a single `fieldset.UV.eval()` call.  This is a 5-line change in the kernel (parcels.py).  Expected 3-4x speedup on the Parcels portion (30 s -> ~8 s).  Zero risk.
 
 2. **Opportunity D: Cache time float conversion** via a one-line monkey-patch or wrapper.  Trivial, ~0 risk.
 
@@ -281,7 +281,7 @@ The nuclear option: extract `U.data.values` and `V.data.values` once (numpy arra
        """Generic path: batched fieldset.UV.eval()."""
        ...
 
-   # In DDAdvectEE:
+   # In the kernel (_extract_profiles):
    if is_rectilinear_agrid(fieldset):
        U_profiles, V_profiles = _fast_profile_sample_agrid(...)
    else:

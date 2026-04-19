@@ -9,5 +9,6 @@ __pycache__/
 output/
 *.zarr
 .claude
+!.claude/skills
 tmp_*
 .coverage

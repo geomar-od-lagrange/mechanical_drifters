@@ -1,57 +1,73 @@
 # Agent guidelines for this project
 
-## Multi-agent workflow
+(This file is `AGENTS.md` on disk and symlinked to `CLAUDE.md`.)
 
-**Model choice:** Use a lighter model for mechanical and verification tasks. Reserve more capable models for architecture, design decisions, and judgment calls.
+## No backwards compatibility
+
+This is pre-alpha research code. No installed base, no users to migrate. **Never add backwards-compatibility aliases, shims, re-exports, or deprecation wrappers.** When you rename, move, or delete something, update every reference in the same pass and delete the old name. A stale alias is worse than a clean break — it silently preserves coupling that the change was meant to eliminate.
+
+Even after release, anything prefixed with `_` is internal and can change between minor versions.
+
+## Principles
+
+**Greenfield mindset.** If the current shape is in the way of the right shape, reshape it. Don't add workaround constraints when restructuring eliminates the problem. Deletions, renames, and rewrites are the normal mode.
+
+**Be ruthless about dropping dead code.** Patch sparingly; rewrite when the abstraction is wrong. Prefer clean parameter plumbing over clever hacks — no monkey-patches, global state swaps, or closure tricks when passing a parameter through the call chain is cleaner.
+
+**Be diligent about follow-through.** When you touch a name, signature, or path, grep for every reference and update them in the same pass. Don't leave stale imports, dead references, or half-updated docs for a later cleanup step.
+
+**Sympy is a derivation tool, not a display tool.** Let sympy derive results from the physics — don't hand-derive and then use sympy to typeset. Keep the full chain from Lagrangian to executable functions intact and reproducible.
+
+## Agent workflow
 
 **Planning before code:** Write plans to `plans/*.md` before touching source. Don't skip planning for complex changes; don't let implementation agents make architectural decisions unguided.
 
-**Red-Green-Blue TDD:** One agent writes failing tests, another implements minimally to make them pass, a third reviews quality. Use this pattern for feature work and refactors.
+**Model choice:** Use a lighter model for mechanical and verification tasks. Reserve more capable models for architecture, design decisions, and judgment calls.
+
+**Red-Green-Blue TDD:** One agent writes failing tests, another implements minimally to make them pass, a third reviews quality. Two rounds: interface first, then behavior.
 
 **Always review after implementation:** A separate review agent should examine the result. This catches both conceptual mistakes and quality issues.
 
 **Experimental validation:** Use `tmp_*/` directories to prove ideas before committing to architecture changes. Once validated, clean up or move to permanent locations.
 
-## Environment and build
+## Tooling
 
 Use **pixi** for environment management. Run all commands with `pixi run`. Prefer conda packages; use pypi only when no suitable conda package exists.
 
-## Code and derivations
+## Conventions
 
-**Sympy is a derivation tool, not a display tool.** Let sympy derive results from the physics — don't hand-derive and then use sympy to typeset. Keep the full chain from Lagrangian to executable functions intact and reproducible.
+### Code
 
 **Be careful with generated or derived artifacts.** Some files in the repository may be cached outputs of expensive computations rather than hand-written source. Before editing them, check how they were produced and whether changing the source is the right fix instead.
 
-Be ruthless about dropping dead code. Patch sparingly; rewrite when the abstraction is wrong.
+### Notebooks
 
-**This is pre-alpha research code. Internal API changes are free.** Changing signatures of private functions (`_rhs_batch`, `_make_qdd_func`, etc.) is not only acceptable but expected — do not work around internal interfaces with monkey-patches, global state swaps, or closure tricks when passing a parameter through the call chain is cleaner. Even after release, anything prefixed with `_` is internal and can change between minor versions. Prefer clean parameter plumbing over clever hacks.
+See the **jupytext skill** (`.agents/skills/jupytext/SKILL.md`) for the full workflow: creating, syncing, executing, and fixing notebooks.
 
-## Notebooks
-
+- The `.md` is the source of truth. Execute with `pixi run jupytext --sync --execute <nb>.md`. Papermill only for parameter injection. Do not use `jupyter nbconvert --execute`.
 - Markdown cells for narrative; clean code cells for execution.
 - Well-scoped cells — don't mix imports, parameters, and calculations.
+- Every notebook must have one early parameters cell tagged `"parameters"` containing only primitive assignments (`int`, `float`, `str`, `bool`, `None`). All calculations, transformations, and derived values belong in subsequent cells. This keeps notebooks papermill-compatible for parameter sweeps.
 - Use `display()` for sympy output.
 - **Never write summary cells with prose that assumes results.** Summary cells must compute and print dynamically.
 - Use xarray, pandas etc. _public_ API. Example: `ds.lon.isel(traj=0)` instead of `ds.lon.values[0, :]` etc.
 - After fixing bugs, rerun immediately without asking.
-- **Execute notebooks with papermill**: `cd <notebook-dir> && pixi run papermill <nb.ipynb> <nb.ipynb>` (in-place, cwd = notebook directory). Use `--execution-timeout 600` for notebooks with symbolic derivations. Do not use `jupyter nbconvert --execute`.
-- Ensure all parameters are in a parameters cell close to the beginning of the notebook. The parameters cell neesd to be tagged "parameters" and only declare and assign primitives. All calculations, transformations, etc. of these parameters have to happen outside of the parameters cell.
 
-## Plotting
+### Plotting
 
 - Keep plots vanilla. No custom colormaps, figsize, or axis labels when xarray handles them.
 - Use builtin plotting instead of raw matplotlib if possible.
 - Focus on the data. Use cartopy with Natural Earth or OSM tiles for maps.
 
-## Documentation
+### Documentation
 
 `docs/*.md` contains standalone documentation for the current state of the code. Each doc should make sense on its own without referencing previous implementations, changelogs, or development history. Explain design choices by comparing alternatives and their trade-offs, not by narrating what changed. Git history is the changelog; docs describe what *is*, not what *was*.
 
-`plans/*.md` describe intent before implementation. When a plan is implemented: write a corresponding `docs/` file, move the plan to `plans/done/`, and add a one-liner at the top pointing to the doc. Plans have no frontmatter or structured metadata — roadmap files in `plans/` provide the index. Agents get context by reading `docs/*.md` (what is) + open `plans/*.md` (what's next).
+`plans/*.md` describe intent before implementation. When a plan is implemented: write a corresponding `docs/` file, move the plan to `plans/done/`, and add a one-liner at the top pointing to the doc. Plans have no frontmatter or structured metadata — `ROADMAP.md` and `BACKLOG.md` in `plans/` provide the index. Agents get context by reading `docs/*.md` (what is) + open `plans/*.md` (what's next).
 
-Use markdown relative links when referencing other files in `plans/` and `docs/`. Example: `[parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)` from a plan, `[backlog.md](backlog.md)` within `plans/`.
+Use markdown relative links when referencing other files in `plans/` and `docs/`. Example: `[parcels-v4-coupling.md](../docs/parcels-v4-coupling.md)` from a plan, `[BACKLOG.md](BACKLOG.md)` within `plans/`.
 
-## Data access
+### Data access
 
 - Use `copernicusmarine.open_dataset` with minimal arguments.
 - Subset with `.sel()`.

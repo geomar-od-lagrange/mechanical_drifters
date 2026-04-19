@@ -2,10 +2,9 @@
 
 import pytest
 
-from drogued_drifters.drifter import DroguedDrifter
-from drogued_drifters.eom import DrifterPhysics, EOMState
+from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 
-DEFAULT_PHYSICS = DrifterPhysics(
+DEFAULT_PHYSICS = DroguedDrifterPhysics(
     m_b=1.0,
     m_d=2.7,
     m_hat_d=1.0,
@@ -26,13 +25,13 @@ def dd():
 
 @pytest.fixture
 def default_eom_state():
-    """Return a simple equilibrium EOMState (drogue hanging straight down, at rest).
+    """Return a simple equilibrium DroguedDrifterState (drogue hanging straight down, at rest).
 
     All stereographic coordinates are zero (equilibrium = drogue pointing down),
     velocities are zero, and currents are zero.  This is the simplest valid state
     for testing EOM callables without physical forcing.
     """
-    return EOMState(
+    return DroguedDrifterState(
         u_stereo=0.0,
         v_stereo=0.0,
         xd=0.0,

@@ -30,8 +30,7 @@ the roadmap (and get their own plan file) when they become timely.
   solver wastes effort on near-equilibrium states. A fixed-step
   Euler/RK4 with short t_span (~10 steps of 1s) would give
   predictable cost. Requires the time-averaged drift velocity work
-  above for a meaningful convergence metric. See
-  [numba-acceleration.md](numba-acceleration.md) (warm-start section).
+  above for a meaningful convergence metric.
 
 - **Batch depth levels into one `fieldset.UV.eval()` call.** Tile
   lat/lon D times and call eval once with `(D*N,)` arrays instead of
@@ -40,6 +39,16 @@ the roadmap (and get their own plan file) when they become timely.
   produces mismatched index array shapes when npart changes. Needs
   investigation into how Parcels handles the time dimension indexing
   with varying particle counts.
+
+## Developer experience
+
+- **Speed up test suite.** The symbolic derivation + lambdification
+  during test setup dominates wall time. The EOM cache helps on
+  repeated runs, but a cold cache (or cache invalidation after code
+  changes) triggers multi-minute derivations. Worth profiling to find
+  whether the bottleneck is sympy derivation, lambdification, or
+  something else — and whether test-scoped fixtures can share more
+  work.
 
 ## Upstream (Parcels)
 
@@ -62,6 +71,28 @@ the roadmap (and get their own plan file) when they become timely.
 - **Parcels v4 zarr output bug.** Custom kernels can produce
   incorrect output under certain conditions. See
   [parcels_v4_output_bug.md](parcels_v4_output_bug.md).
+
+## Architecture
+
+- **Parcels-integrated EOM stepping.** The current kernel solves the
+  internal ODE to steady state each Parcels timestep, then hands back a
+  drift velocity. An alternative mode would expose the EOM accelerations
+  directly and let Parcels handle the time integration — the kernel
+  evaluates `qdd` from the current state, updates generalized velocities
+  via particle attributes (e.g. `pv_u`, `pv_v`, `qd_*`), and sets
+  `dlon`/`dlat` for position. This keeps the full transient dynamics
+  (no steady-state assumption) and lets Parcels control the timestep.
+  Requires custom particle classes with velocity/state attributes.
+  Interesting for inertial particles that never reach steady state, or
+  for models where the steady-state assumption breaks down (fast-changing
+  currents relative to the drifter response time).
+
+- **SparBuoy with real Lagrangian mechanics.** The current SparBuoy was
+  dropped (it was a depth-average hack that faked the base class
+  contract). When real spar buoy EOM are derived — tilt dynamics of a
+  vertical cylinder with float and keel — it enters as a proper
+  `LagrangianMechanicsModel` subclass with `_derive_symbolic` and the
+  full pipeline.
 
 ## Science
 
