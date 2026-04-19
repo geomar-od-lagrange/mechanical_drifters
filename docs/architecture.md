@@ -62,11 +62,12 @@ The path from physics to executable functions:
 
 3. **Lambdification and wrapping** (`eom.py`): `sp.lambdify` with
    `cse=True` converts the symbolic expressions to NumPy callables.
-   `_get_eom_callables(model, backend)` is the single entry point.
+   `get_eom_callables(model, backend)` is the single entry point.
    It returns `(qdd_func, M_raw, F_raw, pack_eom_args)`:
 
-   - `qdd_func(physics, state)`: backend-wrapped evaluator that returns
-     `(n_q,)` for scalar input or `(N, n_q)` for batch.
+   - `qdd_func(physics, state, *, batch)`: backend-wrapped evaluator.
+     With `batch=False`, returns `(n_q,)` from scalar State fields.
+     With `batch=True`, returns `(N, n_q)` from `(N,)`-shaped State fields.
    - `M_raw`, `F_raw`: raw lambdified callables for exploration.
    - `pack_eom_args(physics, state)`: packs Physics + State fields into
      a flat positional arg tuple for calling `M_raw` and `F_raw`.
@@ -93,8 +94,8 @@ src/mechanical_drifters/
   stokes.py             # Stokes drift profile computation
   models/
     __init__.py
-    drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, _State, coord helpers
-    point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, _State
+    drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState, coord helpers
+    point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, PointSurfaceState
   data/
     eom_cache_*.pkl      # cached symbolic derivations
 ```
@@ -102,11 +103,11 @@ src/mechanical_drifters/
 ## Adding a new model
 
 1. Create `models/my_model.py` with a `MyPhysics` NamedTuple (with
-   default field values), a `_State` NamedTuple, and a
+   default field values), a `MyModelState` NamedTuple, and a
    `MyModel(LagrangianMechanicsModel)` class.
 
-2. Set the class attributes: `Physics`, `State = _State`, `n_q`,
-   `state_names`.
+2. Set the class attributes: `Physics = MyPhysics`, `State = MyModelState`,
+   `n_q`, `state_names`.
 
 3. Implement: `_derive_symbolic`, `_rhs_batch`, `drift_velocity`.
    Use the Physics type with defaults as the default `__init__` arg:

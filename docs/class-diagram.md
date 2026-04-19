@@ -28,7 +28,7 @@ Y: (T, N, state_size) — always public coords
 
     class DroguedDrifter {
         Physics = DroguedDrifterPhysics
-        State = _State
+        State = DroguedDrifterState
         n_q = 4
         state_names = (x y theta phi xd yd thetad phid)
         _derive_symbolic()
@@ -47,7 +47,7 @@ Caller never sees stereographic coords."
 
     class PointSurfaceDrifter {
         Physics = PointSurfacePhysics
-        State = _State
+        State = PointSurfaceState
         n_q = 2
         state_names = (x y xd yd)
         _derive_symbolic()

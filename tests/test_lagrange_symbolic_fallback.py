@@ -8,17 +8,17 @@ import pytest
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 from mechanical_drifters.caching import _load_or_derive
-from mechanical_drifters.eom import _get_eom_callables, pack_eom_args
+from mechanical_drifters.eom import get_eom_callables, pack_eom_args
 
 
 def _eval_M(model, physics, state):
-    _, M_raw, _, pack = _get_eom_callables(model)
+    _, M_raw, _, pack = get_eom_callables(model)
     args = pack(physics, state)
     return np.array(M_raw(*args), dtype=float)
 
 
 def _eval_F(model, physics, state):
-    _, _, F_raw, pack = _get_eom_callables(model)
+    _, _, F_raw, pack = get_eom_callables(model)
     args = pack(physics, state)
     F = np.array(F_raw(*args), dtype=float)
     return F.ravel()
@@ -101,8 +101,8 @@ def test_derived_vs_cached_numerical_agreement():
 
 
 @pytest.mark.slow
-def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
-    """_get_eom_callables should fall back to _derive_symbolic if cache missing."""
+def testget_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
+    """get_eom_callables should fall back to _derive_symbolic if cache missing."""
     from mechanical_drifters import eom
 
     dd = DroguedDrifter()
@@ -118,7 +118,7 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(type(dd), "_cache_path", property(lambda self: temp_cache))
 
     try:
-        qdd_func, M_raw, F_raw, pack = eom._get_eom_callables(dd)
+        qdd_func, M_raw, F_raw, pack = eom.get_eom_callables(dd)
 
         assert callable(qdd_func)
         assert callable(M_raw)
@@ -136,7 +136,7 @@ def test_get_eom_callables_fallback_on_missing_cache(tmp_path, monkeypatch):
             U_b=0.0, V_b=0.0, U_d=0.0, V_d=0.0,
         )
         # qdd_func takes (physics, state) directly
-        qdd_result = qdd_func(test_physics, test_state)
+        qdd_result = qdd_func(test_physics, test_state, batch=False)
         assert qdd_result.shape == (4,)
         assert np.all(np.isfinite(qdd_result))
 

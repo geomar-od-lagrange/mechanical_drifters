@@ -85,35 +85,35 @@ def test_derive_symbolic_returns_correct_shapes():
 
 def test_qdd_scalar():
     """qdd evaluator returns (2,) array for scalar input."""
-    from mechanical_drifters.eom import _get_eom_callables
+    from mechanical_drifters.eom import get_eom_callables
 
     psd = PointSurfaceDrifter()
-    _qdd = _get_eom_callables(psd, "numpy")[0]
+    _qdd = get_eom_callables(psd, "numpy")[0]
     state = PointSurfaceState(xd=0.0, yd=0.0, U=0.5, V=0.0)
-    qdd = _qdd(psd.physics, state)
+    qdd = _qdd(psd.physics, state, batch=False)
     assert qdd.shape == (2,)
 
 
 def test_qdd_drag_direction():
     """Particle at rest in eastward current: drag accelerates it eastward."""
-    from mechanical_drifters.eom import _get_eom_callables
+    from mechanical_drifters.eom import get_eom_callables
 
     psd = PointSurfaceDrifter()
-    _qdd = _get_eom_callables(psd, "numpy")[0]
+    _qdd = get_eom_callables(psd, "numpy")[0]
     state = PointSurfaceState(xd=0.0, yd=0.0, U=0.5, V=0.0)
-    qdd = _qdd(psd.physics, state)
+    qdd = _qdd(psd.physics, state, batch=False)
     assert qdd[0] > 0, "x-acceleration should be positive (toward eastward current)"
     assert abs(qdd[1]) < 1e-12, "y-acceleration should be zero (no north current)"
 
 
 def test_qdd_zero_relative_velocity():
     """When drift == current, drag is zero, so qdd == 0."""
-    from mechanical_drifters.eom import _get_eom_callables
+    from mechanical_drifters.eom import get_eom_callables
 
     psd = PointSurfaceDrifter()
-    _qdd = _get_eom_callables(psd, "numpy")[0]
+    _qdd = get_eom_callables(psd, "numpy")[0]
     state = PointSurfaceState(xd=0.3, yd=0.1, U=0.3, V=0.1)
-    qdd = _qdd(psd.physics, state)
+    qdd = _qdd(psd.physics, state, batch=False)
     np.testing.assert_allclose(qdd, [0.0, 0.0], atol=1e-12)
 
 

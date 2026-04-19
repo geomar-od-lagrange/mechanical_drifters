@@ -13,24 +13,24 @@ from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 from mechanical_drifters.models.point_surface_drifter import PointSurfaceDrifter as _PointSurfaceDrifter
-from mechanical_drifters.eom import _get_eom_callables
+from mechanical_drifters.eom import get_eom_callables
 from mechanical_drifters.models.drogued_drifter import _uv_to_theta
 
 
 dd_singleton = DroguedDrifter()
-_qdd_func = _get_eom_callables(dd_singleton, "numpy")[0]
+_qdd_func = get_eom_callables(dd_singleton, "numpy")[0]
 
 
 def _eval_M(model, physics, state):
-    """Evaluate mass matrix M using _get_eom_callables."""
-    _, M_raw, _, pack = _get_eom_callables(model)
+    """Evaluate mass matrix M using get_eom_callables."""
+    _, M_raw, _, pack = get_eom_callables(model)
     args = pack(physics, state)
     return np.array(M_raw(*args), dtype=float)
 
 
 def _eval_F(model, physics, state):
-    """Evaluate force vector F using _get_eom_callables."""
-    _, _, F_raw, pack = _get_eom_callables(model)
+    """Evaluate force vector F using get_eom_callables."""
+    _, _, F_raw, pack = get_eom_callables(model)
     args = pack(physics, state)
     F = np.array(F_raw(*args), dtype=float)
     return F.ravel()
@@ -41,7 +41,7 @@ def test_packer_covers_all_struct_fields():
     import inspect
 
     dd = DroguedDrifter()
-    _, M_raw, _, _pack = _get_eom_callables(dd)
+    _, M_raw, _, _pack = get_eom_callables(dd)
     # M_raw is a raw lambdified function whose parameters match Physics + State fields
     lambda_params = set(inspect.signature(M_raw).parameters)
     struct_fields = set(DroguedDrifterPhysics._fields) | set(DroguedDrifterState._fields)
@@ -64,7 +64,7 @@ def test_packer_arg_order_matches_lambda():
     import inspect
 
     dd = DroguedDrifter()
-    _, M_raw, _, pack = _get_eom_callables(dd)
+    _, M_raw, _, pack = get_eom_callables(dd)
     lambda_params = list(inspect.signature(M_raw).parameters)
 
     physics = DroguedDrifterPhysics(
@@ -269,7 +269,7 @@ def test_qdd_func_matches_M_F_solve_scalar():
 
     for pt in test_points:
         state = DroguedDrifterState(**pt)
-        qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+        qdd = _qdd_func(_DEFAULT_PHYSICS, state, batch=False)
         M = _eval_M(dd, _DEFAULT_PHYSICS, state)
         F = _eval_F(dd, _DEFAULT_PHYSICS, state)
         qdd_ref = np.linalg.solve(M, F)
@@ -290,7 +290,7 @@ def test_lambdify_scalar_input():
         ud_stereo=0.0, vd_stereo=0.0,
         U_b=0.5, V_b=-0.3, U_d=0.2, V_d=0.1,
     )
-    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state, batch=False)
     assert qdd.shape == (4,), f"Expected (4,), got {qdd.shape}"
     assert np.all(np.isfinite(qdd))
 
@@ -313,7 +313,7 @@ def test_lambdify_batch_matches_scalar_loop():
     batch_state = DroguedDrifterState(
         u_stereo=u, v_stereo=v, xd=xd, yd=yd, ud_stereo=ud, vd_stereo=vd, U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d
     )
-    qdd_batch = _qdd_func(_DEFAULT_PHYSICS, batch_state)
+    qdd_batch = _qdd_func(_DEFAULT_PHYSICS, batch_state, batch=True)
 
     for i in range(N):
         scalar_state = DroguedDrifterState(
@@ -322,7 +322,7 @@ def test_lambdify_batch_matches_scalar_loop():
             ud_stereo=ud[i], vd_stereo=vd[i],
             U_b=U_b[i], V_b=V_b[i], U_d=U_d[i], V_d=V_d[i],
         )
-        qdd_i = _qdd_func(_DEFAULT_PHYSICS, scalar_state)
+        qdd_i = _qdd_func(_DEFAULT_PHYSICS, scalar_state, batch=False)
         np.testing.assert_allclose(qdd_batch[i], qdd_i, atol=1e-14, err_msg=f"Batch vs scalar mismatch at particle {i}")
 
 
@@ -337,7 +337,7 @@ def test_lambdify_mixed_scalar_array_broadcast():
         U_d=np.full(N, 0.2), V_d=np.full(N, 0.1),
     )
 
-    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state, batch=True)
     assert qdd.shape == (N, 4)
 
     for i in range(1, N):
@@ -383,7 +383,7 @@ def test_lambdify_batch_N1():
         U_d=np.array([0.2]), V_d=np.array([0.1]),
     )
 
-    qdd = _qdd_func(_DEFAULT_PHYSICS, state)
+    qdd = _qdd_func(_DEFAULT_PHYSICS, state, batch=True)
     assert qdd.shape == (1, 4), f"Expected (1, 4), got {qdd.shape}"
     assert np.all(np.isfinite(qdd))
 
@@ -402,7 +402,7 @@ def test_pack_order_matches_lambdify_args(model_cls):
     is a valid replacement for the former ``_build_packer``.
     """
     model = model_cls()
-    _, M_raw, _, pack = _get_eom_callables(model)
+    _, M_raw, _, pack = get_eom_callables(model)
 
     # Use float values throughout to avoid scalar/array mixing issues
     physics = model.Physics(*(float(i) for i in range(1, len(model.Physics._fields) + 1)))

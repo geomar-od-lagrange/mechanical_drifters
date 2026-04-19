@@ -20,17 +20,13 @@ class PointSurfacePhysics(NamedTuple):
     k: float = 10.0  # drag coefficient [kg/m]
 
 
-class _State(NamedTuple):
+class PointSurfaceState(NamedTuple):
     """Per-timestep state variables and forcing."""
 
     xd: float | np.ndarray  # eastward drift velocity [m/s]
     yd: float | np.ndarray  # northward drift velocity [m/s]
     U: float | np.ndarray  # current at surface, east [m/s]
     V: float | np.ndarray  # current at surface, north [m/s]
-
-
-# Backwards-compatible alias
-PointSurfaceState = _State
 
 
 # State vector layout: [x, y, xd, yd]
@@ -48,7 +44,7 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
     """
 
     Physics = PointSurfacePhysics
-    State = _State
+    State = PointSurfaceState
     n_q = 2
     state_names = ("x", "y", "xd", "yd")
 
@@ -109,7 +105,7 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
             "m": m, "m_tilde": m_tilde, "k": k,
             "xd": xd_static, "yd": yd_static, "U": U, "V": V,
         }
-        all_fields = list(PointSurfacePhysics._fields) + list(_State._fields)
+        all_fields = list(PointSurfacePhysics._fields) + list(PointSurfaceState._fields)
         args = tuple(symbol_map[field] for field in all_fields)
 
         return M_static, F_static, args
@@ -118,11 +114,11 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
         """Compute dY/dt for N particles.
 
         Args:
-            Y: (N, 4) state array [x, y, xd, yd].
+            Y: ``(N, state_size)`` state array [x, y, xd, yd].
             sample_uv: callable(z) -> (U, V) for (N,) arrays.
 
         Returns:
-            dY: (N, 4) derivatives.
+            dY: ``(N, state_size)`` derivatives.
         """
         N = Y.shape[0]
         xd = Y[:, IXD]
@@ -130,17 +126,17 @@ class PointSurfaceDrifter(LagrangianMechanicsModel):
 
         U, V = sample_uv(np.zeros(N))
 
-        state = _State(xd=xd, yd=yd, U=U, V=V)
-        qdd = self._qdd_func(self.physics, state)
+        state = PointSurfaceState(xd=xd, yd=yd, U=U, V=V)
+        qdd = self._qdd_func(self.physics, state, batch=True)
 
         bad = ~np.isfinite(qdd).all(axis=1)
         if np.any(bad):
             qdd[bad] = 0.0
 
+        n_q = self.n_q
         dY = np.empty_like(Y)
-        dY[:, IX] = xd
-        dY[:, IY] = yd
-        dY[:, IXD:] = qdd
+        dY[:, :n_q] = Y[:, n_q:]   # d/dt(q) = qd  (kinematic identity)
+        dY[:, n_q:] = qdd          # d/dt(qd) = qdd
         return dY
 
     def drift_velocity(self, Y):

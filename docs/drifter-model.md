@@ -45,10 +45,11 @@ pole onto a plane at the north pole. At equilibrium (`theta = pi`, drogue
 hanging down), `(u, v) = (0, 0)`. The expressions are smooth everywhere near the
 origin.
 
-The internal state vector is `[x, y, u, v, xd, yd, ud, vd]` (8 components).
+The internal state vector is
+`[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]` (8 components).
 The public API (`integrate`) accepts and returns spherical angles
-`(theta, phi, thetad, phid)` -- the conversion is handled transparently by the
-`integrate()` override on `DroguedDrifter`.
+`[x, y, theta, phi, xd, yd, thetad, phid]` -- the conversion is handled
+transparently by the `integrate()` override on `DroguedDrifter`.
 
 ## Constructor parameters
 
@@ -108,11 +109,11 @@ ds = dd.to_xarray(t, Y)
 For exploring the equations of motion at specific states:
 
 ```python
-from mechanical_drifters.eom import _get_eom_callables
+from mechanical_drifters.eom import get_eom_callables
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
 
 dd = DroguedDrifter()
-qdd_func, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
+qdd_func, M_raw, F_raw, pack_eom_args = get_eom_callables(dd)
 
 state = DroguedDrifterState(
     u_stereo=0.0, v_stereo=0.0,
@@ -120,7 +121,7 @@ state = DroguedDrifterState(
     ud_stereo=0.0, vd_stereo=0.0,
     U_b=1.0, V_b=0.0, U_d=-1.0, V_d=0.0,
 )
-qdd = qdd_func(dd.physics, state)  # (4,) numpy array
+qdd = qdd_func(dd.physics, state, batch=False)  # (4,) numpy array
 
 args = pack_eom_args(dd.physics, state)
 M = M_raw(*args)   # (4, 4) numpy array

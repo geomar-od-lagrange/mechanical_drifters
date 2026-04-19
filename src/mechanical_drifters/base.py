@@ -28,6 +28,22 @@ class LagrangianMechanicsModel:
     n_q = None       # number of generalized coordinates
     state_names = None  # tuple of str, e.g. ("x", "y", "xd", "yd")
 
+    def __init_subclass__(cls, **kwargs):
+        """Fail loudly if state_names doesn't match the [q, qd] layout.
+
+        The base state_size contract is 2 * n_q with contiguous layout
+        [q, qd]. A state_names tuple of the wrong length would silently
+        mislabel xarray columns in to_xarray; catch it at class definition.
+        """
+        super().__init_subclass__(**kwargs)
+        if cls.n_q is not None and cls.state_names is not None:
+            expected = 2 * cls.n_q
+            if len(cls.state_names) != expected:
+                raise TypeError(
+                    f"{cls.__name__}.state_names has length "
+                    f"{len(cls.state_names)} but expected 2 * n_q = {expected}"
+                )
+
     # --- Constructor ---
 
     def __init__(self, physics, *, backend="numpy"):
@@ -41,9 +57,9 @@ class LagrangianMechanicsModel:
         self.physics = physics
         self.backend = backend
 
-        from .eom import _get_eom_callables
+        from .eom import get_eom_callables
 
-        self._qdd_func = _get_eom_callables(self, backend)[0]
+        self._qdd_func = get_eom_callables(self, backend)[0]
 
     # --- Properties ---
 

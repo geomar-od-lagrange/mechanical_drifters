@@ -36,11 +36,8 @@ _CALLABLE_CACHE = {}  # class_name -> (M_raw, F_raw)
 _QDD_CACHE = {}  # (class_name, backend) -> qdd_func
 
 
-def _get_eom_callables(model, backend="numpy"):
+def get_eom_callables(model, backend="numpy"):
     """Load or derive symbolic EOM; lambdify; return backend-wrapped qdd + raw M, F.
-
-    Merges the former ``_get_eom_callables`` (raw lambdification) and
-    ``_make_qdd_func`` (backend wrapping) into a single entry point.
 
     Args:
         model: A LagrangianMechanicsModel instance.
@@ -49,8 +46,10 @@ def _get_eom_callables(model, backend="numpy"):
     Returns:
         ``(qdd_func, M_raw, F_raw, pack_eom_args)``
 
-        - ``qdd_func(physics, state)``: backend-wrapped evaluator that
-          returns ``(n_q,)`` for scalar input or ``(N, n_q)`` for batch.
+        - ``qdd_func(physics, state, *, batch)``: backend-wrapped
+          evaluator. With ``batch=False``, returns ``(n_q,)`` from scalar
+          State fields. With ``batch=True``, returns ``(N, n_q)`` from
+          ``(N,)``-shaped State fields.
         - ``M_raw``: raw lambdified mass matrix (for exploration).
         - ``F_raw``: raw lambdified force vector (for exploration).
         - ``pack_eom_args``: ``pack_eom_args(physics, state) -> tuple``
@@ -92,16 +91,12 @@ def _get_eom_callables(model, backend="numpy"):
                 f"Unknown backend {backend!r}. Must be 'numpy' or 'numba'."
             )
 
-        def qdd_func(physics, state):
-            u_arr = np.asarray(state[0])
-            batch_ndim = u_arr.ndim
-
+        def qdd_func(physics, state, *, batch):
             result = raw(*pack_eom_args(physics, state))
-
-            if batch_ndim == 0:
-                return np.array(result, dtype=float)
-            else:
+            if batch:
                 return np.column_stack(result)
+            else:
+                return np.array(result, dtype=float)
 
         _QDD_CACHE[qdd_key] = qdd_func
 

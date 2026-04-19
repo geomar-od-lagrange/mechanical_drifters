@@ -13,17 +13,17 @@ import pytest
 from conftest import DEFAULT_PHYSICS as _DEFAULT_PHYSICS
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState
-from mechanical_drifters.eom import _get_eom_callables
+from mechanical_drifters.eom import get_eom_callables
 
 
 def _eval_M(model, physics, state):
-    _, M_raw, _, pack = _get_eom_callables(model)
+    _, M_raw, _, pack = get_eom_callables(model)
     args = pack(physics, state)
     return np.array(M_raw(*args), dtype=float)
 
 
 def _eval_F(model, physics, state):
-    _, _, F_raw, pack = _get_eom_callables(model)
+    _, _, F_raw, pack = get_eom_callables(model)
     args = pack(physics, state)
     F = np.array(F_raw(*args), dtype=float)
     return F.ravel()

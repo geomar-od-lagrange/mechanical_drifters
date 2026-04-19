@@ -12,19 +12,19 @@ from mechanical_drifters.models.drogued_drifter import (
     DroguedDrifterPhysics,
     DroguedDrifterState,
 )
-from mechanical_drifters.eom import _get_eom_callables
+from mechanical_drifters.eom import get_eom_callables
 
 
 def _eval_M(model, physics, state):
-    """Evaluate mass matrix M using _get_eom_callables."""
-    _, M_raw, _, pack = _get_eom_callables(model)
+    """Evaluate mass matrix M using get_eom_callables."""
+    _, M_raw, _, pack = get_eom_callables(model)
     args = pack(physics, state)
     return np.array(M_raw(*args), dtype=float)
 
 
 def _eval_F(model, physics, state):
-    """Evaluate force vector F using _get_eom_callables."""
-    _, _, F_raw, pack = _get_eom_callables(model)
+    """Evaluate force vector F using get_eom_callables."""
+    _, _, F_raw, pack = get_eom_callables(model)
     args = pack(physics, state)
     F = np.array(F_raw(*args), dtype=float)
     return F.ravel()
@@ -94,14 +94,14 @@ def test_drogued_drifter_instantiation():
 
 def test_MF_callable():
     dd = DroguedDrifter()
-    _, M_raw, F_raw, _ = _get_eom_callables(dd)
+    _, M_raw, F_raw, _ = get_eom_callables(dd)
     assert callable(M_raw)
     assert callable(F_raw)
 
 
 def test_qdd_func_evaluates():
     dd = DroguedDrifter()
-    _qdd_func = _get_eom_callables(dd, "numpy")[0]
+    _qdd_func = get_eom_callables(dd, "numpy")[0]
 
     U_b, V_b = _default_sample_uv(0.0)
     U_d, V_d = _default_sample_uv(-3.0)
@@ -118,7 +118,7 @@ def test_qdd_func_evaluates():
         U_d=U_d,
         V_d=V_d,
     )
-    qdd = _qdd_func(dd.physics, state)
+    qdd = _qdd_func(dd.physics, state, batch=False)
 
     assert qdd.shape == (4,), f"Expected (4,), got {qdd.shape}"
     assert np.all(np.isfinite(qdd)), "qdd has non-finite values"
@@ -493,7 +493,7 @@ def test_cache_invalidation_on_stale_key(tmp_path, monkeypatch):
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            qdd_raw, M_raw, F_raw, pack = eom._get_eom_callables(dd)
+            qdd_raw, M_raw, F_raw, pack = eom.get_eom_callables(dd)
 
         assert callable(qdd_raw)
         assert callable(M_raw)

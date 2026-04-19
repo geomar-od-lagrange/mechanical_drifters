@@ -24,7 +24,7 @@ drogued drifter model. It covers:
 - Constructing a `DroguedDrifterPhysics` instance from those values.
 - Constructing an `DroguedDrifterState` for a scenario where the surface current differs
   from the drogue-depth current.
-- Evaluating M, F, and qdd via `_get_eom_callables` and verifying that
+- Evaluating M, F, and qdd via `get_eom_callables` and verifying that
   `M @ qdd ≈ F` (sanity check on the EOM implementation).
 - Batch evaluation over many states simultaneously.
 - A parameter sensitivity sweep: how steady-state drift changes as the drogue
@@ -45,7 +45,7 @@ from mechanical_drifters.models.drogued_drifter import (
     drogue_horizontal_drag_coeff,
     buoy_horizontal_drag_coeff,
 )
-from mechanical_drifters.eom import _get_eom_callables
+from mechanical_drifters.eom import get_eom_callables
 ```
 
 ## Parameters
@@ -150,9 +150,9 @@ state = DroguedDrifterState(
 
 ```python
 dd = DroguedDrifter(physics)
-qdd_func, M_raw, F_raw, pack_eom_args = _get_eom_callables(dd)
+qdd_func, M_raw, F_raw, pack_eom_args = get_eom_callables(dd)
 
-qdd = qdd_func(physics, state)
+qdd = qdd_func(physics, state, batch=False)
 args = pack_eom_args(physics, state)
 M   = np.asarray(M_raw(*args), dtype=float)
 F   = np.ravel(F_raw(*args))
@@ -203,7 +203,7 @@ state_batch = DroguedDrifterState(
     V_d=np.zeros(N),
 )
 
-qdd_batch = qdd_func(physics, state_batch)  # (N, 4)
+qdd_batch = qdd_func(physics, state_batch, batch=True)  # (N, 4)
 
 # M_raw / F_raw return nested structures with mixed scalar / (N,) elements.
 # Evaluate per particle to get clean (4,4) and (4,) arrays.

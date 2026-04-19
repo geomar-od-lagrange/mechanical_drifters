@@ -104,11 +104,11 @@ class DroguedDrifterPhysics(NamedTuple):
     k_d: float = 154.0  # drogue drag coefficient [kg/m]
 
 
-class _State(NamedTuple):
+class DroguedDrifterState(NamedTuple):
     """Per-timestep state variables and forcing.
 
     Fields hold scalars (in rhs) or (N,) arrays (in _rhs_batch).
-    Not part of the public API — fields use stereographic coordinates.
+    Fields use stereographic coordinates internally.
     """
 
     u_stereo: float | np.ndarray  # stereographic u
@@ -121,10 +121,6 @@ class _State(NamedTuple):
     V_b: float | np.ndarray  # current at buoy, north [m/s]
     U_d: float | np.ndarray  # current at drogue, east [m/s]
     V_d: float | np.ndarray  # current at drogue, north [m/s]
-
-
-# Backwards-compatible alias
-DroguedDrifterState = _State
 
 
 # ---------- Drag / added-mass helpers ----------
@@ -221,7 +217,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
     """
 
     Physics = DroguedDrifterPhysics
-    State = _State
+    State = DroguedDrifterState
     n_q = 4
     state_names = ("x", "y", "theta", "phi", "xd", "yd", "thetad", "phid")
 
@@ -354,7 +350,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
             "ud_stereo": ud_static, "vd_stereo": vd_static,
             "U_b": U_b, "V_b": V_b, "U_d": U_d, "V_d": V_d,
         }
-        all_fields = list(DroguedDrifterPhysics._fields) + list(_State._fields)
+        all_fields = list(DroguedDrifterPhysics._fields) + list(DroguedDrifterState._fields)
         args = tuple(symbol_map[field] for field in all_fields)
 
         return M_static, F_static, args
@@ -380,11 +376,11 @@ class DroguedDrifter(LagrangianMechanicsModel):
         """Vectorized RHS for N particles.
 
         Args:
-            Y: (N, 8) state array.
+            Y: ``(N, state_size)`` state array.
             sample_uv: callable(z) -> (U, V) for (N,) arrays.
 
         Returns:
-            dY: (N, 8) derivatives.
+            dY: ``(N, state_size)`` derivatives.
         """
         N = Y.shape[0]
         u_stereo = Y[:, IU]
@@ -398,25 +394,23 @@ class DroguedDrifter(LagrangianMechanicsModel):
         U_b, V_b = sample_uv(np.zeros(N))
         U_d, V_d = sample_uv(self._z_eff(u_stereo, v_stereo))
 
-        state = _State(
+        state = DroguedDrifterState(
             u_stereo=u_stereo, v_stereo=v_stereo,
             xd=xd, yd=yd,
             ud_stereo=ud_stereo, vd_stereo=vd_stereo,
             U_b=U_b, V_b=V_b, U_d=U_d, V_d=V_d,
         )
 
-        qdd = self._qdd_func(self.physics, state)
+        qdd = self._qdd_func(self.physics, state, batch=True)
 
         bad = ~np.isfinite(qdd).all(axis=1)
         if np.any(bad):
             qdd[bad] = 0.0
 
+        n_q = self.n_q
         dY = np.empty_like(Y)
-        dY[:, IX] = xd
-        dY[:, IY] = yd
-        dY[:, IU] = ud_stereo
-        dY[:, IV] = vd_stereo
-        dY[:, IXD:] = qdd
+        dY[:, :n_q] = Y[:, n_q:]   # d/dt(q) = qd  (kinematic identity)
+        dY[:, n_q:] = qdd          # d/dt(qd) = qdd
         return dY
 
     @property
@@ -441,48 +435,33 @@ class DroguedDrifter(LagrangianMechanicsModel):
         """Convert public state (spherical) to internal (stereographic).
 
         Args:
-            Y_public: ``(N, 8)`` array with columns
+            Y_public: ``(N, state_size)`` array with columns
                 ``[x, y, theta, phi, xd, yd, thetad, phid]``.
 
         Returns:
-            ``(N, 8)`` array with columns
+            ``(N, state_size)`` array with columns
             ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
         """
-        Y = np.asarray(Y_public, dtype=float).reshape(-1, 8)
-        # Public layout: [x, y, theta, phi, xd, yd, thetad, phid]
-        # Internal layout: [x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]
-        # Indices IU, IV, IUD, IVD mark where stereo coords go in the internal layout.
-        u, v, ud, vd = _spherical_to_uv(Y[:, IU], Y[:, IV], Y[:, IUD], Y[:, IVD])
-        result = np.empty_like(Y)
-        result[:, IX] = Y[:, IX]
-        result[:, IY] = Y[:, IY]
-        result[:, IU] = u
-        result[:, IV] = v
-        result[:, IXD] = Y[:, IXD]
-        result[:, IYD] = Y[:, IYD]
-        result[:, IUD] = ud
-        result[:, IVD] = vd
-        return result
+        Y = np.asarray(Y_public, dtype=float).reshape(-1, 2 * self.n_q)
+        x, y, theta, phi, xd, yd, thetad, phid = Y.T
+        u, v, ud, vd = _spherical_to_uv(theta, phi, thetad, phid)
+        return np.column_stack([x, y, u, v, xd, yd, ud, vd])
 
     def _to_public_state(self, Y_internal):
         """Convert internal state (stereographic) to public (spherical).
 
         Args:
-            Y_internal: ``(N, 8)`` array with columns
+            Y_internal: ``(N, state_size)`` array with columns
                 ``[x, y, u_stereo, v_stereo, xd, yd, ud_stereo, vd_stereo]``.
 
         Returns:
-            ``(N, 8)`` array with columns
+            ``(N, state_size)`` array with columns
             ``[x, y, theta, phi, xd, yd, thetad, phid]``.
         """
-        Y = np.asarray(Y_internal, dtype=float).reshape(-1, 8)
-        theta, phi, thetad, phid = _uv_to_spherical(
-            Y[:, IU], Y[:, IV], Y[:, IUD], Y[:, IVD],
-        )
-        return np.column_stack([
-            Y[:, IX], Y[:, IY], theta, phi,
-            Y[:, IXD], Y[:, IYD], thetad, phid,
-        ])
+        Y = np.asarray(Y_internal, dtype=float).reshape(-1, 2 * self.n_q)
+        x, y, u, v, xd, yd, ud, vd = Y.T
+        theta, phi, thetad, phid = _uv_to_spherical(u, v, ud, vd)
+        return np.column_stack([x, y, theta, phi, xd, yd, thetad, phid])
 
     # --- Override integrate for public coords in/out ---
 
@@ -504,7 +483,7 @@ class DroguedDrifter(LagrangianMechanicsModel):
         Args:
             sample_uv: Velocity sampler.
             t_span: Integration window [s].
-            y0: Initial state ``(N, 8)`` in public format
+            y0: Initial state ``(N, state_size)`` in public format
                 ``[x, y, theta, phi, xd, yd, thetad, phid]``, or None.
             t_eval: Times at which to store the solution.
             atol, rtol: ODE solver tolerances.
@@ -521,10 +500,10 @@ class DroguedDrifter(LagrangianMechanicsModel):
             t_eval=t_eval, atol=atol, rtol=rtol,
         )
 
-        # Convert each time step from internal to public coords
-        T, N, ss = Y_internal.shape
-        Y_public = np.empty_like(Y_internal)
-        for i in range(T):
-            Y_public[i] = self._to_public_state(Y_internal[i])
+        # Flatten (T, N) → (T*N,), convert, unflatten. Independent of
+        # whether public and internal state_size agree.
+        T, N, _ = Y_internal.shape
+        Y_public = self._to_public_state(Y_internal.reshape(T * N, -1))
+        Y_public = Y_public.reshape(T, N, -1)
 
         return t, Y_public, max_accel
