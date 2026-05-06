@@ -12,26 +12,28 @@ from ..base import LagrangianMechanicsModel
 class SparBuoyPhysics(NamedTuple):
     """Physical constants for a spar buoy.
 
-    Default values: ``SparBuoyPhysics()`` gives m=1, m_tilde=1, k_surface=10, k_water=10, draft=7, n_z=7.
+    Default values: ``SparBuoyPhysics()`` gives m=1, m_tilde=1, k_air=10, k_water=10, draft=7, n_z=7.
     """
 
     m: float = 1.0  # mass [kg]
     m_tilde: float = 1.0  # added mass [kg]
-    k_surface: float = 10.0  # drag coefficient (surface) [kg/m]
+    k_air: float = 10.0  # drag coefficient (air) [kg/m]
     k_water: float = 10.0 # drag coefficient (water) [kg/m]
     draft: float = 7.0 # draft of the buoy
     n_z: int = 7 # sampling rate under water
 
 
 class SparBuoyState(NamedTuple):
-    """Per-timestep state variables and forcing."""
+    """Per-timestep state variables."""
 
     xd: float | np.ndarray  # eastward drift velocity [m/s]
     yd: float | np.ndarray  # northward drift velocity [m/s]
-    U: float | np.ndarray  # current at surface, east [m/s]
-    V: float | np.ndarray  # current at surface, north [m/s]
-    Fx_water: float | np.ndarray
-    Fy_water: float | np.ndarray
+    
+    U_air: float | np.ndarray
+    V_air: float | np.ndarray
+    
+    U_water: float | np.ndarray
+    V_water: float | np.ndarray
 
 
 # State vector layout: [x, y, xd, yd]
@@ -68,13 +70,12 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         m = sp.Symbol("m", positive=True)
         m_tilde = sp.Symbol("m_tilde", positive=True)
         
-        k_surface = sp.Symbol("k_surface", positive=True)
+        k_air = sp.Symbol("k_air", positive=True)
         k_water = sp.Symbol("k_water", positive=True)
         draft = sp.Symbol("draft", positive=True)
         n_z = sp.Symbol("n_z", positive=True)
         
-        U, V = sp.symbols("U V", real=True)
-        Fx_water, Fy_water = sp.symbols("Fx_water Fy_water", real = True)
+        U_water, V_water, U_air, V_air = sp.symbols("U_water V_water U_air V_air", real=True)
 
         q = sp.Matrix([x, y])
         qd = q.diff(t)
@@ -84,17 +85,22 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
 
         # Velocity and current vectors
         v = sp.Matrix([qd[0], qd[1]])
-        u = sp.Matrix([U, V])
-        rel = v - u
-        rel_speed = sp.sqrt(rel.dot(rel))
 
-        F_surface = -k_surface * rel_speed * rel
+
+        # Drag in air
+        u_air = sp.Matrix([U_air, V_air])
+        rel_air = v - u_air
+        rel_vel_air = sp.sqrt(rel_air.dot(rel_air))
+        F_air = -k_air * rel_vel_air * rel_air
 
         # Drag under water
-        F_water = sp.Matrix([Fx_water, Fy_water])
+        u_water = sp.Matrix([U_water, V_water])
+        rel_water = v - u_water
+        rel_vel_water = sp.sqrt(rel_water.dot(rel_water))
+        F_water = -k_water * rel_vel_water * rel_water
 
-        # Total generalized force
-        Q = F_surface + F_water
+        # Total generalized forces
+        Q = F_air + F_water
 
         # Euler-Lagrange: d/dt(dL/dqd) - dL/dq = Q
         # => (m + m_tilde) * qdd = Q
@@ -115,11 +121,9 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         M_static = M_sym.subs(subs)
         F_static = F_sym.subs(subs)
 
-        symbol_map = {"m": m, "m_tilde": m_tilde, "k_surface": k_surface,
+        symbol_map = {"m": m, "m_tilde": m_tilde, "k_air": k_air,
                       "k_water": k_water, "draft": draft, "n_z": n_z, "xd":
-                      xd_static, "yd": yd_static, "U": U, "V": V,
-                      "Fx_water": Fx_water, "Fy_water": Fy_water
-        }
+                      xd_static, "yd": yd_static, "U_air": U_air, "V_air": V_air, "U_water": U_water, "V_water": V_water}
         all_fields = (list(SparBuoyPhysics._fields) +
                       list(SparBuoyState._fields))
         args = tuple(symbol_map[field] for field in all_fields)
@@ -140,31 +144,26 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         xd = Y[:, IXD]
         yd = Y[:, IYD]
 
-        # Oberfläche
-        U, V = sample_uv(np.zeros(N))
+        # air
+        U_air, V_air = sample_uv(np.full(N, 1.0)) # z > 0
 
         # perfekt senkrechter Zylinder: Tiefen von Oberfläche bis draft
         z_levels = np.linspace(0.0, -self.physics.draft,
                                int(self.physics.n_z))
 
-        Fx_levels = []
-        Fy_levels = []
+        U_levels = []
+        V_levels = []
 
         for z in z_levels:
             Uz, Vz = sample_uv(np.full(N, z))
+            U_levels.append(Uz)
+            V_levels.append(Vz)
+        
 
-            rel_x = xd - Uz
-            rel_y = yd - Vz
-            rel_speed = np.sqrt(rel_x**2 + rel_y**2)
-
-            Fx_levels.append(-self.physics.k_water * rel_speed * rel_x)
-            Fy_levels.append(-self.physics.k_water * rel_speed * rel_y)
-
-        Fx_water = np.mean(Fx_levels, axis=0)
-        Fy_water = np.mean(Fy_levels, axis=0)
+        U_water = np.mean(U_levels, axis = 0)
+        V_water = np.mean(V_levels, axis = 0)
     
-        state = PointSurfaceState(xd=xd, yd=yd, U=U, V=V, Fx_water=Fx_water,
-                              Fy_water=Fy_water,)
+        state = SparBuoyState(xd=xd, yd=yd, U_air=U_air, V_air=V_air, U_water=U_water, V_water=V_water)
 
         qdd = self._qdd_func(self.physics, state, batch=True)
 
@@ -188,4 +187,3 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
             Drift velocity array, shape ``(N, 2)``.
         """
         return Y[:, [IXD, IYD]]
-
