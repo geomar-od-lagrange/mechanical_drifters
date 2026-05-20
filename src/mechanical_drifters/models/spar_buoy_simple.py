@@ -87,8 +87,13 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         # Lagrangian: pure kinetic energy
         L = sp.Rational(1, 2) * (m + m_tilde) * qd.dot(qd)
 
-        # Total generalized forces
-        Q = sp.Matrix([Fx_drag, Fy_drag])
+        # Derive Q
+        r = sp.Matrix([x, y]) # position
+        q = sp.Matrix([x, y]) # generalized coordinates (might later change to polar coordinates)
+
+        F = sp.Matrix([Fx_drag, Fy_drag])
+
+        Q = sp.Matrix([F.dot(r.diff(qi)) for qi in q])
 
         # Euler-Lagrange: d/dt(dL/dqd) - dL/dq = Q
         # => (m + m_tilde) * qdd = Q
