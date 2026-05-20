@@ -31,8 +31,8 @@ class SparBuoyState(NamedTuple):
     xd: float | np.ndarray  # eastward drift velocity [m/s]
     yd: float | np.ndarray  # northward drift velocity [m/s]
     
-    U_air: float | np.ndarray
-    V_air: float | np.ndarray
+    Fx_drag: float | np.ndarray
+    Fy_drag: float | np.ndarray
 
 
 # State vector layout: [x, y, xd, yd]
@@ -68,6 +68,15 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
 
         m = sp.Symbol("m", positive=True)
         m_tilde = sp.Symbol("m_tilde", positive=True)
+        
+        k_air = sp.Symbol("k_air", real=True)
+        k_water = sp.Symbol("k_water", real=True)
+        
+        draft = sp.Symbol("draft", real = True)
+        height_air = sp.Symbol("height_air", real = True)
+
+        n_air = sp.Symbol("n_air", real = True)
+        n_water = sp.Symbol("n_water", real = True)
 
         Fx_drag = sp.Symbol("Fx_drag", real = True)
         Fy_drag = sp.Symbol("Fy_drag", real = True)
@@ -95,12 +104,13 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         xd_dyn, yd_dyn = x.diff(t), y.diff(t)
         xd_static = sp.Symbol("xd", real=True)
         yd_static = sp.Symbol("yd", real=True)
+        
 
         subs = {xd_dyn: xd_static, yd_dyn: yd_static}
         M_static = M_sym.subs(subs)
         F_static = F_sym.subs(subs)
 
-        symbol_map = {"m": m, "m_tilde": m_tilde, "xd": xd_static, "yd": yd_static, "Fx_drag": Fx_drag, "Fy_drag": Fy_drag}
+        symbol_map = {"m": m, "m_tilde": m_tilde, "k_air": k_air, "k_water": k_water, "draft": draft, "height_air": height_air, "n_air": n_air, "n_water": n_water, "xd": xd_static, "yd": yd_static, "Fx_drag": Fx_drag, "Fy_drag": Fy_drag}
         all_fields = (list(SparBuoyPhysics._fields) +
                       list(SparBuoyState._fields))
         
@@ -123,7 +133,7 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         yd = Y[:, IYD]
 
         # air drag
-        z_air_levels = np.linspace(0.0, self.physics.air_height, int(self.physics.n_air))
+        z_air_levels = np.linspace(0.0, self.physics.height_air, int(self.physics.n_air))
 
         Fx_air_levels = []
         Fy_air_levels = []
@@ -142,8 +152,8 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
             Fx_air_levels.append(Fx_air)
             Fy_air_levels.append(Fy_air)
 
-        Fx_air_mean = np.mean(Fx_air_levels. axis = 0)
-        Fy_air_mean = np.mean(Fy_air_levels. axis = 0)
+        Fx_air_mean = np.mean(Fx_air_levels, axis = 0)
+        Fy_air_mean = np.mean(Fy_air_levels, axis = 0)
 
         # water drag
 
@@ -160,14 +170,14 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
 
             rel_speed_water = np.sqrt(rel_vel_x**2 + rel_vel_y**2)
 
-            Fx_water = -self.physics.k_air * rel_speed_water * rel_vel_x
-            Fy_water = -self.physics.k_air * rel_speed_water * rel_vel_y
+            Fx_water = -self.physics.k_water * rel_speed_water * rel_vel_x
+            Fy_water = -self.physics.k_water * rel_speed_water * rel_vel_y
 
             Fx_water_levels.append(Fx_water)
             Fy_water_levels.append(Fy_water)
 
-        Fx_water_mean = np.mean(Fx_water_levels. axis = 0)
-        Fy_water_mean = np.mean(Fy_water_levels. axis = 0)
+        Fx_water_mean = np.mean(Fx_water_levels, axis = 0)
+        Fy_water_mean = np.mean(Fy_water_levels, axis = 0)
 
         # totsal drag
 
