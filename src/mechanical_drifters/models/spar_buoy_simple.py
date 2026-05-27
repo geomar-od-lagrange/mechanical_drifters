@@ -21,8 +21,8 @@ class SparBuoyPhysics(NamedTuple):
     k_water: float = 10.0 # drag coefficient (water) [kg/m]
     draft: float = 10.0 # draft of the buoy
     height_air: float = 9.0 # height above water
-    n_air: int = 10 # sampling rate in air
-    n_water: int = 10 # sampling rate in water
+    n_air: int = 3 # sampling rate in air
+    n_water: int = 4 # sampling rate in water
 
 
 class SparBuoyState(NamedTuple):
@@ -30,9 +30,6 @@ class SparBuoyState(NamedTuple):
 
     xd: float | np.ndarray  # eastward drift velocity [m/s]
     yd: float | np.ndarray  # northward drift velocity [m/s]
-    
-    Fx_drag: float | np.ndarray
-    Fy_drag: float | np.ndarray
 
     U_air_0: float | np.ndarray
     V_air_0: float | np.ndarray
@@ -94,9 +91,6 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         n_air = sp.Symbol("n_air", real = True)
         n_water = sp.Symbol("n_water", real = True)
 
-        Fx_drag = sp.Symbol("Fx_drag", real = True)
-        Fy_drag = sp.Symbol("Fy_drag", real = True)
-
         U_air_0 = sp.Symbol("U_air_0", real = True)
         U_air_1 = sp.Symbol("U_air_1", real = True)
         U_air_2 = sp.Symbol("U_air_2", real = True)
@@ -125,7 +119,6 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         r = sp.Matrix([x, y]) # position
         q = sp.Matrix([x, y]) # generalized coordinates (might later change to polar coordinates)
 
-
         # Substitute dynamic symbols with static ones for lambdify
         xd_dyn, yd_dyn = x.diff(t), y.diff(t)
         xd_static = sp.Symbol("xd", real=True)
@@ -148,8 +141,8 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
             Fx_air_terms.append(-k_air * rel_speed * rel_vel_x)
             Fy_air_terms.append(-k_air * rel_speed * rel_vel_y)
 
-        Fx_air_sym = sum(Fx_air_terms) / n_air
-        Fy_air_sym = sum(Fy_air_terms) / n_air
+        Fx_air_sym = sum(Fx_air_terms) / 3
+        Fy_air_sym = sum(Fy_air_terms) / 3
 
         # symbolic drag water
         
@@ -157,19 +150,19 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         Fy_water_terms = []
 
         U_water = [U_water_0, U_water_1, U_water_2, U_water_3]
-        V_water = [V_water_0, V_water_1, V_water_2, U_water_3]
+        V_water = [V_water_0, V_water_1, V_water_2, V_water_3]
 
-        for Ui, Vi in zip(U_air, V_water):
+        for Ui, Vi in zip(U_water, V_water):
             rel_vel_x = xd_static - Ui
             rel_vel_y = yd_static - Vi
 
             rel_speed = sp.sqrt(rel_vel_x**2 + rel_vel_y**2)
 
-            Fx_water_terms.append(-k_air * rel_speed * rel_vel_x)
-            Fy_water_terms.append(-k_air * rel_speed * rel_vel_y)
+            Fx_water_terms.append(-k_water * rel_speed * rel_vel_x)
+            Fy_water_terms.append(-k_water * rel_speed * rel_vel_y)
 
-        Fx_water_sym = sum(Fx_water_terms) / n_water
-        Fy_water_sym = sum(Fy_water_terms) / n_water
+        Fx_water_sym = sum(Fx_water_terms) / 4
+        Fy_water_sym = sum(Fy_water_terms) / 4
 
         Fx_drag_total = Fx_water_sym + Fx_air_sym
         Fy_drag_total = Fy_water_sym + Fy_air_sym
@@ -193,7 +186,7 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         M_static = M_sym.subs(subs)
         F_static = F_sym.subs(subs)
 
-        symbol_map = {"m": m, "m_tilde": m_tilde, "k_air": k_air, "k_water": k_water, "draft": draft, "height_air": height_air, "n_air": n_air, "n_water": n_water, "xd": xd_static, "yd": yd_static, "Fx_drag": Fx_drag, "Fy_drag": Fy_drag, "U_air_0": U_air_0, "V_air_0": V_air_0, "U_air_1": U_air_1, "V_air_1": V_air_1, "U_air_2": U_air_2, "V_air_2": V_air_2, "U_water_0": U_water_0, "V_water_0": V_water_0, "U_water_1": U_water_1, "V_water_1": V_water_1, "U_water_2": U_water_2, "V_water_2": V_water_2, "U_water_3": U_water_3, "V_water_3": V_water_3}
+        symbol_map = {"m": m, "m_tilde": m_tilde, "k_air": k_air, "k_water": k_water, "draft": draft, "height_air": height_air, "n_air": n_air, "n_water": n_water, "xd": xd_static, "yd": yd_static, "U_air_0": U_air_0, "V_air_0": V_air_0, "U_air_1": U_air_1, "V_air_1": V_air_1, "U_air_2": U_air_2, "V_air_2": V_air_2, "U_water_0": U_water_0, "V_water_0": V_water_0, "U_water_1": U_water_1, "V_water_1": V_water_1, "U_water_2": U_water_2, "V_water_2": V_water_2, "U_water_3": U_water_3, "V_water_3": V_water_3}
         all_fields = (list(SparBuoyPhysics._fields) +
                       list(SparBuoyState._fields))
         
@@ -216,10 +209,7 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
         yd = Y[:, IYD]
 
         # air drag
-        z_air_levels = np.linspace(0.0, self.physics.height_air, int(self.physics.n_air))
-
-        Fx_air_levels = []
-        Fy_air_levels = []
+        z_air_levels = np.linspace(self.physics.height_air / self.physics.n_air, self.physics.height_air, int(self.physics.n_air))
 
         U_air_values = []
         V_air_values = []
@@ -230,26 +220,9 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
             U_air_values.append(U_air)
             V_air_values.append(V_air)
 
-            rel_vel_x = xd - U_air
-            rel_vel_y = yd - V_air
-
-            rel_speed_air = np.sqrt(rel_vel_x**2 + rel_vel_y**2)
-
-            Fx_air = -self.physics.k_air * rel_speed_air * rel_vel_x
-            Fy_air = -self.physics.k_air * rel_speed_air * rel_vel_y
-
-            Fx_air_levels.append(Fx_air)
-            Fy_air_levels.append(Fy_air)
-
-        Fx_air_mean = np.mean(Fx_air_levels, axis = 0)
-        Fy_air_mean = np.mean(Fy_air_levels, axis = 0)
-
         # water drag
 
         z_water_levels = np.linspace(0.0, self.physics.draft, int(self.physics.n_water))
-
-        Fx_water_levels = []
-        Fy_water_levels = []
 
         U_water_values = []
         V_water_values = []
@@ -260,26 +233,7 @@ class SparBuoyDrifter(LagrangianMechanicsModel):
             U_water_values.append(U_water)
             V_water_values.append(V_water)
 
-            rel_vel_x = xd - U_water
-            rel_vel_y = yd - V_water
-
-            rel_speed_water = np.sqrt(rel_vel_x**2 + rel_vel_y**2)
-
-            Fx_water = -self.physics.k_water * rel_speed_water * rel_vel_x
-            Fy_water = -self.physics.k_water * rel_speed_water * rel_vel_y
-
-            Fx_water_levels.append(Fx_water)
-            Fy_water_levels.append(Fy_water)
-
-        Fx_water_mean = np.mean(Fx_water_levels, axis = 0)
-        Fy_water_mean = np.mean(Fy_water_levels, axis = 0)
-
-        # totsal drag
-
-        Fx_drag = Fx_air_mean + Fx_water_mean
-        Fy_drag = Fy_air_mean + Fy_water_mean
-
-        state = SparBuoyState(xd = xd, yd = yd, Fx_drag = Fx_drag, Fy_drag = Fy_drag, U_air_0 = U_air_values[0], V_air_0 = V_air_values[0], U_air_1 = U_air_values[1], V_air_1 = V_air_values[1], U_air_2 = U_air_values[2], V_air_2 = V_air_values[2], U_water_0 = U_water_values[0], V_water_0 = V_water_values[0], U_water_1 = U_water_values[1], V_water_1 = V_water_values[1], U_water_2 = U_water_values[2], V_water_2 = V_water_values[2], U_water_3 = U_water_values[3], V_water_3 = V_water_values[3])
+        state = SparBuoyState(xd = xd, yd = yd, U_air_0 = U_air_values[0], V_air_0 = V_air_values[0], U_air_1 = U_air_values[1], V_air_1 = V_air_values[1], U_air_2 = U_air_values[2], V_air_2 = V_air_values[2], U_water_0 = U_water_values[0], V_water_0 = V_water_values[0], U_water_1 = U_water_values[1], V_water_1 = V_water_values[1], U_water_2 = U_water_values[2], V_water_2 = V_water_values[2], U_water_3 = U_water_values[3], V_water_3 = V_water_values[3])
 
         qdd = self._qdd_func(self.physics, state, batch=True)
 
