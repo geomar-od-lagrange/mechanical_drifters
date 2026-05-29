@@ -9,7 +9,7 @@ distributed particle tracking.
 
 ## Models
 
-Two models are included:
+Three models are included:
 
 - **DroguedDrifter** -- a surface buoy connected by a rigid pole to a
   subsurface drogue. Four generalized coordinates (buoy position +
@@ -20,6 +20,12 @@ Two models are included:
   quadratic drag. Two generalized coordinates (x, y). A baseline
   comparison model whose steady-state drift equals the surface current
   exactly. See [point-surface-drifter.md](point-surface-drifter.md).
+
+- **SparBuoySimple** -- a vertical spar buoy piercing the surface, with
+  an air column above and a submerged hull below. Two generalized
+  coordinates (x, y). Feels depth-averaged quadratic drag from wind on
+  the air column and current on the hull, assembled symbolically so that
+  pole-tilt coordinates extend it naturally. See [spar-buoy.md](spar-buoy.md).
 
 ## Base class: `LagrangianMechanicsModel`
 
@@ -96,6 +102,7 @@ src/mechanical_drifters/
     __init__.py
     drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState, coord helpers
     point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, PointSurfaceState
+    spar_buoy.py         # SparBuoySimple, SparBuoyPhysics, SparBuoyState
   data/
     eom_cache_*.pkl      # cached symbolic derivations
 ```
