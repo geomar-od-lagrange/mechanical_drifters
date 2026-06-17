@@ -2,7 +2,7 @@
 dependencies = ["sympy", "numpy", "scipy", "xarray", "numba", "parcels @ git+https://github.com/parcels-code/parcels.git@17241585384f9cbb04a796cb3581cb49559df9df"]
 name = "mechanical_drifters"
 requires-python = ">= 3.11"
-version = "0.1.0"
+version = "2026.06.17.1"
 description = "Lagrangian mechanics models for ocean drifters"
 license = "MIT"
 authors = [
