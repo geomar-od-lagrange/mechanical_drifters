@@ -1,8 +1,11 @@
 # Consolidate the spar-buoy PRs (#21 + #22) and land on main
 
-Status: **in progress.** Step 1 (cleanup) done and pushed; #22 merged into
-#21 (`mf/add-spar-buoy`). Remaining: ready #21, squash-merge #21 → main
-(step 4), then move this plan to `plans/done/`.
+**Done.** Both PRs are consolidated onto `mf/add-spar-buoy` (#22 merged
+into #21), reviewed, and the cleanup/restoration landed. The only
+remaining act is the mechanical **squash-merge of #21 → main**. Spar-buoy
+behaviour and the Parcels coupling are documented in
+[docs/spar-buoy.md](../../docs/spar-buoy.md) and
+[docs/parcels-v4-coupling.md](../../docs/parcels-v4-coupling.md).
 
 ## Situation
 
