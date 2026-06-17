@@ -40,10 +40,24 @@ Each timestep, the kernel does four things:
 
 ### Depth handling
 
-Models that need depth sampling (e.g. DroguedDrifter) provide a
-`_max_depth(physics)` method. The kernel queries this with
-`getattr(model, '_max_depth', None)` and defaults to 0.0 (surface only)
-if absent. PointSurfaceDrifter has no `_max_depth` method.
+Models that need depth sampling (e.g. DroguedDrifter) expose a
+`_max_depth` attribute. The kernel reads it with
+`getattr(model, '_max_depth', 0.0)`, defaulting to 0.0 (surface only)
+when absent (PointSurfaceDrifter). `_extract_profiles` samples every
+fieldset level from the top of the `depth` axis down to `_max_depth`
+(plus one cell), then converts the oceanographic `depth` axis (positive
+downward) to the models' $z$-positive-up frame via
+`depth_up = -depth[::-1]`.
+
+**Sampling above the surface (air).** Because the conversion is a simple
+negation, a model that samples at $z > 0$ (e.g. SparBuoySimple, whose
+emergent column feels wind) reads it by encoding the **air column at
+negative `depth`** in the fieldset: the negation lands it at $z > 0$
+exactly where the model queries, while the water column at positive
+`depth` maps to $z \le 0$. One signed-`depth` fieldset thus carries both
+media. See [spar-buoy.md](spar-buoy.md) and the
+[`02_parcels_wind_and_current`](../examples/spar_buoy/02_parcels_wind_and_current.ipynb)
+example.
 
 ### Spherical vs flat mesh
 
