@@ -102,7 +102,7 @@ src/mechanical_drifters/
     __init__.py
     drogued_drifter.py   # DroguedDrifter, DroguedDrifterPhysics, DroguedDrifterState, coord helpers
     point_surface_drifter.py  # PointSurfaceDrifter, PointSurfacePhysics, PointSurfaceState
-    spar_buoy.py         # SparBuoySimple, SparBuoyPhysics, SparBuoyState
+    spar_buoy_simple.py  # SparBuoySimple, SparBuoyPhysics, SparBuoyState
   data/
     eom_cache_*.pkl      # cached symbolic derivations
 ```

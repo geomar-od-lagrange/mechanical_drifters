@@ -1,6 +1,8 @@
 # Consolidate the spar-buoy PRs (#21 + #22) and land on main
 
-Status: **plan only — nothing pushed yet.**
+Status: **in progress.** Step 1 (cleanup) done and pushed; #22 merged into
+#21 (`mf/add-spar-buoy`). Remaining: ready #21, squash-merge #21 → main
+(step 4), then move this plan to `plans/done/`.
 
 ## Situation
 
