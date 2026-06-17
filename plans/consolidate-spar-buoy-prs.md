@@ -46,13 +46,14 @@ Two open PRs, cleanly stacked:
   Bonus of squashing: the `spar_buoy_simple_reference.py` create+delete
   cancels out, so it never appears on `main`.
 - **`02_test_uv_profile.ipynb`: assess, then keep-and-jupytext or drop.**
-  *Resolved → DROP.* On inspection the notebook builds an
-  air-above/water-below SGRID fieldset, but `parcels._extract_profiles`
-  only samples the water column and extrapolates it into the air (no
-  wind path). Making the example correct means implementing the open
-  "signed-z wind fieldset" BACKLOG feature, not focused cleanup — so the
-  bail-out clause applies: dropped, and the BACKLOG entry now records the
-  prototype + the concrete glue gap to revive it.
+  *Resolved → KEEP + jupytext* (after a wrong detour). I first dropped it
+  on a flawed reading of the glue, then verified empirically that the
+  notebook is correct: it places air at negative `depth`, and
+  `parcels._extract_profiles` (`depth_up = -depth_levels[::-1]`) maps that
+  onto the model's z-positive-up air sampling — so air→wind, water→current
+  both resolve correctly. Restored, cleaned, paired, executed, and renamed
+  to `02_parcels_wind_and_current`. This is the only example exercising the
+  Parcels coupling for `SparBuoySimple`.
 - **Sequential**, not single-PR: merge the two PRs into each other first,
   land #21 last.
 
@@ -62,20 +63,22 @@ Two open PRs, cleanly stacked:
 
 Do this on the WR branch so the work flows through #22 → #21 → main.
 
-1a. **`examples/spar_buoy/02_test_uv_profile.ipynb` — DROPPED.**
-    Assessment outcome (bail-out clause): the notebook is not a focused
-    cleanup. Its fieldset puts air at `depth < 0` / water at `depth ≥ 0`,
-    but `parcels._extract_profiles` only samples the water column up to
-    `_max_depth` (= draft) and extrapolates it into the air — there is no
-    wind-sampling path. Making the example physically correct requires
-    implementing the open "signed-z wind fieldset" BACKLOG feature (new
-    glue + a merged ocean/atmosphere fieldset), not jupytext tidying.
-    Action taken: `git rm` the notebook; sharpen the BACKLOG entry to
-    name the prototype and the exact glue gap so it can be revived.
-    (Aside: the markdown cell holding `U_data = np.zeros(...)` was *not*
-    mis-typed code — it was a disabled constant-field debug variant that
-    would have overwritten the real profile; the print output confirms
-    the real profile was active.)
+1a. **`examples/spar_buoy/02_test_uv_profile.ipynb` — KEPT, jupytexted,
+    renamed `02_parcels_wind_and_current`.**
+    Correction: an earlier pass dropped this notebook on the false premise
+    that `parcels._extract_profiles` "only samples water and extrapolates
+    into the air." Empirically (a 6-line check against the real glue) that
+    is wrong: the notebook puts air at negative `depth` and water at
+    positive `depth`, and `_extract_profiles` does `depth_up =
+    -depth_levels[::-1]`, which maps the negative-depth air onto the
+    model's positive z-up air levels. Sampling resolves correctly —
+    air→wind (V=10), water→decaying current — and the run gives a sensible
+    blended drift (u≈0.50 east, v≈4.8 north over 6 h).
+    Action taken: restore from git, rewrite as a clean `.md` source
+    (English, `parameters`-tagged primitives cell, dead debug cell
+    removed), pair `md,ipynb`, execute clean, rename to
+    `02_parcels_wind_and_current`. It is the only example exercising the
+    Parcels coupling for `SparBuoySimple`.
 
 1b. **Retire the implemented plans.** Move to `plans/done/` with a
     one-line pointer at the top to the doc that replaced them:
@@ -132,8 +135,8 @@ on `main` (accepted — see Decisions).
 
 ## Open / watch
 
-- The `02_` notebook overlaps the BACKLOG "signed-z wind fieldset" item.
-  If it converts cleanly, update that BACKLOG entry to reflect that a
-  working example now exists (downgrade from "needs a fieldset" to
-  "example exists; generalize / document").
+- The `02_parcels_wind_and_current` notebook is the working idealized
+  demonstration of air+water Parcels forcing; the BACKLOG item is now
+  scoped down to building such a fieldset from *real* ocean/atmosphere
+  data.
 - Pole-tilt dynamics remain deferred (already tracked in BACKLOG).

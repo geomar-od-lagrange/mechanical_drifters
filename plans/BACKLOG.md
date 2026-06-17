@@ -93,19 +93,17 @@ the roadmap (and get their own plan file) when they become timely.
   symbolically, and extending the EOM so the pole tilts under shear
   rather than remaining vertical.
 
-- **SparBuoy wind forcing via signed-z fieldset.** The current Parcels
-  coupling (`parcels._extract_profiles`) samples only the water column —
-  it reads depths up to `_max_depth` (= draft), flips them to z-positive-up,
-  and *extrapolates that water profile into the air*, so the above-surface
-  levels never see wind. A proper wind-forced spar buoy needs a fieldset
-  that provides water velocities at z ≤ 0 and air (wind) velocities at
-  z > 0, plus a glue path that samples both media. Requires constructing
-  a Parcels-v4 fieldset that merges ocean and atmosphere fields on a
-  common signed-z axis and extending `_extract_profiles` to sample the
-  air levels. A prototype notebook (`02_test_uv_profile`, an
-  air-above/water-below SGRID fieldset) was dropped during the #21/#22
-  consolidation because it tripped exactly this gap — revive it as the
-  example once the glue handles air.
+- **SparBuoy wind forcing from real merged ocean+atmosphere data.** The
+  Parcels coupling already supports independent wind and current: place
+  the air column at negative `depth` and the water column at positive
+  `depth` on one signed `depth` axis, and `parcels._extract_profiles`
+  maps it to the model's z-positive-up sampling (air at z > 0, water at
+  z ≤ 0). The idealized `examples/spar_buoy/02_parcels_wind_and_current`
+  example demonstrates this end to end. Open work: assemble such a
+  fieldset from *real* datasets — e.g. Copernicus ocean currents
+  (positive depths) merged with ERA5 10 m wind placed above the surface
+  on a common signed-depth grid — including how the wind is extended
+  through the air column.
 
 ## Science
 

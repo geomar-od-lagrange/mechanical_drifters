@@ -61,13 +61,21 @@ no silent dropping of levels. (Making the count freely configurable would mean
 generating the `State` and the symbolic level list dynamically; that is deferred
 with the tilt work.)
 
-## Parcels coupling and the air-field limitation
+## Parcels coupling: wind and current on one signed-depth axis
 
-`_max_depth` returns `draft`, so the Parcels coupling samples the water column down
-to the hull tip (see [parcels-v4-coupling.md](parcels-v4-coupling.md)). The air
-side has no coupling yet: Parcels carries ocean currents only (a single `UV` field
-at depths $z \le 0$), so under Parcels the air levels have nothing physical to
-sample. Real wind forcing needs a signed-`z` fieldset providing water velocities
-for $z \le 0$ and air velocities for $z > 0$ — a coupling-and-fieldset change that is
-future work. The idealized notebook exercises full air+water drag with an analytic
-`sample_uv`, so the model is correct by contract today.
+`_max_depth` returns `draft`, so the Parcels coupling samples down to the hull tip
+(see [parcels-v4-coupling.md](parcels-v4-coupling.md)). Wind forcing works today,
+provided the fieldset supplies both media: put the **air column at negative
+`depth`** and the **water column at positive `depth`** on one `depth` axis. The
+coupling's profile extractor flips depth to the model's $z$-positive-up frame
+(`depth_up = -depth[::-1]`), so air lands at $z > 0$ and water at $z \le 0$ exactly
+where the model samples them — air drag reads the wind, hull drag reads the
+current. The [`02_parcels_wind_and_current`](../examples/spar_buoy/02_parcels_wind_and_current.ipynb)
+example runs this end to end (10 m/s wind over a depth-decaying current, giving a
+drag-weighted blended drift).
+
+A plain ocean-only fieldset (water at $z \le 0$, nothing above) leaves the air
+levels with no distinct field to sample, so they extrapolate the near-surface
+current — fine when wind is irrelevant, but not real wind forcing. Driving the air
+column from *real* wind data (e.g. ERA5 merged with a Copernicus ocean field on a
+common signed-depth grid) is future work tracked in [BACKLOG.md](../plans/BACKLOG.md).

@@ -111,6 +111,7 @@ rendering. Edit either — jupytext keeps them in sync.
 
 ### Spar buoy
 - [`01_spar_buoy_idealized`](examples/spar_buoy/01_spar_buoy_idealized.ipynb) -- depth-averaged air+water drag in an idealized analytic flow
+- [`02_parcels_wind_and_current`](examples/spar_buoy/02_parcels_wind_and_current.ipynb) -- wind + depth-varying current through the Parcels coupling
 
 ### Baltic validation
 
