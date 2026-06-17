@@ -87,12 +87,23 @@ the roadmap (and get their own plan file) when they become timely.
   for models where the steady-state assumption breaks down (fast-changing
   currents relative to the drifter response time).
 
-- **SparBuoy with real Lagrangian mechanics.** The current SparBuoy was
-  dropped (it was a depth-average hack that faked the base class
-  contract). When real spar buoy EOM are derived — tilt dynamics of a
-  vertical cylinder with float and keel — it enters as a proper
-  `LagrangianMechanicsModel` subclass with `_derive_symbolic` and the
-  full pipeline.
+- **SparBuoy pole-tilt dynamics.** `SparBuoySimple` ([spar-buoy.md](../docs/spar-buoy.md))
+  exists and runs with depth-averaged drag. The remaining step is adding
+  azimuth and zenith as generalized coordinates, deriving drag torques
+  symbolically, and extending the EOM so the pole tilts under shear
+  rather than remaining vertical.
+
+- **SparBuoy wind forcing from real merged ocean+atmosphere data.** The
+  Parcels coupling already supports independent wind and current: place
+  the air column at negative `depth` and the water column at positive
+  `depth` on one signed `depth` axis, and `parcels._extract_profiles`
+  maps it to the model's z-positive-up sampling (air at z > 0, water at
+  z ≤ 0). The idealized `examples/spar_buoy/02_parcels_wind_and_current`
+  example demonstrates this end to end. Open work: assemble such a
+  fieldset from *real* datasets — e.g. Copernicus ocean currents
+  (positive depths) merged with ERA5 10 m wind placed above the surface
+  on a common signed-depth grid — including how the wind is extended
+  through the air column.
 
 ## Science
 

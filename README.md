@@ -11,6 +11,10 @@ with SciPy. The package includes:
   (2 generalized coordinates). Baseline comparison model whose steady-state
   drift equals the surface current. See
   [docs/point-surface-drifter.md](docs/point-surface-drifter.md).
+- **SparBuoySimple** — a vertical spar buoy piercing the surface, with an
+  air column above and a submerged hull below (2 generalized coordinates).
+  Feels depth-averaged quadratic drag from both wind and current. See
+  [docs/spar-buoy.md](docs/spar-buoy.md).
 
 New models can be added by subclassing `LagrangianMechanicsModel` — see
 [docs/architecture.md](docs/architecture.md).
@@ -104,6 +108,10 @@ rendering. Edit either — jupytext keeps them in sync.
 
 ### Point surface drifter
 - [`01_surface_tracking`](examples/point_drifter/01_surface_tracking.ipynb) -- steady-state convergence in uniform and sheared flows
+
+### Spar buoy
+- [`01_spar_buoy_idealized`](examples/spar_buoy/01_spar_buoy_idealized.ipynb) -- depth-averaged air+water drag in an idealized analytic flow
+- [`02_parcels_wind_and_current`](examples/spar_buoy/02_parcels_wind_and_current.ipynb) -- wind + depth-varying current through the Parcels coupling
 
 ### Baltic validation
 

@@ -57,8 +57,24 @@ Caller never sees stereographic coords."
     note for PointSurfaceDrifter "No integrate() override needed:
 internal coords = public coords"
 
+    class SparBuoySimple {
+        Physics = SparBuoyPhysics
+        State = SparBuoyState
+        n_q = 2
+        state_names = (x y xd yd)
+        _derive_symbolic()
+        _rhs_batch(Y, sample_uv)
+        drift_velocity(Y) → Y[:, [IXD, IYD]]
+        _max_depth : property → draft
+    }
+    note for SparBuoySimple "State carries per-level sampled currents:
+U_air_i/V_air_i (n_air) and U_water_i/V_water_i (n_water),
+so state_size stays 4 (2 q + 2 qd) while forcing
+is sampled at n_air+n_water levels along the pole"
+
     LagrangianMechanicsModel <|-- DroguedDrifter
     LagrangianMechanicsModel <|-- PointSurfaceDrifter
+    LagrangianMechanicsModel <|-- SparBuoySimple
 ```
 
 ## Dependency direction
