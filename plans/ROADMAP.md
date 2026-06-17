@@ -65,7 +65,7 @@ Plan: [done/architecture-v5-simplified.md](done/architecture-v5-simplified.md).
 
 1. `base.py` with `LagrangianMechanicsModel` (steady_state_batch, make_kernel) ✓
 2. `models/drogued_drifter.py` — DroguedDrifter as subclass ✓
-3. `models/spar_buoy.py` — SparBuoy (dropped — was a depth-average hack, not Lagrangian mechanics) ✓
+3. `models/spar_buoy_simple.py` — `SparBuoySimple`: depth-averaged-drag subclass (air + water quadratic drag, generalized-force assembly; tilt dynamics deferred) ✓
 4. `eom.py` parameterized on model instance (dict-based caching) ✓
 5. `parcels.py` with generic `make_kernel(model)` ✓
 6. `sample_uv` is a method parameter, not stored on the instance ✓

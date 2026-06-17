@@ -87,12 +87,25 @@ the roadmap (and get their own plan file) when they become timely.
   for models where the steady-state assumption breaks down (fast-changing
   currents relative to the drifter response time).
 
-- **SparBuoy with real Lagrangian mechanics.** The current SparBuoy was
-  dropped (it was a depth-average hack that faked the base class
-  contract). When real spar buoy EOM are derived — tilt dynamics of a
-  vertical cylinder with float and keel — it enters as a proper
-  `LagrangianMechanicsModel` subclass with `_derive_symbolic` and the
-  full pipeline.
+- **SparBuoy pole-tilt dynamics.** `SparBuoySimple` ([spar-buoy.md](../docs/spar-buoy.md))
+  exists and runs with depth-averaged drag. The remaining step is adding
+  azimuth and zenith as generalized coordinates, deriving drag torques
+  symbolically, and extending the EOM so the pole tilts under shear
+  rather than remaining vertical.
+
+- **SparBuoy wind forcing via signed-z fieldset.** The current Parcels
+  coupling (`parcels._extract_profiles`) samples only the water column —
+  it reads depths up to `_max_depth` (= draft), flips them to z-positive-up,
+  and *extrapolates that water profile into the air*, so the above-surface
+  levels never see wind. A proper wind-forced spar buoy needs a fieldset
+  that provides water velocities at z ≤ 0 and air (wind) velocities at
+  z > 0, plus a glue path that samples both media. Requires constructing
+  a Parcels-v4 fieldset that merges ocean and atmosphere fields on a
+  common signed-z axis and extending `_extract_profiles` to sample the
+  air levels. A prototype notebook (`02_test_uv_profile`, an
+  air-above/water-below SGRID fieldset) was dropped during the #21/#22
+  consolidation because it tripped exactly this gap — revive it as the
+  example once the glue handles air.
 
 ## Science
 
