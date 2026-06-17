@@ -43,9 +43,14 @@ Two open PRs, cleanly stacked:
   `Co-Authored-By` trailer and the closed-PR records keep her commits.
   Bonus of squashing: the `spar_buoy_simple_reference.py` create+delete
   cancels out, so it never appears on `main`.
-- **Keep `02_test_uv_profile.ipynb` and jupytext it** (it prototypes the
-  open "signed-z wind fieldset" backlog item) — *if the conversion is
-  worth the effort once assessed.*
+- **`02_test_uv_profile.ipynb`: assess, then keep-and-jupytext or drop.**
+  *Resolved → DROP.* On inspection the notebook builds an
+  air-above/water-below SGRID fieldset, but `parcels._extract_profiles`
+  only samples the water column and extrapolates it into the air (no
+  wind path). Making the example correct means implementing the open
+  "signed-z wind fieldset" BACKLOG feature, not focused cleanup — so the
+  bail-out clause applies: dropped, and the BACKLOG entry now records the
+  prototype + the concrete glue gap to revive it.
 - **Sequential**, not single-PR: merge the two PRs into each other first,
   land #21 last.
 
@@ -55,24 +60,20 @@ Two open PRs, cleanly stacked:
 
 Do this on the WR branch so the work flows through #22 → #21 → main.
 
-1a. **`examples/spar_buoy/02_test_uv_profile.ipynb`** — convert to a
-    conforming jupytext example (see `.agents/skills/jupytext/SKILL.md`):
-    - Move cell 6 (currently a *markdown* cell holding `U_data =
-      np.zeros(...)`) into a code cell; it is real code mis-typed.
-    - Add the missing imports (numpy/xarray — only `shutil` is imported
-      now) and one early `parameters`-tagged cell with primitives only
-      (`NX`, `Draft`, release positions, run length, …). All derived
-      values move to later cells.
-    - Translate the German scratch comments ("Fallunterscheidung z<0,
-      >0") to English.
-    - Pair `.py`/`.md`/`.ipynb`, sync, and execute
-      (`pixi run jupytext --sync --execute …`); confirm clean output.
-    - Rename to something descriptive (e.g.
-      `02_depth_varying_profile.md`) rather than "test_uv_profile".
-    - **Bail-out:** if conversion turns out to be more than a focused
-      effort (broken fieldset, doesn't converge, needs new code), drop
-      the notebook from the PR instead and log it as a backlog follow-up.
-      Don't merge it half-converted.
+1a. **`examples/spar_buoy/02_test_uv_profile.ipynb` — DROPPED.**
+    Assessment outcome (bail-out clause): the notebook is not a focused
+    cleanup. Its fieldset puts air at `depth < 0` / water at `depth ≥ 0`,
+    but `parcels._extract_profiles` only samples the water column up to
+    `_max_depth` (= draft) and extrapolates it into the air — there is no
+    wind-sampling path. Making the example physically correct requires
+    implementing the open "signed-z wind fieldset" BACKLOG feature (new
+    glue + a merged ocean/atmosphere fieldset), not jupytext tidying.
+    Action taken: `git rm` the notebook; sharpen the BACKLOG entry to
+    name the prototype and the exact glue gap so it can be revived.
+    (Aside: the markdown cell holding `U_data = np.zeros(...)` was *not*
+    mis-typed code — it was a disabled constant-field debug variant that
+    would have overwritten the real profile; the print output confirms
+    the real profile was active.)
 
 1b. **Retire the implemented plans.** Move to `plans/done/` with a
     one-line pointer at the top to the doc that replaced them:

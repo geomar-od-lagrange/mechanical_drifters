@@ -94,11 +94,18 @@ the roadmap (and get their own plan file) when they become timely.
   rather than remaining vertical.
 
 - **SparBuoy wind forcing via signed-z fieldset.** The current Parcels
-  coupling samples ocean-grid depths (water only). A proper wind-forced
-  spar buoy needs a fieldset that provides water velocities at z ≤ 0
-  and air (wind) velocities at z > 0, so the above-waterline column is
-  driven by real wind data. Requires constructing a Parcels-v4 fieldset
-  that merges ocean and atmosphere fields on a common signed-z axis.
+  coupling (`parcels._extract_profiles`) samples only the water column —
+  it reads depths up to `_max_depth` (= draft), flips them to z-positive-up,
+  and *extrapolates that water profile into the air*, so the above-surface
+  levels never see wind. A proper wind-forced spar buoy needs a fieldset
+  that provides water velocities at z ≤ 0 and air (wind) velocities at
+  z > 0, plus a glue path that samples both media. Requires constructing
+  a Parcels-v4 fieldset that merges ocean and atmosphere fields on a
+  common signed-z axis and extending `_extract_profiles` to sample the
+  air levels. A prototype notebook (`02_test_uv_profile`, an
+  air-above/water-below SGRID fieldset) was dropped during the #21/#22
+  consolidation because it tripped exactly this gap — revive it as the
+  example once the glue handles air.
 
 ## Science
 

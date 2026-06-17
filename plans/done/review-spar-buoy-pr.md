@@ -1,5 +1,10 @@
 # Review: PR #21 "Add Spar-Buoy Model" (`mf/add-spar-buoy`)
 
+**Addressed — see [docs/spar-buoy.md](../../docs/spar-buoy.md).** The review's
+findings were implemented in PR #22 (consolidation to one `SparBuoySimple`
+model, z-sign fix). Pole-tilt and signed-z wind forcing remain open in
+[BACKLOG.md](../BACKLOG.md).
+
 ## Context
 
 PR #21 (draft, branch `mf/add-spar-buoy`, tip `ac81a0d`) adds a spar-buoy drifter:
