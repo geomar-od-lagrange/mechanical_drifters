@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from mechanical_drifters.models.drogued_drifter import DroguedDrifter
+from mechanical_drifters.models.spar_buoy_simple import SparBuoySimple
 from mechanical_drifters.parcels import make_kernel
 from mechanical_drifters.parcels import _make_profile_sampler as make_profile_sampler
 
@@ -444,3 +445,53 @@ def test_invalid_backend():
     """DroguedDrifter should raise ValueError for an unrecognised backend."""
     with pytest.raises(ValueError):
         DroguedDrifter(backend="invalid")
+
+
+@pytest.mark.parametrize("backend", ["numpy", "numba"])
+def test_spar_buoy_wind_and_current_kernel(backend):
+    """SparBuoySimple through Parcels with wind above and current below.
+
+    Regression for signed-depth air sampling: the air column is encoded at
+    *negative* ``depth`` and the coupling's ``depth_up = -depth[::-1]`` maps
+    it onto the model's z-positive-up air levels.  So the emergent column must
+    feel the wind (z > 0) and the hull the current (z <= 0).
+
+    With a uniform 1 m/s eastward current, a uniform 10 m/s northward wind,
+    and equal ``k_air``/``k_water``, the drag balance ``|v-u_water|(v-u_water)
+    = -|v-u_air|(v-u_air)`` gives drift ``(0.5, 5.0)`` m/s.  If air sampling
+    were broken (e.g. extrapolating the current into the air), the northward
+    drift would vanish.
+    """
+    from parcels import Particle, ParticleSet
+
+    U_current, V_wind = 1.0, 10.0
+    x = np.linspace(0.0, 1000.0, 5)
+    y = np.linspace(0.0, 1000.0, 5)
+    # One signed axis: air at negative depth, water at positive depth.
+    depth = np.concatenate(
+        [np.linspace(-10.0, 0.0, 11, endpoint=False), np.linspace(0.0, 15.0, 8)]
+    )
+    time = np.array([0.0])
+
+    Z = depth[None, :, None, None]
+    ones = np.ones((1, len(depth), len(y), len(x)))
+    U_data = np.where(Z < 0, 0.0, U_current) * ones
+    V_data = np.where(Z < 0, V_wind, 0.0) * ones
+
+    fieldset = _make_flat_fieldset(U_data, V_data, x, y, depth, time)
+    spar = SparBuoySimple(backend=backend)
+
+    pset = ParticleSet(
+        fieldset=fieldset, pclass=Particle, lon=[500.0], lat=[500.0], z=[0.0]
+    )
+    DT = 60.0
+    pset.execute(
+        kernels=[make_kernel(spar)], dt=DT, runtime=DT, verbose_progress=False
+    )
+
+    drift_x = (float(np.asarray(pset.lon)[0]) - 500.0) / DT
+    drift_y = (float(np.asarray(pset.lat)[0]) - 500.0) / DT
+
+    assert drift_x > 0.0, "eastward drift from the water current"
+    assert drift_y > 0.0, "northward drift from the wind (air must be sampled)"
+    np.testing.assert_allclose([drift_x, drift_y], [0.5, 5.0], rtol=0.1)
